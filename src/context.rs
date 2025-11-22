@@ -1,5 +1,6 @@
 use chrono::Utc;
 use serverless_workflow_core::models::workflow::WorkflowDefinition;
+use snafu::prelude::*;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -11,7 +12,25 @@ use crate::descriptors::{RuntimeDescriptor, WorkflowDescriptor};
 use crate::executionhistory::ExecutionHistory;
 use crate::persistence::PersistenceProvider;
 use crate::workflow::{WorkflowCheckpoint, WorkflowEvent};
-use anyhow::{anyhow, Result};
+
+#[derive(Debug, Snafu)]
+pub enum Error {
+    #[snafu(display("No tasks in workflow"))]
+    NoTasks,
+
+    #[snafu(display("Persistence error: {source}"))]
+    Persistence {
+        source: crate::persistence::Error,
+    },
+
+    #[snafu(display("Serialization error: {source}"))]
+    Serialization { source: serde_json::Error },
+
+    #[snafu(display("Context error: {message}"))]
+    Context { message: String },
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Clone)]
 pub struct Context {
@@ -41,52 +60,63 @@ impl Context {
         initial_data: serde_json::Value,
     ) -> Result<Self> {
         let instance_id = instance_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-        let events = persistence.get_events(&instance_id).await?;
+        let events = persistence
+            .get_events(&instance_id)
+            .await
+            .context(PersistenceSnafu)?;
         let history = Arc::new(ExecutionHistory::new(events));
 
-        let (data, current_task) =
-            if let Some(checkpoint) = persistence.get_checkpoint(&instance_id).await? {
-                (checkpoint.data, checkpoint.current_task)
-            } else {
-                let first_task_name = workflow
-                    .do_
-                    .entries
-                    .first()
-                    .and_then(|map| map.keys().next())
-                    .ok_or(anyhow!("No tasks in workflow"))?
-                    .clone();
+        let (data, current_task) = if let Some(checkpoint) = persistence
+            .get_checkpoint(&instance_id)
+            .await
+            .context(PersistenceSnafu)?
+        {
+            (checkpoint.data, checkpoint.current_task)
+        } else {
+            let first_task_name = workflow
+                .do_
+                .entries
+                .first()
+                .and_then(|map| map.keys().next())
+                .ok_or(Error::NoTasks)?
+                .clone();
 
-                persistence
-                    .save_event(WorkflowEvent::WorkflowStarted {
-                        instance_id: instance_id.clone(),
-                        workflow_id: workflow.document.name.clone(),
-                        timestamp: Utc::now(),
-                        initial_data: initial_data.clone(),
-                    })
-                    .await?;
+            persistence
+                .save_event(WorkflowEvent::WorkflowStarted {
+                    instance_id: instance_id.clone(),
+                    workflow_id: workflow.document.name.clone(),
+                    timestamp: Utc::now(),
+                    initial_data: initial_data.clone(),
+                })
+                .await
+                .context(PersistenceSnafu)?;
 
-                (initial_data.clone(), first_task_name)
-            };
+            (initial_data.clone(), first_task_name)
+        };
 
         // Create runtime descriptor
-        let runtime_descriptor = RuntimeDescriptor::new(
-            "qyvx".to_string(),
-            env!("CARGO_PKG_VERSION").to_string(),
-        );
+        let runtime_descriptor =
+            RuntimeDescriptor::new("qyvx".to_string(), env!("CARGO_PKG_VERSION").to_string());
 
         // Create workflow descriptor
         let workflow_started_at = Utc::now();
         let workflow_descriptor = WorkflowDescriptor::new(
             instance_id.clone(),
-            serde_json::to_value(workflow)?,
+            serde_json::to_value(workflow).context(SerializationSnafu)?,
             initial_data.clone(),
             workflow_started_at,
         );
 
         // Inject descriptors into data for expression evaluation
         let mut data_with_descriptors = if let serde_json::Value::Object(mut obj) = data {
-            obj.insert("__workflow".to_string(), serde_json::to_value(&workflow_descriptor)?);
-            obj.insert("__runtime".to_string(), serde_json::to_value(&runtime_descriptor)?);
+            obj.insert(
+                "__workflow".to_string(),
+                serde_json::to_value(&workflow_descriptor).context(SerializationSnafu)?,
+            );
+            obj.insert(
+                "__runtime".to_string(),
+                serde_json::to_value(&runtime_descriptor).context(SerializationSnafu)?,
+            );
             serde_json::Value::Object(obj)
         } else {
             data
@@ -138,5 +168,6 @@ impl Context {
                 timestamp: Utc::now(),
             })
             .await
+            .context(PersistenceSnafu)
     }
 }
