@@ -8,14 +8,14 @@ mod cmd;
 // mod context;
 mod descriptors;
 // mod durableengine;
-// mod executionhistory;
+mod executionhistory;
 // mod executor;
 // mod expressions;
 // mod listeners;
-// pub mod output;
+pub mod output;
 // mod persistence;
 mod providers;
-// mod workflow;
+mod workflow;
 
 // use cmd::{RunArgs, VisualizeArgs, handle_run, handle_visualize};
 use cmd::{VisualizeArgs, handle_visualize};
