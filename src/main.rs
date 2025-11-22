@@ -10,10 +10,10 @@ mod descriptors;
 // mod durableengine;
 mod executionhistory;
 // mod executor;
-// mod expressions;
+mod expressions;
 // mod listeners;
 pub mod output;
-// mod persistence;
+mod persistence;
 mod providers;
 mod workflow;
 
