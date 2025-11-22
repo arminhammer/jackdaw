@@ -6,7 +6,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 mod cache;
 mod cmd;
 // mod context;
-// mod descriptors;
+mod descriptors;
 // mod durableengine;
 // mod executionhistory;
 // mod executor;
