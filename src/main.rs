@@ -5,11 +5,11 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 mod cache;
 mod cmd;
-// mod context;
+mod context;
 mod descriptors;
 // mod durableengine;
 mod executionhistory;
-// mod executor;
+mod executor;
 mod expressions;
 // mod listeners;
 pub mod output;
