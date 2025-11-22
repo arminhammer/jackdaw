@@ -3,7 +3,7 @@ use snafu::prelude::*;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-// mod cache;
+mod cache;
 mod cmd;
 // mod context;
 // mod descriptors;
@@ -78,7 +78,7 @@ async fn main() -> Result<(), Error> {
         // }
         Commands::Visualize(args) => {
             // Initialize tracing/logging with indicatif bridge
-            // init_tracing(args.verbose);
+            init_tracing(args.verbose);
 
             handle_visualize(args).await.context(VisualizeSnafu)
         }

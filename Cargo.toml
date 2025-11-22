@@ -19,3 +19,5 @@ snafu = "0.8.9"
 serverless_workflow_core = "1.0.0-alpha6.3"
 console = "0.15"
 tempfile = "3"
+chrono = { version = "0.4", features = ["serde"] }
+async-trait = "0.1"
