@@ -1,0 +1,331 @@
+use anyhow::{Context, Result, anyhow, bail};
+use serverless_workflow_core::models::task::TaskDefinition;
+use serverless_workflow_core::models::workflow::WorkflowDefinition;
+use std::io::Write;
+use std::path::Path;
+use std::process::{Command, Stdio};
+
+use super::{DiagramFormat, ExecutionState, TaskExecutionState, VisualizationProvider};
+
+#[derive(Debug)]
+pub struct GraphvizProvider {
+    /// Path to dot executable (default: "dot" from PATH)
+    dot_path: String,
+}
+
+impl GraphvizProvider {
+    pub fn new() -> Self {
+        Self {
+            dot_path: "dot".to_string(),
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn with_dot_path(mut self, path: String) -> Self {
+        self.dot_path = path;
+        self
+    }
+
+    /// Generate DOT source for a workflow with optional execution state
+    fn workflow_to_dot(
+        &self,
+        workflow: &WorkflowDefinition,
+        execution_state: Option<&ExecutionState>,
+    ) -> Result<String> {
+        let mut dot = String::new();
+
+        // Graph header
+        dot.push_str(&format!("digraph \"{}\" {{\n", workflow.document.name));
+        dot.push_str("  rankdir=TB;\n");
+        dot.push_str("  node [shape=box, style=\"rounded,filled\", fontname=\"Helvetica\"];\n");
+        dot.push_str("  edge [fontname=\"Helvetica\", fontsize=10];\n\n");
+
+        // Start node
+        dot.push_str("  start [shape=circle, label=\"Start\", fillcolor=\"#90EE90\"];\n");
+
+        // Collect all task names in order
+        let mut task_names = Vec::new();
+        for entry in &workflow.do_.entries {
+            for (name, _) in entry {
+                task_names.push(name.clone());
+            }
+        }
+
+        // Task nodes
+        for entry in &workflow.do_.entries {
+            for (name, task) in entry {
+                let (shape, mut color) = self.task_style(task);
+                let label = self.task_label(name, task);
+
+                // Override color based on execution state
+                if let Some(state) = execution_state {
+                    if let Some(task_state) = state.task_states.get(name) {
+                        color = match task_state {
+                            TaskExecutionState::Success => "#90EE90", // Green
+                            TaskExecutionState::Failed => "#FF6B6B",  // Red
+                            TaskExecutionState::Running => "#FFD700", // Gold
+                            TaskExecutionState::NotExecuted => color, // Default
+                        };
+                    }
+                }
+
+                dot.push_str(&format!(
+                    "  \"{}\" [label=\"{}\", shape={}, fillcolor=\"{}\"];\n",
+                    name, label, shape, color
+                ));
+            }
+        }
+
+        // End node
+        dot.push_str("  end [shape=doublecircle, label=\"End\", fillcolor=\"#FFB6C1\"];\n\n");
+
+        // Edges - build sequential flow
+        if !task_names.is_empty() {
+            // Start to first task
+            dot.push_str(&format!("  start -> \"{}\";\n", task_names[0]));
+
+            // Sequential flow between tasks
+            for i in 0..task_names.len() - 1 {
+                dot.push_str(&format!(
+                    "  \"{}\" -> \"{}\";\n",
+                    task_names[i],
+                    task_names[i + 1]
+                ));
+            }
+
+            // Last task to end
+            dot.push_str(&format!(
+                "  \"{}\" -> end;\n",
+                task_names[task_names.len() - 1]
+            ));
+        } else {
+            // Empty workflow
+            dot.push_str("  start -> end;\n");
+        }
+
+        dot.push_str("}\n");
+        Ok(dot)
+    }
+
+    /// Determine node style based on task type
+    fn task_style(&self, task: &TaskDefinition) -> (&str, &str) {
+        match task {
+            TaskDefinition::Call(_) => ("box", "#87CEEB"), // Sky blue
+            TaskDefinition::Run(_) => ("box", "#DDA0DD"),  // Plum
+            TaskDefinition::Set(_) => ("box", "#F0E68C"),  // Khaki
+            TaskDefinition::Switch(_) => ("diamond", "#FFD700"), // Gold
+            TaskDefinition::Fork(_) => ("parallelogram", "#FFA07A"), // Light salmon
+            TaskDefinition::For(_) => ("hexagon", "#98FB98"), // Pale green
+            TaskDefinition::Try(_) => ("box", "#FFE4B5"),  // Moccasin
+            TaskDefinition::Listen(_) => ("invtrapezium", "#E0BBE4"), // Lavender
+            TaskDefinition::Emit(_) => ("trapezium", "#FFDAB9"), // Peach
+            TaskDefinition::Wait(_) => ("octagon", "#D3D3D3"), // Light gray
+            TaskDefinition::Raise(_) => ("tripleoctagon", "#FF6B6B"), // Red
+            TaskDefinition::Do(_) => ("box", "#B0C4DE"),   // Light steel blue
+        }
+    }
+
+    /// Generate human-readable label for a task
+    fn task_label(&self, name: &str, task: &TaskDefinition) -> String {
+        let task_type = match task {
+            TaskDefinition::Call(_) => "Call",
+            TaskDefinition::Run(_) => "Run",
+            TaskDefinition::Set(_) => "Set",
+            TaskDefinition::Switch(_) => "Switch",
+            TaskDefinition::Fork(_) => "Fork",
+            TaskDefinition::For(_) => "For",
+            TaskDefinition::Try(_) => "Try",
+            TaskDefinition::Listen(_) => "Listen",
+            TaskDefinition::Emit(_) => "Emit",
+            TaskDefinition::Wait(_) => "Wait",
+            TaskDefinition::Raise(_) => "Raise",
+            TaskDefinition::Do(_) => "Do",
+        };
+        format!("{}: {}", task_type, name)
+    }
+}
+
+impl VisualizationProvider for GraphvizProvider {
+    fn name(&self) -> &'static str {
+        "graphviz"
+    }
+
+    fn generate_source(
+        &self,
+        workflow: &WorkflowDefinition,
+        execution_state: Option<&ExecutionState>,
+    ) -> Result<String> {
+        self.workflow_to_dot(workflow, execution_state)
+    }
+
+    fn render(
+        &self,
+        workflow: &WorkflowDefinition,
+        output_path: Option<&Path>,
+        format: DiagramFormat,
+        execution_state: Option<&ExecutionState>,
+    ) -> Result<()> {
+        // Check if graphviz is available
+        if !self.is_available()? {
+            bail!(
+                "Graphviz (dot) is not installed or not found in PATH.\n\
+                   Install with:\n\
+                   - Ubuntu/Debian: sudo apt-get install graphviz\n\
+                   - macOS: brew install graphviz\n\
+                   - Windows: choco install graphviz"
+            );
+        }
+
+        // Generate DOT source
+        let dot_source = self.generate_source(workflow, execution_state)?;
+
+        match format {
+            DiagramFormat::ASCII => {
+                // Check for graph-easy
+                let graph_easy_available = Command::new("graph-easy")
+                    .arg("--version")
+                    .output()
+                    .map(|o| o.status.success())
+                    .unwrap_or(false);
+
+                if !graph_easy_available {
+                    bail!(
+                        "graph-easy is not installed.\n\
+                           Install with:\n\
+                           - Ubuntu/Debian: sudo apt-get install libgraph-easy-perl\n\
+                           - macOS: brew install graph-easy\n\
+                           - CPAN: cpan Graph::Easy"
+                    );
+                }
+
+                let mut cmd = Command::new("graph-easy")
+                    .arg("--from=dot")
+                    .arg("--as=boxart")
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()
+                    .context("Failed to spawn graph-easy")?;
+
+                cmd.stdin
+                    .as_mut()
+                    .ok_or_else(|| anyhow!("Failed to open stdin"))?
+                    .write_all(dot_source.as_bytes())
+                    .context("Failed to write DOT source to graph-easy")?;
+
+                let output = cmd
+                    .wait_with_output()
+                    .context("Failed to wait for graph-easy")?;
+
+                if !output.status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    bail!("graph-easy failed: {}", stderr);
+                }
+
+                let ascii_art = String::from_utf8_lossy(&output.stdout);
+
+                if let Some(path) = output_path {
+                    std::fs::write(path, ascii_art.as_bytes())
+                        .context("Failed to write ASCII output to file")?;
+                } else {
+                    // Print to stdout
+                    print!("{}", ascii_art);
+                }
+            }
+            _ => {
+                // SVG, PNG, PDF
+                let output_path = output_path
+                    .ok_or_else(|| anyhow!("Output path required for non-ASCII formats"))?;
+
+                let format_flag = match format {
+                    DiagramFormat::SVG => "svg",
+                    DiagramFormat::PNG => "png",
+                    DiagramFormat::PDF => "pdf",
+                    _ => unreachable!(),
+                };
+
+                let mut cmd = Command::new(&self.dot_path)
+                    .arg(format!("-T{}", format_flag))
+                    .arg("-o")
+                    .arg(output_path)
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()
+                    .context("Failed to spawn dot")?;
+
+                cmd.stdin
+                    .as_mut()
+                    .ok_or_else(|| anyhow!("Failed to open stdin"))?
+                    .write_all(dot_source.as_bytes())
+                    .context("Failed to write DOT source to dot")?;
+
+                let output = cmd.wait_with_output().context("Failed to wait for dot")?;
+
+                if !output.status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    bail!("dot rendering failed: {}", stderr);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn is_available(&self) -> Result<bool> {
+        Ok(Command::new(&self.dot_path)
+            .arg("-V")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false))
+    }
+
+    fn version(&self) -> Result<String> {
+        let output = Command::new(&self.dot_path)
+            .arg("-V")
+            .output()
+            .context("Failed to execute dot -V")?;
+
+        if !output.status.success() {
+            bail!("dot -V failed");
+        }
+
+        // Graphviz outputs version to stderr
+        let version_str = String::from_utf8_lossy(&output.stderr);
+        Ok(version_str.trim().to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serverless_workflow_core::models::workflow::WorkflowDefinitionMetadata;
+
+    fn create_test_workflow() -> WorkflowDefinition {
+        WorkflowDefinition::new(WorkflowDefinitionMetadata {
+            name: "test-workflow".to_string(),
+            version: "1.0.0".to_string(),
+            namespace: "default".to_string(),
+            ..Default::default()
+        })
+    }
+
+    #[test]
+    fn test_graphviz_source_generation() {
+        let workflow = create_test_workflow();
+        let provider = GraphvizProvider::new();
+        let source = provider.generate_source(&workflow, None).unwrap();
+
+        assert!(source.contains("digraph"));
+        assert!(source.contains("start"));
+        assert!(source.contains("end"));
+        assert!(source.contains("test-workflow"));
+    }
+
+    #[test]
+    fn test_is_available() {
+        let provider = GraphvizProvider::new();
+        // This test just checks it doesn't panic
+        let _ = provider.is_available();
+    }
+}
