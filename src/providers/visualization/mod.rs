@@ -1,8 +1,8 @@
-// pub mod d2;
-// pub mod graphviz;
+pub mod d2;
+pub mod graphviz;
 
-// pub use self::graphviz::GraphvizProvider;
-// pub use self::d2::D2Provider;
+pub use self::d2::D2Provider;
+pub use self::graphviz::GraphvizProvider;
 
 use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use snafu::prelude::*;
@@ -16,6 +16,45 @@ pub enum Error {
 
     #[snafu(display("IO error: {source}"))]
     Io { source: std::io::Error },
+
+    #[snafu(display("Tool not installed: {tool}\n{install_instructions}"))]
+    ToolNotInstalled {
+        tool: String,
+        install_instructions: String,
+    },
+
+    #[snafu(display("Failed to spawn process '{command}': {source}"))]
+    SpawnFailed {
+        command: String,
+        source: std::io::Error,
+    },
+
+    #[snafu(display("Failed to open stdin"))]
+    StdinFailed,
+
+    #[snafu(display("Failed to write to stdin: {source}"))]
+    WriteStdinFailed { source: std::io::Error },
+
+    #[snafu(display("Failed to wait for process '{command}': {source}"))]
+    WaitFailed {
+        command: String,
+        source: std::io::Error,
+    },
+
+    #[snafu(display("Command '{command}' failed: {stderr}"))]
+    CommandFailed { command: String, stderr: String },
+
+    #[snafu(display("Output path required for {format:?} format"))]
+    OutputPathRequired { format: DiagramFormat },
+
+    #[snafu(display("Failed to execute '{command}': {source}"))]
+    ExecuteFailed {
+        command: String,
+        source: std::io::Error,
+    },
+
+    #[snafu(display("Failed to create temporary directory: {source}"))]
+    TempDirFailed { source: std::io::Error },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

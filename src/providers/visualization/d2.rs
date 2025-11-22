@@ -1,10 +1,13 @@
-use anyhow::{Context, Result, anyhow, bail};
 use serverless_workflow_core::models::task::TaskDefinition;
 use serverless_workflow_core::models::workflow::WorkflowDefinition;
+use snafu::prelude::*;
 use std::path::Path;
 use std::process::Command;
 
-use super::{DiagramFormat, ExecutionState, TaskExecutionState, VisualizationProvider};
+use super::{
+    CommandFailedSnafu, DiagramFormat, ExecuteFailedSnafu, ExecutionState, OutputPathRequiredSnafu,
+    Result, TaskExecutionState, TempDirFailedSnafu, ToolNotInstalledSnafu, VisualizationProvider,
+};
 
 const D2: &str = "d2";
 
@@ -196,22 +199,23 @@ impl VisualizationProvider for D2Provider {
     ) -> Result<()> {
         // Check if d2 is available
         if !self.is_available()? {
-            bail!(
-                "D2 is not installed or not found in PATH.\n\
-                   Install with:\n\
+            return ToolNotInstalledSnafu {
+                tool: "D2".to_string(),
+                install_instructions: "Install with:\n\
                    - All platforms: curl -fsSL https://d2lang.com/install.sh | sh -s --\n\
                    - Or download from: https://github.com/terrastruct/d2/releases"
-            );
+                    .to_string(),
+            }
+            .fail();
         }
 
         // Generate D2 source
         let d2_source = self.generate_source(workflow, execution_state)?;
 
         // D2 requires file input
-        let temp_dir = tempfile::tempdir().context("Failed to create temp directory")?;
+        let temp_dir = tempfile::tempdir().context(TempDirFailedSnafu)?;
         let temp_source = temp_dir.path().join("workflow.d2");
-        std::fs::write(&temp_source, d2_source)
-            .context("Failed to write D2 source to temp file")?;
+        std::fs::write(&temp_source, d2_source).context(super::IoSnafu)?;
 
         match format {
             DiagramFormat::ASCII => {
@@ -220,26 +224,31 @@ impl VisualizationProvider for D2Provider {
                     .arg("--sketch")
                     .arg(&temp_source)
                     .output()
-                    .context("Failed to execute d2 --sketch")?;
+                    .context(ExecuteFailedSnafu {
+                        command: "d2 --sketch",
+                    })?;
 
                 if !output.status.success() {
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    bail!("D2 sketch failed: {}", stderr);
+                    return CommandFailedSnafu {
+                        command: "d2 --sketch".to_string(),
+                        stderr: stderr.to_string(),
+                    }
+                    .fail();
                 }
 
                 let ascii_art = String::from_utf8_lossy(&output.stdout);
 
                 if let Some(path) = output_path {
-                    std::fs::write(path, ascii_art.as_bytes())
-                        .context("Failed to write ASCII output to file")?;
+                    std::fs::write(path, ascii_art.as_bytes()).context(super::IoSnafu)?;
                 } else {
                     print!("{}", ascii_art);
                 }
             }
             _ => {
                 // SVG, PNG, PDF
-                let output_path = output_path
-                    .ok_or_else(|| anyhow!("Output path required for non-ASCII formats"))?;
+                let output_path =
+                    output_path.ok_or_else(|| OutputPathRequiredSnafu { format }.build())?;
 
                 let mut cmd = Command::new(&self.d2_path);
 
@@ -250,11 +259,15 @@ impl VisualizationProvider for D2Provider {
 
                 cmd.arg(&temp_source).arg(output_path);
 
-                let output = cmd.output().context("Failed to execute d2")?;
+                let output = cmd.output().context(ExecuteFailedSnafu { command: "d2" })?;
 
                 if !output.status.success() {
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    bail!("D2 rendering failed: {}", stderr);
+                    return CommandFailedSnafu {
+                        command: "d2".to_string(),
+                        stderr: stderr.to_string(),
+                    }
+                    .fail();
                 }
             }
         }
@@ -274,10 +287,16 @@ impl VisualizationProvider for D2Provider {
         let output = Command::new(&self.d2_path)
             .arg("--version")
             .output()
-            .context("Failed to execute d2 --version")?;
+            .context(ExecuteFailedSnafu {
+                command: "d2 --version",
+            })?;
 
         if !output.status.success() {
-            bail!("d2 --version failed");
+            return CommandFailedSnafu {
+                command: "d2 --version".to_string(),
+                stderr: "Command failed".to_string(),
+            }
+            .fail();
         }
 
         let version_str = String::from_utf8_lossy(&output.stdout);

@@ -1,11 +1,15 @@
-use anyhow::{Context, Result, anyhow, bail};
 use serverless_workflow_core::models::task::TaskDefinition;
 use serverless_workflow_core::models::workflow::WorkflowDefinition;
+use snafu::prelude::*;
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use super::{DiagramFormat, ExecutionState, TaskExecutionState, VisualizationProvider};
+use super::{
+    CommandFailedSnafu, DiagramFormat, ExecuteFailedSnafu, ExecutionState, OutputPathRequiredSnafu,
+    Result, SpawnFailedSnafu, StdinFailedSnafu, TaskExecutionState, ToolNotInstalledSnafu,
+    VisualizationProvider, WaitFailedSnafu, WriteStdinFailedSnafu,
+};
 
 #[derive(Debug)]
 pub struct GraphvizProvider {
@@ -167,13 +171,15 @@ impl VisualizationProvider for GraphvizProvider {
     ) -> Result<()> {
         // Check if graphviz is available
         if !self.is_available()? {
-            bail!(
-                "Graphviz (dot) is not installed or not found in PATH.\n\
-                   Install with:\n\
+            return ToolNotInstalledSnafu {
+                tool: "Graphviz (dot)".to_string(),
+                install_instructions: "Install with:\n\
                    - Ubuntu/Debian: sudo apt-get install graphviz\n\
                    - macOS: brew install graphviz\n\
                    - Windows: choco install graphviz"
-            );
+                    .to_string(),
+            }
+            .fail();
         }
 
         // Generate DOT source
@@ -189,13 +195,15 @@ impl VisualizationProvider for GraphvizProvider {
                     .unwrap_or(false);
 
                 if !graph_easy_available {
-                    bail!(
-                        "graph-easy is not installed.\n\
-                           Install with:\n\
+                    return ToolNotInstalledSnafu {
+                        tool: "graph-easy".to_string(),
+                        install_instructions: "Install with:\n\
                            - Ubuntu/Debian: sudo apt-get install libgraph-easy-perl\n\
                            - macOS: brew install graph-easy\n\
                            - CPAN: cpan Graph::Easy"
-                    );
+                            .to_string(),
+                    }
+                    .fail();
                 }
 
                 let mut cmd = Command::new("graph-easy")
@@ -205,28 +213,33 @@ impl VisualizationProvider for GraphvizProvider {
                     .stdout(Stdio::piped())
                     .stderr(Stdio::piped())
                     .spawn()
-                    .context("Failed to spawn graph-easy")?;
+                    .context(SpawnFailedSnafu {
+                        command: "graph-easy",
+                    })?;
 
                 cmd.stdin
                     .as_mut()
-                    .ok_or_else(|| anyhow!("Failed to open stdin"))?
+                    .ok_or(StdinFailedSnafu.build())?
                     .write_all(dot_source.as_bytes())
-                    .context("Failed to write DOT source to graph-easy")?;
+                    .context(WriteStdinFailedSnafu)?;
 
-                let output = cmd
-                    .wait_with_output()
-                    .context("Failed to wait for graph-easy")?;
+                let output = cmd.wait_with_output().context(WaitFailedSnafu {
+                    command: "graph-easy",
+                })?;
 
                 if !output.status.success() {
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    bail!("graph-easy failed: {}", stderr);
+                    return CommandFailedSnafu {
+                        command: "graph-easy".to_string(),
+                        stderr: stderr.to_string(),
+                    }
+                    .fail();
                 }
 
                 let ascii_art = String::from_utf8_lossy(&output.stdout);
 
                 if let Some(path) = output_path {
-                    std::fs::write(path, ascii_art.as_bytes())
-                        .context("Failed to write ASCII output to file")?;
+                    std::fs::write(path, ascii_art.as_bytes()).context(super::IoSnafu)?;
                 } else {
                     // Print to stdout
                     print!("{}", ascii_art);
@@ -234,8 +247,8 @@ impl VisualizationProvider for GraphvizProvider {
             }
             _ => {
                 // SVG, PNG, PDF
-                let output_path = output_path
-                    .ok_or_else(|| anyhow!("Output path required for non-ASCII formats"))?;
+                let output_path =
+                    output_path.ok_or_else(|| OutputPathRequiredSnafu { format }.build())?;
 
                 let format_flag = match format {
                     DiagramFormat::SVG => "svg",
@@ -252,19 +265,25 @@ impl VisualizationProvider for GraphvizProvider {
                     .stdout(Stdio::piped())
                     .stderr(Stdio::piped())
                     .spawn()
-                    .context("Failed to spawn dot")?;
+                    .context(SpawnFailedSnafu { command: "dot" })?;
 
                 cmd.stdin
                     .as_mut()
-                    .ok_or_else(|| anyhow!("Failed to open stdin"))?
+                    .ok_or(StdinFailedSnafu.build())?
                     .write_all(dot_source.as_bytes())
-                    .context("Failed to write DOT source to dot")?;
+                    .context(WriteStdinFailedSnafu)?;
 
-                let output = cmd.wait_with_output().context("Failed to wait for dot")?;
+                let output = cmd
+                    .wait_with_output()
+                    .context(WaitFailedSnafu { command: "dot" })?;
 
                 if !output.status.success() {
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    bail!("dot rendering failed: {}", stderr);
+                    return CommandFailedSnafu {
+                        command: "dot".to_string(),
+                        stderr: stderr.to_string(),
+                    }
+                    .fail();
                 }
             }
         }
@@ -284,10 +303,14 @@ impl VisualizationProvider for GraphvizProvider {
         let output = Command::new(&self.dot_path)
             .arg("-V")
             .output()
-            .context("Failed to execute dot -V")?;
+            .context(ExecuteFailedSnafu { command: "dot -V" })?;
 
         if !output.status.success() {
-            bail!("dot -V failed");
+            return CommandFailedSnafu {
+                command: "dot -V".to_string(),
+                stderr: "Command failed".to_string(),
+            }
+            .fail();
         }
 
         // Graphviz outputs version to stderr
