@@ -1,4 +1,4 @@
-use crate::cache::{CacheEntry, CacheProvider, Result, Error};
+use crate::cache::{CacheEntry, CacheProvider, Error, Result};
 use async_trait::async_trait;
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 
@@ -26,13 +26,17 @@ impl SqliteCache {
             .max_connections(5)
             .connect(database_url)
             .await
-            .map_err(|e| Error::Database { message: format!("Failed to connect to SQLite: {}", e) })?;
+            .map_err(|e| Error::Database {
+                message: format!("Failed to connect to SQLite: {}", e),
+            })?;
 
         // Initialize schema
         sqlx::query(include_str!("./sql/cache_sqlite.sql"))
             .execute(&pool)
             .await
-            .map_err(|e| Error::Database { message: format!("Failed to execute schema: {}", e) })?;
+            .map_err(|e| Error::Database {
+                message: format!("Failed to execute schema: {}", e),
+            })?;
 
         Ok(Self { pool })
     }
@@ -43,7 +47,9 @@ impl SqliteCache {
         sqlx::query(include_str!("./sql/cache_sqlite.sql"))
             .execute(&pool)
             .await
-            .map_err(|e| Error::Database { message: format!("Failed to execute schema: {}", e) })?;
+            .map_err(|e| Error::Database {
+                message: format!("Failed to execute schema: {}", e),
+            })?;
 
         Ok(Self { pool })
     }
@@ -58,7 +64,9 @@ impl CacheProvider for SqliteCache {
         .bind(key)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| Error::Database { message: format!("Failed to get cache entry: {}", e) })?;
+        .map_err(|e| Error::Database {
+            message: format!("Failed to get cache entry: {}", e),
+        })?;
 
         match result {
             Some((key, inputs_json, output_json, timestamp_str)) => {
@@ -67,7 +75,9 @@ impl CacheProvider for SqliteCache {
                 let output = serde_json::from_str(&output_json)
                     .map_err(|e| Error::Serialization { source: e })?;
                 let timestamp = chrono::DateTime::parse_from_rfc3339(&timestamp_str)
-                    .map_err(|e| Error::Database { message: format!("Failed to parse timestamp: {}", e) })?
+                    .map_err(|e| Error::Database {
+                        message: format!("Failed to parse timestamp: {}", e),
+                    })?
                     .with_timezone(&chrono::Utc);
 
                 Ok(Some(CacheEntry {
@@ -82,10 +92,10 @@ impl CacheProvider for SqliteCache {
     }
 
     async fn set(&self, entry: CacheEntry) -> Result<()> {
-        let inputs_json = serde_json::to_string(&entry.inputs)
-            .map_err(|e| Error::Serialization { source: e })?;
-        let output_json = serde_json::to_string(&entry.output)
-            .map_err(|e| Error::Serialization { source: e })?;
+        let inputs_json =
+            serde_json::to_string(&entry.inputs).map_err(|e| Error::Serialization { source: e })?;
+        let output_json =
+            serde_json::to_string(&entry.output).map_err(|e| Error::Serialization { source: e })?;
         let timestamp_str = entry.timestamp.to_rfc3339();
 
         sqlx::query(
@@ -107,7 +117,9 @@ impl CacheProvider for SqliteCache {
             .bind(key)
             .execute(&self.pool)
             .await
-            .map_err(|e| Error::Database { message: format!("Failed to invalidate cache entry: {}", e) })?;
+            .map_err(|e| Error::Database {
+                message: format!("Failed to invalidate cache entry: {}", e),
+            })?;
 
         Ok(())
     }
