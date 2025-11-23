@@ -1,4 +1,4 @@
-use crate::cache::{CacheEntry, CacheProvider, Result, Error};
+use crate::cache::{CacheEntry, CacheProvider, Error, Result};
 use async_trait::async_trait;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 
@@ -26,14 +26,20 @@ impl PostgresCache {
             .max_connections(20)
             .connect(database_url)
             .await
-            .map_err(|e| Error::Database { message: format!("Failed to connect to PostgreSQL: {}", e) })?;
+            .map_err(|e| Error::Database {
+                message: format!("Failed to connect to PostgreSQL: {}", e),
+            })?;
 
         // Initialize schema - execute statements individually since PostgreSQL
         // prepared statements don't support multiple statements
         let schema_sql = include_str!("./sql/cache_postgres.sql");
         for statement in schema_sql.split(';').filter(|s| !s.trim().is_empty()) {
-            sqlx::query(statement).execute(&pool).await
-                .map_err(|e| Error::Database { message: format!("Failed to execute schema statement: {}", e) })?;
+            sqlx::query(statement)
+                .execute(&pool)
+                .await
+                .map_err(|e| Error::Database {
+                    message: format!("Failed to execute schema statement: {}", e),
+                })?;
         }
 
         Ok(Self { pool })
@@ -45,8 +51,12 @@ impl PostgresCache {
         // prepared statements don't support multiple statements
         let schema_sql = include_str!("./sql/cache_postgres.sql");
         for statement in schema_sql.split(';').filter(|s| !s.trim().is_empty()) {
-            sqlx::query(statement).execute(&pool).await
-                .map_err(|e| Error::Database { message: format!("Failed to execute schema statement: {}", e) })?;
+            sqlx::query(statement)
+                .execute(&pool)
+                .await
+                .map_err(|e| Error::Database {
+                    message: format!("Failed to execute schema statement: {}", e),
+                })?;
         }
 
         Ok(Self { pool })
@@ -69,7 +79,9 @@ impl CacheProvider for PostgresCache {
             .bind(key)
             .fetch_optional(&self.pool)
             .await
-            .map_err(|e| Error::Database { message: format!("Failed to get cache entry: {}", e) })?;
+            .map_err(|e| Error::Database {
+                message: format!("Failed to get cache entry: {}", e),
+            })?;
 
         match result {
             Some((key, inputs, output, timestamp)) => Ok(Some(CacheEntry {
@@ -100,7 +112,9 @@ impl CacheProvider for PostgresCache {
         .bind(&entry.timestamp)
         .execute(&self.pool)
         .await
-        .map_err(|e| Error::Database { message: format!("Failed to set cache entry: {}", e) })?;
+        .map_err(|e| Error::Database {
+            message: format!("Failed to set cache entry: {}", e),
+        })?;
 
         Ok(())
     }
@@ -110,7 +124,9 @@ impl CacheProvider for PostgresCache {
             .bind(key)
             .execute(&self.pool)
             .await
-            .map_err(|e| Error::Database { message: format!("Failed to invalidate cache entry: {}", e) })?;
+            .map_err(|e| Error::Database {
+                message: format!("Failed to invalidate cache entry: {}", e),
+            })?;
 
         Ok(())
     }

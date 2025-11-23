@@ -1,7 +1,7 @@
+use crate::cache::{CacheEntry, CacheProvider, Result};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use crate::cache::{CacheProvider, CacheEntry, Result};
 
 #[derive(Debug)]
 pub struct InMemoryCache {

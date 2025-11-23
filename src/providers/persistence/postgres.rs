@@ -1,7 +1,7 @@
+use crate::persistence::{Error, PersistenceProvider, Result};
+use crate::workflow::{WorkflowCheckpoint, WorkflowEvent};
 use async_trait::async_trait;
 use sqlx::postgres::{PgPool, PgPoolOptions};
-use crate::persistence::{PersistenceProvider, Result, Error};
-use crate::workflow::{WorkflowEvent, WorkflowCheckpoint};
 
 #[derive(Debug)]
 pub struct PostgresPersistence {
@@ -27,7 +27,9 @@ impl PostgresPersistence {
             .max_connections(20)
             .connect(database_url)
             .await
-            .map_err(|e| Error::Database { message: format!("Failed to connect to PostgreSQL: {}", e) })?;
+            .map_err(|e| Error::Database {
+                message: format!("Failed to connect to PostgreSQL: {}", e),
+            })?;
 
         // Initialize schema - execute statements individually since PostgreSQL
         // prepared statements don't support multiple statements
@@ -36,7 +38,9 @@ impl PostgresPersistence {
             sqlx::query(statement)
                 .execute(&pool)
                 .await
-                .map_err(|e| Error::Database { message: format!("Failed to execute schema statement: {}", e) })?;
+                .map_err(|e| Error::Database {
+                    message: format!("Failed to execute schema statement: {}", e),
+                })?;
         }
 
         Ok(Self { pool })
@@ -51,7 +55,9 @@ impl PostgresPersistence {
             sqlx::query(statement)
                 .execute(&pool)
                 .await
-                .map_err(|e| Error::Database { message: format!("Failed to execute schema statement: {}", e) })?;
+                .map_err(|e| Error::Database {
+                    message: format!("Failed to execute schema statement: {}", e),
+                })?;
         }
 
         Ok(Self { pool })
@@ -75,8 +81,8 @@ impl PersistenceProvider for PostgresPersistence {
     async fn save_event(&self, event: WorkflowEvent) -> Result<()> {
         let instance_id = event.instance_id().to_string();
         let event_type = Self::get_event_type(&event);
-        let event_data = serde_json::to_value(&event)
-            .map_err(|e| Error::Serialization { source: e })?;
+        let event_data =
+            serde_json::to_value(&event).map_err(|e| Error::Serialization { source: e })?;
         let timestamp = chrono::Utc::now();
 
         // Get the next sequence number for this instance
@@ -135,7 +141,7 @@ impl PersistenceProvider for PostgresPersistence {
                 current_task = EXCLUDED.current_task,
                 data = EXCLUDED.data,
                 timestamp = EXCLUDED.timestamp
-            "#
+            "#,
         )
         .bind(&checkpoint.instance_id)
         .bind(&checkpoint.current_task)
@@ -143,7 +149,9 @@ impl PersistenceProvider for PostgresPersistence {
         .bind(&checkpoint.timestamp)
         .execute(&self.pool)
         .await
-        .map_err(|e| Error::Database { message: format!("Failed to save checkpoint: {}", e) })?;
+        .map_err(|e| Error::Database {
+            message: format!("Failed to save checkpoint: {}", e),
+        })?;
 
         Ok(())
     }
@@ -158,14 +166,12 @@ impl PersistenceProvider for PostgresPersistence {
         .map_err(|e| Error::Database { message: format!("Failed to get checkpoint: {}", e) })?;
 
         match result {
-            Some((instance_id, current_task, data, timestamp)) => {
-                Ok(Some(WorkflowCheckpoint {
-                    instance_id,
-                    current_task,
-                    data,
-                    timestamp,
-                }))
-            }
+            Some((instance_id, current_task, data, timestamp)) => Ok(Some(WorkflowCheckpoint {
+                instance_id,
+                current_task,
+                data,
+                timestamp,
+            })),
             None => Ok(None),
         }
     }
@@ -175,7 +181,7 @@ impl PersistenceProvider for PostgresPersistence {
 mod tests {
     use super::*;
     use chrono::Utc;
-    use testcontainers::{runners::AsyncRunner, GenericImage, ImageExt};
+    use testcontainers::{GenericImage, ImageExt, runners::AsyncRunner};
 
     async fn setup_postgres_container() -> (testcontainers::ContainerAsync<GenericImage>, String) {
         use testcontainers::core::ContainerPort;
@@ -186,12 +192,15 @@ mod tests {
             .with_env_var("POSTGRES_USER", "postgres")
             .with_env_var("POSTGRES_PASSWORD", "postgres");
 
-        let container = postgres_image.start().await.expect("Failed to start postgres container");
-        let port = container.get_host_port_ipv4(ContainerPort::Tcp(5432)).await.expect("Failed to get port");
-        let database_url = format!(
-            "postgresql://postgres:postgres@localhost:{}/test_db",
-            port
-        );
+        let container = postgres_image
+            .start()
+            .await
+            .expect("Failed to start postgres container");
+        let port = container
+            .get_host_port_ipv4(ContainerPort::Tcp(5432))
+            .await
+            .expect("Failed to get port");
+        let database_url = format!("postgresql://postgres:postgres@localhost:{}/test_db", port);
 
         // Wait for PostgreSQL to be fully ready and accept connections
         tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
@@ -254,7 +263,10 @@ mod tests {
             timestamp: Utc::now(),
         };
 
-        persistence.save_checkpoint(checkpoint.clone()).await.unwrap();
+        persistence
+            .save_checkpoint(checkpoint.clone())
+            .await
+            .unwrap();
 
         let retrieved = persistence
             .get_checkpoint("test-instance-2")

@@ -1,7 +1,7 @@
+use crate::persistence::{Error, PersistenceProvider, Result};
+use crate::workflow::{WorkflowCheckpoint, WorkflowEvent};
 use async_trait::async_trait;
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
-use crate::persistence::{PersistenceProvider, Result, Error};
-use crate::workflow::{WorkflowEvent, WorkflowCheckpoint};
 
 #[derive(Debug)]
 pub struct SqlitePersistence {
@@ -27,13 +27,17 @@ impl SqlitePersistence {
             .max_connections(5)
             .connect(database_url)
             .await
-            .map_err(|e| Error::Database { message: format!("Failed to connect to SQLite: {}", e) })?;
+            .map_err(|e| Error::Database {
+                message: format!("Failed to connect to SQLite: {}", e),
+            })?;
 
         // Initialize schema
         sqlx::query(include_str!("./sql/persistence_sqlite.sql"))
             .execute(&pool)
             .await
-            .map_err(|e| Error::Database { message: format!("Failed to execute schema: {}", e) })?;
+            .map_err(|e| Error::Database {
+                message: format!("Failed to execute schema: {}", e),
+            })?;
 
         Ok(Self { pool })
     }
@@ -44,7 +48,9 @@ impl SqlitePersistence {
         sqlx::query(include_str!("./sql/persistence_sqlite.sql"))
             .execute(&pool)
             .await
-            .map_err(|e| Error::Database { message: format!("Failed to execute schema: {}", e) })?;
+            .map_err(|e| Error::Database {
+                message: format!("Failed to execute schema: {}", e),
+            })?;
 
         Ok(Self { pool })
     }
@@ -67,8 +73,8 @@ impl PersistenceProvider for SqlitePersistence {
     async fn save_event(&self, event: WorkflowEvent) -> Result<()> {
         let instance_id = event.instance_id().to_string();
         let event_type = Self::get_event_type(&event);
-        let event_data = serde_json::to_string(&event)
-            .map_err(|e| Error::Serialization { source: e })?;
+        let event_data =
+            serde_json::to_string(&event).map_err(|e| Error::Serialization { source: e })?;
         let timestamp = chrono::Utc::now().to_rfc3339();
 
         // Get the next sequence number for this instance
@@ -147,7 +153,9 @@ impl PersistenceProvider for SqlitePersistence {
                 let data = serde_json::from_str(&data_json)
                     .map_err(|e| Error::Serialization { source: e })?;
                 let timestamp = chrono::DateTime::parse_from_rfc3339(&timestamp_str)
-                    .map_err(|e| Error::Database { message: format!("Failed to parse timestamp: {}", e) })?
+                    .map_err(|e| Error::Database {
+                        message: format!("Failed to parse timestamp: {}", e),
+                    })?
                     .with_timezone(&chrono::Utc);
 
                 Ok(Some(WorkflowCheckpoint {
@@ -220,7 +228,10 @@ mod tests {
             timestamp: Utc::now(),
         };
 
-        persistence.save_checkpoint(checkpoint.clone()).await.unwrap();
+        persistence
+            .save_checkpoint(checkpoint.clone())
+            .await
+            .unwrap();
 
         let retrieved = persistence
             .get_checkpoint("test-instance-2")
