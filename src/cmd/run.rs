@@ -1,8 +1,8 @@
-use anyhow::{Context as AnyhowContext, Result};
 use clap::Parser;
 use console::style;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use serverless_workflow_core::models::workflow::WorkflowDefinition;
+use snafu::prelude::*;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -10,6 +10,74 @@ use crate::durableengine::DurableEngine;
 use crate::providers::cache::RedbCache;
 use crate::providers::persistence::RedbPersistence;
 use crate::providers::visualization::DiagramFormat;
+
+#[derive(Debug, Snafu)]
+pub enum Error {
+    #[snafu(display("Invalid workflow file: {message}"))]
+    InvalidWorkflowFile { message: String },
+
+    #[snafu(display("Path error: {message}"))]
+    PathError { message: String },
+
+    #[snafu(display("I/O error: {source}"))]
+    Io { source: std::io::Error },
+
+    #[snafu(display("YAML parsing error: {source}"))]
+    Yaml { source: serde_yaml::Error },
+
+    #[snafu(display("JSON serialization error: {source}"))]
+    Json { source: serde_json::Error },
+
+    #[snafu(display("Engine error: {source}"))]
+    Engine { source: crate::durableengine::Error },
+
+    #[snafu(display("Cache error: {source}"))]
+    Cache { source: crate::cache::Error },
+
+    #[snafu(display("Persistence error: {source}"))]
+    Persistence { source: crate::persistence::Error },
+
+    #[snafu(display("Progress display error: {source}"))]
+    Progress { source: std::io::Error },
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+impl From<crate::durableengine::Error> for Error {
+    fn from(source: crate::durableengine::Error) -> Self {
+        Error::Engine { source }
+    }
+}
+
+impl From<crate::cache::Error> for Error {
+    fn from(source: crate::cache::Error) -> Self {
+        Error::Cache { source }
+    }
+}
+
+impl From<crate::persistence::Error> for Error {
+    fn from(source: crate::persistence::Error) -> Self {
+        Error::Persistence { source }
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(source: std::io::Error) -> Self {
+        Error::Io { source }
+    }
+}
+
+impl From<serde_yaml::Error> for Error {
+    fn from(source: serde_yaml::Error) -> Self {
+        Error::Yaml { source }
+    }
+}
+
+impl From<serde_json::Error> for Error {
+    fn from(source: serde_json::Error) -> Self {
+        Error::Json { source }
+    }
+}
 
 #[derive(Parser, Debug)]
 pub struct RunArgs {
@@ -64,15 +132,14 @@ fn discover_workflow_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
             if is_workflow_file(path) {
                 workflow_files.push(path.clone());
             } else {
-                anyhow::bail!(
-                    "File {:?} is not a valid workflow file (.yaml or .yml)",
-                    path
-                );
+                return Err(Error::InvalidWorkflowFile {
+                    message: format!("File {:?} is not a valid workflow file (.yaml or .yml)", path),
+                });
             }
         } else if path.is_dir() {
             // Directory - recursively find all workflow files
             let entries = std::fs::read_dir(path)
-                .with_context(|| format!("Failed to read directory {:?}", path))?;
+                .map_err(|e| Error::Io { source: e })?;
 
             for entry in entries {
                 let entry = entry?;
@@ -82,12 +149,16 @@ fn discover_workflow_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
                 }
             }
         } else {
-            anyhow::bail!("Path {:?} does not exist", path);
+            return Err(Error::PathError {
+                message: format!("Path {:?} does not exist", path),
+            });
         }
     }
 
     if workflow_files.is_empty() {
-        anyhow::bail!("No workflow files found in the provided paths");
+        return Err(Error::PathError {
+            message: "No workflow files found in the provided paths".to_string(),
+        });
     }
 
     Ok(workflow_files)
@@ -113,11 +184,9 @@ async fn execute_workflow(
     }
 
     // Read and parse workflow
-    let workflow_yaml = std::fs::read_to_string(workflow_path)
-        .with_context(|| format!("Failed to read workflow file {:?}", workflow_path))?;
+    let workflow_yaml = std::fs::read_to_string(workflow_path)?;
 
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml)
-        .with_context(|| format!("Failed to parse workflow file {:?}", workflow_path))?;
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml)?;
 
     if let Some(pb) = progress {
         pb.set_message(format!("Executing {}", workflow.document.name));
@@ -152,10 +221,9 @@ fn parse_diagram_format(format_str: &str) -> Result<DiagramFormat> {
         "png" => Ok(DiagramFormat::PNG),
         "pdf" => Ok(DiagramFormat::PDF),
         "ascii" => Ok(DiagramFormat::ASCII),
-        _ => anyhow::bail!(
-            "Invalid format '{}'. Valid formats: svg, png, pdf, ascii",
-            format_str
-        ),
+        _ => Err(Error::InvalidWorkflowFile {
+            message: format!("Invalid format '{}'. Valid formats: svg, png, pdf, ascii", format_str),
+        }),
     }
 }
 
