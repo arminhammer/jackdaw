@@ -1,0 +1,28 @@
+{
+  "name": "@calculator/handlers",
+  "version": "0.1.0",
+  "exports": {
+    "./types": "./src/types.ts",
+    "./add": "./src/add.ts",
+    "./multiply": "./src/multiply.ts"
+  },
+  "compilerOptions": {
+    "strict": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "noImplicitAny": true,
+    "noImplicitThis": true,
+    "alwaysStrict": true,
+    "lib": ["deno.ns", "deno.window"]
+  },
+  "fmt": {
+    "indentWidth": 2,
+    "lineWidth": 100,
+    "semiColons": true
+  },
+  "lint": {
+    "rules": {
+      "tags": ["recommended"]
+    }
+  }
+}

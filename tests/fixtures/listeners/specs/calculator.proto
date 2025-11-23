@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package calculator;
+
+// Calculator service provides basic arithmetic operations
+service Calculator {
+  // Add two numbers
+  rpc Add(AddRequest) returns (AddResponse);
+
+  // Multiply two numbers
+  rpc Multiply(MultiplyRequest) returns (MultiplyResponse);
+}
+
+// Request message for Add operation
+message AddRequest {
+  int32 a = 1;
+  int32 b = 2;
+}
+
+// Response message for Add operation
+message AddResponse {
+  int32 result = 1;
+}
+
+// Request message for Multiply operation
+message MultiplyRequest {
+  int32 a = 1;
+  int32 b = 2;
+}
+
+// Response message for Multiply operation
+message MultiplyResponse {
+  int32 result = 1;
+}
