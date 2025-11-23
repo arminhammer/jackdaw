@@ -16,6 +16,9 @@ pub enum Error {
 
     #[snafu(display("Server error: {message}"))]
     Server { message: String },
+
+    #[snafu(display("Execution error: {message}"))]
+    Execution { message: String },
 }
 
 // From implementations for automatic error conversion
