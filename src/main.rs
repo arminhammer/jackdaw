@@ -1,4 +1,5 @@
 use clap::Parser;
+use indicatif::MultiProgress;
 use snafu::prelude::*;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -17,11 +18,13 @@ mod persistence;
 mod providers;
 mod workflow;
 
-// use cmd::{RunArgs, VisualizeArgs, handle_run, handle_visualize};
-use cmd::{VisualizeArgs, handle_visualize};
+use cmd::{RunArgs, VisualizeArgs, handle_run, handle_visualize};
 
 #[derive(Debug, Snafu)]
 pub enum Error {
+    #[snafu(display("Run error: {source}"))]
+    Run { source: cmd::run::Error },
+
     #[snafu(display("Visualization error: {source}"))]
     Visualize { source: cmd::visualize::Error },
 }
@@ -39,7 +42,7 @@ struct Cli {
 #[derive(Parser, Debug)]
 enum Commands {
     /// Execute workflow(s)
-    // Run(RunArgs),
+    Run(RunArgs),
     /// Visualize workflow structure and execution state
     Visualize(VisualizeArgs),
 }
@@ -67,15 +70,15 @@ async fn main() -> Result<(), Error> {
     let cli = Cli::parse();
 
     match cli.command {
-        // Commands::Run(args) => {
-        //     // Initialize tracing/logging with indicatif bridge
-        //     // init_tracing(args.verbose);
+        Commands::Run(args) => {
+            // Initialize tracing/logging with indicatif bridge
+            // init_tracing(args.verbose);
 
-        //     // Initialize MultiProgress for coordinating progress bars and logs/traces
-        //     let multi_progress = MultiProgress::new();
+            // Initialize MultiProgress for coordinating progress bars and logs/traces
+            let multi_progress = MultiProgress::new();
 
-        //     handle_run(args, multi_progress).await
-        // }
+            handle_run(args, multi_progress).await.context(RunSnafu)
+        }
         Commands::Visualize(args) => {
             // Initialize tracing/logging with indicatif bridge
             init_tracing(args.verbose);
