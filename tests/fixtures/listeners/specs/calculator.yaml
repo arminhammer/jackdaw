@@ -1,0 +1,117 @@
+openapi: 3.0.0
+info:
+  title: Calculator API
+  description: Basic arithmetic operations API matching the gRPC Calculator service
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+
+paths:
+  /add:
+    post:
+      summary: Add two numbers
+      operationId: add
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddRequest'
+      responses:
+        '200':
+          description: Successful addition
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AddResponse'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /multiply:
+    post:
+      summary: Multiply two numbers
+      operationId: multiply
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MultiplyRequest'
+      responses:
+        '200':
+          description: Successful multiplication
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MultiplyResponse'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    AddRequest:
+      type: object
+      required:
+        - a
+        - b
+      properties:
+        a:
+          type: integer
+          format: int32
+          description: First operand
+        b:
+          type: integer
+          format: int32
+          description: Second operand
+
+    AddResponse:
+      type: object
+      required:
+        - result
+      properties:
+        result:
+          type: integer
+          format: int32
+          description: Sum of a and b
+
+    MultiplyRequest:
+      type: object
+      required:
+        - a
+        - b
+      properties:
+        a:
+          type: integer
+          format: int32
+          description: First operand
+        b:
+          type: integer
+          format: int32
+          description: Second operand
+
+    MultiplyResponse:
+      type: object
+      required:
+        - result
+      properties:
+        result:
+          type: integer
+          format: int32
+          description: Product of a and b
+
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+          description: Error message

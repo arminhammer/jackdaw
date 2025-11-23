@@ -43,3 +43,5 @@ tower = "0.4"
 http = "1"
 http-body-util = "0.1"
 openapiv3-extended = { version = "6.0", features = ["v2"] }
+redb = "2"
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "postgres", "chrono", "json", "uuid"] }
