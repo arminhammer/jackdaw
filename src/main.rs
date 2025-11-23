@@ -7,7 +7,7 @@ mod cache;
 mod cmd;
 mod context;
 mod descriptors;
-// mod durableengine;
+mod durableengine;
 mod executionhistory;
 mod executor;
 mod expressions;

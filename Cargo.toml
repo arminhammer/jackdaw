@@ -54,3 +54,6 @@ pyo3 = { version = "0.22", features = ["abi3-py310"] }
 
 # TypeScript/JavaScript execution with rustyscript (embedded Deno runtime)
 rustyscript = "0.12.3"
+petgraph = "0.6"
+async-recursion = "1.0"
+futures = "0.3"
