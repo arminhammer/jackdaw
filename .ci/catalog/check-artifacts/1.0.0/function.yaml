@@ -1,0 +1,25 @@
+document:
+  dsl: '1.0.0'
+  namespace: ci.functions
+  name: check-artifacts
+  version: '1.0.0'
+  description: 'Verify build artifacts exist and are executable'
+input:
+  schema:
+    type: object
+    properties:
+      binary_path:
+        type: string
+        description: 'Path to the binary file to verify'
+    required:
+      - binary_path
+do:
+  - verify:
+      run:
+        script:
+          language: python
+          arguments:
+            binary_path: ${ .binary_path }
+          source:
+            endpoint:
+              uri: file://./.ci/catalog/check-artifacts/1.0.0/check_artifacts.py

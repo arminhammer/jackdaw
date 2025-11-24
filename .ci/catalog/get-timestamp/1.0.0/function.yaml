@@ -1,0 +1,23 @@
+document:
+  dsl: '1.0.0'
+  namespace: ci.functions
+  name: get-timestamp
+  version: '1.0.0'
+  description: 'Get current timestamp for cache invalidation'
+output:
+  schema:
+    type: object
+    properties:
+      timestamp:
+        type: string
+        description: 'ISO 8601 formatted timestamp'
+    required:
+      - timestamp
+do:
+  - getTimestamp:
+      run:
+        script:
+          language: python
+          source:
+            endpoint:
+              uri: file://./.ci/catalog/get-timestamp/1.0.0/get_timestamp.py
