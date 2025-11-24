@@ -1,0 +1,36 @@
+document:
+  dsl: '1.0.0'
+  namespace: ci.functions
+  name: compute-hashes
+  version: '1.0.0'
+  description: 'Compute SHA256 hashes of file categories for cache invalidation'
+input:
+  schema:
+    type: object
+    properties:
+      categories:
+        type: object
+        description: 'Map of category name to file patterns'
+        additionalProperties:
+          type: object
+          properties:
+            patterns:
+              type: array
+              items:
+                type: string
+              description: 'Glob patterns to match files'
+          required:
+            - patterns
+    required:
+      - categories
+do:
+  - computeHashes:
+      run:
+        script:
+          language: python
+          arguments:
+            categories: ${ .categories }
+            workflow_id: ${ .workflow_id }
+          source:
+            endpoint:
+              uri: file://./.ci/catalog/compute-hashes/1.0.0/compute_hashes.py

@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::durableengine::DurableEngine;
+use crate::output::filter_internal_fields;
 use crate::providers::cache::RedbCache;
 use crate::providers::persistence::RedbPersistence;
 use crate::providers::visualization::DiagramFormat;
@@ -325,7 +326,8 @@ pub async fn handle_run(args: RunArgs, multi_progress: MultiProgress) -> Result<
                         style(path.display()).bold()
                     ))?;
                     if args.verbose {
-                        multi_progress.println(serde_json::to_string_pretty(&output)?)?;
+                        let filtered = filter_internal_fields(&output);
+                        multi_progress.println(serde_json::to_string_pretty(&filtered)?)?;
                     }
 
                     // Visualization if requested
@@ -394,7 +396,8 @@ pub async fn handle_run(args: RunArgs, multi_progress: MultiProgress) -> Result<
                         style(workflow_path.display()).bold()
                     ))?;
                     if args.verbose {
-                        multi_progress.println(serde_json::to_string_pretty(&result)?)?;
+                        let filtered = filter_internal_fields(&result);
+                        multi_progress.println(serde_json::to_string_pretty(&filtered)?)?;
                     }
 
                     // Visualization if requested

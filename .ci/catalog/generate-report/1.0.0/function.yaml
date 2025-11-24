@@ -1,0 +1,43 @@
+document:
+  dsl: '1.0.0'
+  namespace: ci.functions
+  name: generate-report
+  version: '1.0.0'
+  description: 'Generate CI execution summary report'
+input:
+  schema:
+    type: object
+    properties:
+      tasks:
+        type: object
+        description: 'Results from CI task executions'
+      artifacts:
+        type: object
+        description: 'Build artifact verification results'
+        properties:
+          exists:
+            type: boolean
+          executable:
+            type: boolean
+          size_bytes:
+            type: integer
+          path:
+            type: string
+          valid:
+            type: boolean
+    required:
+      - tasks
+      - artifacts
+do:
+  - createSummary:
+      run:
+        script:
+          language: python
+          arguments:
+            tasks: ${ .tasks }
+            artifacts: ${ .artifacts }
+          source:
+            endpoint:
+              uri: file://./.ci/catalog/generate-report/1.0.0/generate_report.py
+      output:
+        as: .

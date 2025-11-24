@@ -71,7 +71,8 @@ pub fn format_workflow_output(output: &Value) {
     println!("{}", "─".repeat(80));
     println!("{}", style("Output").bold());
     println!("{}", "┄".repeat(80));
-    println!("{}", indent_json(output, 2));
+    let filtered = filter_internal_fields(output);
+    println!("{}", indent_json(&filtered, 2));
     println!("{}", "═".repeat(80));
 }
 
@@ -119,7 +120,7 @@ pub fn format_cache_miss(_task_name: &str, key: &str) {
 }
 
 /// Filter out internal descriptor fields from display
-fn filter_internal_fields(value: &Value) -> Value {
+pub fn filter_internal_fields(value: &Value) -> Value {
     if let Some(obj) = value.as_object() {
         let filtered: serde_json::Map<String, Value> = obj
             .iter()
@@ -174,7 +175,8 @@ pub fn format_task_input(input: &Value) {
 pub fn format_task_output(output: &Value) {
     println!("  {}", style("Output").green());
     println!("  {}", "·".repeat(78));
-    if let Some(obj) = output.as_object() {
+    let filtered = filter_internal_fields(output);
+    if let Some(obj) = filtered.as_object() {
         if obj.is_empty() {
             println!("    {}", style("(empty)").dim());
         } else {
@@ -184,7 +186,7 @@ pub fn format_task_output(output: &Value) {
             }
         }
     } else {
-        println!("{}", colorize_json(output, 4, "green"));
+        println!("{}", colorize_json(&filtered, 4, "green"));
     }
 }
 
