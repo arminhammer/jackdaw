@@ -2,11 +2,11 @@ mod common;
 mod listener_steps;
 
 use cucumber::World;
-use mooose::cache::CacheProvider;
-use mooose::durableengine::DurableEngine;
-use mooose::persistence::PersistenceProvider;
-use mooose::providers::cache::RedbCache;
-use mooose::providers::persistence::RedbPersistence;
+use jackdaw::cache::CacheProvider;
+use jackdaw::durableengine::DurableEngine;
+use jackdaw::persistence::PersistenceProvider;
+use jackdaw::providers::cache::RedbCache;
+use jackdaw::providers::persistence::RedbPersistence;
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -23,7 +23,7 @@ pub struct ListenerWorld {
     pub engine: Option<Arc<DurableEngine>>,
     pub persistence: Option<Arc<RedbPersistence>>,
     pub instance_id: Option<String>,
-    pub workflow_events: Vec<mooose::workflow::WorkflowEvent>,
+    pub workflow_events: Vec<jackdaw::workflow::WorkflowEvent>,
 
     // Listener-specific fields
     pub grpc_requests: std::collections::HashMap<String, Value>,
@@ -32,14 +32,14 @@ pub struct ListenerWorld {
     pub http_responses: std::collections::HashMap<String, Value>,
 
     // Active listeners
-    pub http_listener: Option<Arc<mooose::listeners::http::HttpListener>>,
+    pub http_listener: Option<Arc<jackdaw::listeners::http::HttpListener>>,
     pub http_response_status: Option<u16>,
 }
 
 impl ListenerWorld {
     async fn new() -> Result<Self, anyhow::Error> {
         // Configure Python path for test fixtures
-        use mooose::providers::executors::PythonExecutor;
+        use jackdaw::providers::executors::PythonExecutor;
         let python_executor = PythonExecutor::new();
         python_executor.add_python_path("tests/fixtures/listeners/handlers/python-handlers")?;
 

@@ -15,7 +15,7 @@ impl SqliteCache {
     ///
     /// # Example
     /// ```no_run
-    /// # use qyvx::providers::cache::SqliteCache;
+    /// # use jackdaw::providers::cache::SqliteCache;
     /// # async fn example() -> anyhow::Result<()> {
     /// let cache = SqliteCache::new("sqlite::memory:").await?;
     /// # Ok(())

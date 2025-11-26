@@ -1,9 +1,9 @@
 document:
   dsl: '1.0.0'
   namespace: ci
-  name: mooose-ci
+  name: jackdaw-ci
   version: '1.0.0'
-  description: 'CI pipeline for mooose - leveraging mooose itself for CI execution'
+  description: 'CI pipeline for jackdaw - leveraging jackdaw itself for CI execution'
 
 use:
   catalogs:
@@ -157,7 +157,7 @@ do:
   # - verifyArtifacts:
   #     call: check-artifacts:1.0.0
   #     with:
-  #       binary_path: target/release/mooose
+  #       binary_path: target/release/jackdaw
 
   # # Step 4: Archive artifacts (can be used by GitHub Actions)
   # - archiveArtifacts:
@@ -167,7 +167,7 @@ do:
   #         arguments:
   #           - czf
   #           - ci-artifacts.tar.gz
-  #           - target/release/mooose
+  #           - target/release/jackdaw
   #           - .ci/*.db
   #     if: ${ .verify.valid }
 

@@ -2,11 +2,11 @@ mod common;
 mod steps;
 use crate::common::{WorkflowStatus, parse_docstring};
 use cucumber::{World, given, then, when};
-use mooose::cache::CacheProvider;
-use mooose::durableengine::DurableEngine;
-use mooose::persistence::PersistenceProvider;
-use mooose::providers::cache::RedbCache;
-use mooose::providers::persistence::RedbPersistence;
+use jackdaw::cache::CacheProvider;
+use jackdaw::durableengine::DurableEngine;
+use jackdaw::persistence::PersistenceProvider;
+use jackdaw::providers::cache::RedbCache;
+use jackdaw::providers::persistence::RedbPersistence;
 use serde_json::Value;
 use snafu::prelude::*;
 pub use serverless_workflow_core::models::workflow::WorkflowDefinition;
@@ -19,15 +19,15 @@ pub enum TestError {
 
     #[snafu(display("Persistence error: {source}"))]
     Persistence {
-        source: mooose::persistence::Error,
+        source: jackdaw::persistence::Error,
     },
 
     #[snafu(display("Cache error: {source}"))]
-    Cache { source: mooose::cache::Error },
+    Cache { source: jackdaw::cache::Error },
 
     #[snafu(display("Engine error: {source}"))]
     Engine {
-        source: mooose::durableengine::Error,
+        source: jackdaw::durableengine::Error,
     },
 
     #[snafu(display("I/O error: {source}"))]
@@ -41,20 +41,20 @@ impl From<std::io::Error> for TestError {
     }
 }
 
-impl From<mooose::persistence::Error> for TestError {
-    fn from(source: mooose::persistence::Error) -> Self {
+impl From<jackdaw::persistence::Error> for TestError {
+    fn from(source: jackdaw::persistence::Error) -> Self {
         TestError::Persistence { source }
     }
 }
 
-impl From<mooose::cache::Error> for TestError {
-    fn from(source: mooose::cache::Error) -> Self {
+impl From<jackdaw::cache::Error> for TestError {
+    fn from(source: jackdaw::cache::Error) -> Self {
         TestError::Cache { source }
     }
 }
 
-impl From<mooose::durableengine::Error> for TestError {
-    fn from(source: mooose::durableengine::Error) -> Self {
+impl From<jackdaw::durableengine::Error> for TestError {
+    fn from(source: jackdaw::durableengine::Error) -> Self {
         TestError::Engine { source }
     }
 }
@@ -72,7 +72,7 @@ pub struct CtKWorld {
     pub engine: Option<Arc<DurableEngine>>,
     pub persistence: Option<Arc<RedbPersistence>>,
     pub instance_id: Option<String>,
-    pub workflow_events: Vec<mooose::workflow::WorkflowEvent>,
+    pub workflow_events: Vec<jackdaw::workflow::WorkflowEvent>,
 }
 
 impl CtKWorld {
@@ -146,7 +146,7 @@ async fn when_workflow_executed(world: &mut CtKWorld) {
             {
                 world.workflow_events = events.clone();
                 for event in events {
-                    if let mooose::workflow::WorkflowEvent::WorkflowCompleted {
+                    if let jackdaw::workflow::WorkflowEvent::WorkflowCompleted {
                         final_data, ..
                     } = event
                     {

@@ -94,7 +94,7 @@ impl Context {
 
         // Create runtime descriptor
         let runtime_descriptor =
-            RuntimeDescriptor::new("qyvx".to_string(), env!("CARGO_PKG_VERSION").to_string());
+            RuntimeDescriptor::new("jackdaw".to_string(), env!("CARGO_PKG_VERSION").to_string());
 
         // Create workflow descriptor
         let workflow_started_at = Utc::now();

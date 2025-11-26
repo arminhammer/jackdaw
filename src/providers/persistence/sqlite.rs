@@ -16,7 +16,7 @@ impl SqlitePersistence {
     ///
     /// # Example
     /// ```no_run
-    /// # use qyvx::providers::persistence::SqlitePersistence;
+    /// # use jackdaw::providers::persistence::SqlitePersistence;
     /// # async fn example() -> anyhow::Result<()> {
     /// let persistence = SqlitePersistence::new("sqlite:workflows.db").await?;
     /// # Ok(())

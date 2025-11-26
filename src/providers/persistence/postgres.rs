@@ -16,7 +16,7 @@ impl PostgresPersistence {
     ///
     /// # Example
     /// ```no_run
-    /// # use qyvx::providers::persistence::PostgresPersistence;
+    /// # use jackdaw::providers::persistence::PostgresPersistence;
     /// # async fn example() -> anyhow::Result<()> {
     /// let persistence = PostgresPersistence::new("postgresql://user:password@localhost/mydb").await?;
     /// # Ok(())

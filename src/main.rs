@@ -30,7 +30,7 @@ pub enum Error {
 }
 
 #[derive(Parser, Debug)]
-#[command(name = "mooose")]
+#[command(name = "jackdaw")]
 #[command(author = "Armin Graf")]
 #[command(version = "1.0.0")]
 #[command(about = "A durable, cached, graph-based execution engine for Serverless Workflows", long_about = None)]

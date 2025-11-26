@@ -1,3 +1,7 @@
+# Pull and sync git submodules
+submodules:
+    git submodule update --init --recursive
+
 # Setup Python library symlink for pyo3 (required on immutable systems)
 setup-python:
     #!/usr/bin/env bash
@@ -78,7 +82,7 @@ test-listeners:
 # Run full CI pipeline locally
 ci:
     cargo build --release
-    ./target/release/mooose run .ci/ci.sw.yaml \
+    ./target/release/jackdaw run .ci/ci.sw.yaml \
         --durable-db .ci/ci-persistence.db \
         --cache-db .ci/ci-cache.db \
         --verbose
@@ -86,7 +90,7 @@ ci:
 # Run CI and force re-execution (skip cache)
 ci-clean:
     cargo build --release
-    ./target/release/mooose run .ci/ci.sw.yaml \
+    ./target/release/jackdaw run .ci/ci.sw.yaml \
         --durable-db .ci/ci-persistence.db \
         --cache-db .ci/ci-cache.db \
         --no-cache \

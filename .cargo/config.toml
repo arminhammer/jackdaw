@@ -1,9 +1,9 @@
 # Cargo configuration for the project
 #
 # This file adds custom library paths needed for pyo3 on systems
-# where libpython3.13.so symlink is not in the default location
+# where libpython3.14.so symlink is not in the default location
 
 [build]
 # Add custom library path for Python shared library
-# The symlink ~/lib/libpython3.13.so points to /usr/lib64/libpython3.13.so.1.0
-rustflags = ["-L/var/home/armin/lib"]
+# The symlink ~/lib/libpython3.14.so points to the brew python installation
+rustflags = ["-L/var/home/armin/lib", "-L/home/linuxbrew/.linuxbrew/opt/python@3.14/lib"]
