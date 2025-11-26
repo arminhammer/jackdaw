@@ -4547,8 +4547,7 @@ dependencies = [
 [[package]]
 name = "serverless_workflow_core"
 version = "1.0.0-alpha6.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "669c483fc57449a801e122166a9b5161afc8b35f01eb6b40e8ee67219467910c"
+source = "git+https://github.com/serverlessworkflow/sdk-rust.git?rev=e2cf5179a74898b09461d90d06c6c800695a18cb#e2cf5179a74898b09461d90d06c6c800695a18cb"
 dependencies = [
  "serde",
  "serde_derive",
