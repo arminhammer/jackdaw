@@ -17,7 +17,12 @@ pub async fn exec_for_task(
     let collection = crate::expressions::evaluate_jq(collection_expr, &current_data)?;
 
     // Get the collection as an array
-    let items = collection.as_array().ok_or(Error::TaskExecution { message: format!("For loop 'in' expression must evaluate to an array, got: {:?}", collection) })?;
+    let items = collection.as_array().ok_or(Error::TaskExecution {
+        message: format!(
+            "For loop 'in' expression must evaluate to an array, got: {:?}",
+            collection
+        ),
+    })?;
 
     // Get the iteration variable name (e.g., "color")
     let item_var = &for_task.for_.each;

@@ -37,8 +37,7 @@ pub async fn exec_fork_task(
         }
 
         if !branch_futures.is_empty() {
-            let (result, _index, _remaining) =
-                futures::future::select_all(branch_futures).await;
+            let (result, _index, _remaining) = futures::future::select_all(branch_futures).await;
             let (branch_name, branch_result) = result?;
             results.insert(branch_name, branch_result);
         }

@@ -15,7 +15,9 @@ pub async fn exec_raise_task(
     let error_def = match &raise_task.raise.error {
         OneOfErrorDefinitionOrReference::Error(err) => err,
         OneOfErrorDefinitionOrReference::Reference(ref_name) => {
-            return Err(Error::Configuration { message: format!("Error references not yet implemented: {}", ref_name) });
+            return Err(Error::Configuration {
+                message: format!("Error references not yet implemented: {}", ref_name),
+            });
         }
     };
 
@@ -46,5 +48,7 @@ pub async fn exec_raise_task(
     let error_json = serde_json::to_string(&error_obj)?;
 
     // Return an error with the JSON-serialized error object
-    Err(Error::TaskExecution { message: error_json })
+    Err(Error::TaskExecution {
+        message: error_json,
+    })
 }

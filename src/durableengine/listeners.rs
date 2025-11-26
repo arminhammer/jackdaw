@@ -3,7 +3,7 @@ use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::listeners::{grpc::GrpcListener, http::HttpListener, EventSource, Listener};
+use crate::listeners::{EventSource, Listener, grpc::GrpcListener, http::HttpListener};
 use crate::providers::executors::{PythonExecutor, TypeScriptExecutor};
 
 use super::{DurableEngine, Error, Result};
@@ -21,7 +21,11 @@ impl DurableEngine {
             Vec<(
                 String,
                 String,
-                Arc<dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value> + Send + Sync>,
+                Arc<
+                    dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value>
+                        + Send
+                        + Sync,
+                >,
             )>,
         > = HashMap::new();
 
@@ -32,7 +36,11 @@ impl DurableEngine {
             Vec<(
                 String,
                 String,
-                Arc<dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value> + Send + Sync>,
+                Arc<
+                    dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value>
+                        + Send
+                        + Sync,
+                >,
             )>,
         > = HashMap::new();
 
@@ -54,7 +62,9 @@ impl DurableEngine {
                         let without_scheme = uri
                             .strip_prefix("http://")
                             .or_else(|| uri.strip_prefix("https://"))
-                            .ok_or_else(|| Error::Listener { message: "Invalid HTTP URI".to_string() })?;
+                            .ok_or_else(|| Error::Listener {
+                                message: "Invalid HTTP URI".to_string(),
+                            })?;
 
                         let parts: Vec<&str> = without_scheme.splitn(2, '/').collect();
                         let mut bind_addr = parts[0].to_string();
@@ -70,8 +80,9 @@ impl DurableEngine {
                             "/".to_string()
                         };
 
-                        let openapi_path = schema_path_opt
-                            .ok_or_else(|| Error::Listener { message: "HTTP listener requires OpenAPI schema".to_string() })?;
+                        let openapi_path = schema_path_opt.ok_or_else(|| Error::Listener {
+                            message: "HTTP listener requires OpenAPI schema".to_string(),
+                        })?;
 
                         // Create handler for this route
                         let handler = self.create_handler_from_listen_task(listen_task)?;
@@ -86,9 +97,10 @@ impl DurableEngine {
                     else if event_source.uri.starts_with("grpc://") {
                         // Parse bind address and method from URI (e.g., grpc://localhost:50051/calculator.Calculator/Add)
                         let uri = &event_source.uri;
-                        let without_scheme = uri
-                            .strip_prefix("grpc://")
-                            .ok_or_else(|| Error::Listener { message: "Invalid gRPC URI".to_string() })?;
+                        let without_scheme =
+                            uri.strip_prefix("grpc://").ok_or_else(|| Error::Listener {
+                                message: "Invalid gRPC URI".to_string(),
+                            })?;
 
                         let parts: Vec<&str> = without_scheme.splitn(2, '/').collect();
                         let mut bind_addr = parts[0].to_string();
@@ -102,18 +114,24 @@ impl DurableEngine {
                         let method_path = if parts.len() > 1 {
                             parts[1]
                         } else {
-                            return Err(Error::Listener { message: "gRPC URI must include service/method path".to_string() });
+                            return Err(Error::Listener {
+                                message: "gRPC URI must include service/method path".to_string(),
+                            });
                         };
 
                         let method_parts: Vec<&str> = method_path.split('/').collect();
                         if method_parts.len() != 2 {
-                            return Err(Error::Listener { message: "gRPC method path must be in format 'service.Name/Method'".to_string() });
+                            return Err(Error::Listener {
+                                message: "gRPC method path must be in format 'service.Name/Method'"
+                                    .to_string(),
+                            });
                         }
                         let service_name = method_parts[0].to_string();
                         let method_name = method_parts[1].to_string();
 
-                        let proto_path = schema_path_opt
-                            .ok_or_else(|| Error::Listener { message: "gRPC listener requires proto schema".to_string() })?;
+                        let proto_path = schema_path_opt.ok_or_else(|| Error::Listener {
+                            message: "gRPC listener requires proto schema".to_string(),
+                        })?;
 
                         // Create handler for this method
                         let handler = self.create_handler_from_listen_task(listen_task)?;
@@ -167,14 +185,20 @@ impl DurableEngine {
                 prost_reflect::DescriptorPool::from_file_descriptor_set(file_descriptor_set)?;
 
             // Get service descriptor
-            let service_descriptor = pool
-                .get_service_by_name(&service_name)
-                .ok_or_else(|| Error::Listener { message: format!("Service {} not found in proto file", service_name) })?;
+            let service_descriptor =
+                pool.get_service_by_name(&service_name)
+                    .ok_or_else(|| Error::Listener {
+                        message: format!("Service {} not found in proto file", service_name),
+                    })?;
 
             // Build method handlers map - convert JSON handlers to DynamicMessage handlers
             let mut method_handlers: std::collections::HashMap<
                 String,
-                Arc<dyn Fn(DynamicMessage) -> crate::listeners::Result<DynamicMessage> + Send + Sync>,
+                Arc<
+                    dyn Fn(DynamicMessage) -> crate::listeners::Result<DynamicMessage>
+                        + Send
+                        + Sync,
+                >,
             > = std::collections::HashMap::new();
 
             for (method_name, task_name, json_handler) in methods {
@@ -187,8 +211,11 @@ impl DurableEngine {
                 let method_descriptor = service_descriptor
                     .methods()
                     .find(|m| m.name() == method_name)
-                    .ok_or_else(|| {
-                        Error::Listener { message: format!("Method {} not found in service {}", method_name, service_name) }
+                    .ok_or_else(|| Error::Listener {
+                        message: format!(
+                            "Method {} not found in service {}",
+                            method_name, service_name
+                        ),
                     })?;
 
                 let output_descriptor = method_descriptor.output();
@@ -198,12 +225,17 @@ impl DurableEngine {
 
                 // Create a wrapper that converts DynamicMessage to JSON, calls the JSON handler, then converts back
                 let wrapped_handler: Arc<
-                    dyn Fn(DynamicMessage) -> crate::listeners::Result<DynamicMessage> + Send + Sync,
+                    dyn Fn(DynamicMessage) -> crate::listeners::Result<DynamicMessage>
+                        + Send
+                        + Sync,
                 > = Arc::new(
                     move |request_msg: DynamicMessage| -> crate::listeners::Result<DynamicMessage> {
                         // Convert DynamicMessage to JSON
-                        let request_json = dynamic_message_to_json(&request_msg)
-                            .map_err(|e| crate::listeners::Error::Execution { message: format!("Failed to convert DynamicMessage to JSON: {}", e) })?;
+                        let request_json = dynamic_message_to_json(&request_msg).map_err(|e| {
+                            crate::listeners::Error::Execution {
+                                message: format!("Failed to convert DynamicMessage to JSON: {}", e),
+                            }
+                        })?;
 
                         // Call the JSON handler
                         let response_json = json_handler_clone(request_json)?;
@@ -211,7 +243,12 @@ impl DurableEngine {
                         // Convert JSON response back to DynamicMessage using the output descriptor
                         let response_msg =
                             json_to_dynamic_message(&response_json, output_descriptor.clone())
-                                .map_err(|e| crate::listeners::Error::Execution { message: format!("Failed to convert JSON to DynamicMessage: {}", e) })?;
+                                .map_err(|e| crate::listeners::Error::Execution {
+                                    message: format!(
+                                        "Failed to convert JSON to DynamicMessage: {}",
+                                        e
+                                    ),
+                                })?;
                         Ok(response_msg)
                     },
                 );
@@ -244,31 +281,42 @@ impl DurableEngine {
         &self,
         listen_task: &ListenTaskDefinition,
     ) -> Result<(serde_json::Value, Option<String>)> {
-        let (_event_filter, _with_attrs, source_value) =
-            if let Some(one_filter) = &listen_task.listen.to.one {
-                let with_attrs = one_filter
-                    .with
-                    .as_ref()
-                    .ok_or_else(|| Error::Configuration { message: "Listen task requires 'with' attributes".to_string() })?;
-                let source_value = with_attrs
-                    .get("source")
-                    .ok_or_else(|| Error::Configuration { message: "Listen task requires 'source' in 'with' attributes".to_string() })?;
-                (one_filter, with_attrs, source_value)
-            } else if let Some(any_filters) = &listen_task.listen.to.any {
-                let first_filter = any_filters.first().ok_or_else(|| {
-                    Error::Configuration { message: "Listen task 'any' requires at least one event filter".to_string() }
+        let (_event_filter, _with_attrs, source_value) = if let Some(one_filter) =
+            &listen_task.listen.to.one
+        {
+            let with_attrs = one_filter
+                .with
+                .as_ref()
+                .ok_or_else(|| Error::Configuration {
+                    message: "Listen task requires 'with' attributes".to_string(),
                 })?;
-                let with_attrs = first_filter
-                    .with
-                    .as_ref()
-                    .ok_or_else(|| Error::Configuration { message: "Listen task requires 'with' attributes".to_string() })?;
-                let source_value = with_attrs
-                    .get("source")
-                    .ok_or_else(|| Error::Configuration { message: "Listen task requires 'source' in 'with' attributes".to_string() })?;
-                (first_filter, with_attrs, source_value)
-            } else {
-                return Err(Error::Configuration { message: "Listen task requires either 'one' or 'any' event filter".to_string() });
-            };
+            let source_value = with_attrs
+                .get("source")
+                .ok_or_else(|| Error::Configuration {
+                    message: "Listen task requires 'source' in 'with' attributes".to_string(),
+                })?;
+            (one_filter, with_attrs, source_value)
+        } else if let Some(any_filters) = &listen_task.listen.to.any {
+            let first_filter = any_filters.first().ok_or_else(|| Error::Configuration {
+                message: "Listen task 'any' requires at least one event filter".to_string(),
+            })?;
+            let with_attrs = first_filter
+                .with
+                .as_ref()
+                .ok_or_else(|| Error::Configuration {
+                    message: "Listen task requires 'with' attributes".to_string(),
+                })?;
+            let source_value = with_attrs
+                .get("source")
+                .ok_or_else(|| Error::Configuration {
+                    message: "Listen task requires 'source' in 'with' attributes".to_string(),
+                })?;
+            (first_filter, with_attrs, source_value)
+        } else {
+            return Err(Error::Configuration {
+                message: "Listen task requires either 'one' or 'any' event filter".to_string(),
+            });
+        };
 
         // Get OpenAPI schema path if present
         let source_obj: EventSource = serde_json::from_value(source_value.clone())?;
@@ -286,30 +334,38 @@ impl DurableEngine {
     fn create_handler_from_listen_task(
         &self,
         listen_task: &ListenTaskDefinition,
-    ) -> Result<Arc<dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value> + Send + Sync>> {
+    ) -> Result<
+        Arc<dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value> + Send + Sync>,
+    > {
         // Extract module and function from foreach.do block
         let foreach_def = listen_task
             .foreach
             .as_ref()
-            .ok_or_else(|| Error::Configuration { message: "Listen task requires 'foreach' block".to_string() })?;
+            .ok_or_else(|| Error::Configuration {
+                message: "Listen task requires 'foreach' block".to_string(),
+            })?;
 
         // Get the do_ map from the foreach block
         let do_map = foreach_def
             .do_
             .as_ref()
-            .ok_or_else(|| Error::Configuration { message: "Listen task 'foreach' requires 'do' block".to_string() })?;
+            .ok_or_else(|| Error::Configuration {
+                message: "Listen task 'foreach' requires 'do' block".to_string(),
+            })?;
 
         // Get the first task entry from the map
-        let first_entry = do_map
-            .entries
-            .first()
-            .ok_or_else(|| Error::Configuration { message: "Listen task 'foreach.do' requires at least one task".to_string() })?;
+        let first_entry = do_map.entries.first().ok_or_else(|| Error::Configuration {
+            message: "Listen task 'foreach.do' requires at least one task".to_string(),
+        })?;
 
         // Get the first (and likely only) task from the entry
-        let (_task_name, task_def) = first_entry
-            .iter()
-            .next()
-            .ok_or_else(|| Error::Configuration { message: "Empty task entry in foreach.do".to_string() })?;
+        let (_task_name, task_def) =
+            first_entry
+                .iter()
+                .next()
+                .ok_or_else(|| Error::Configuration {
+                    message: "Empty task entry in foreach.do".to_string(),
+                })?;
 
         // Extract call task details
         if let TaskDefinition::Call(call_task) = task_def {
@@ -320,17 +376,23 @@ impl DurableEngine {
             let with_attrs = call_task
                 .with
                 .as_ref()
-                .ok_or_else(|| Error::Configuration { message: "Call task requires 'with' attributes".to_string() })?;
+                .ok_or_else(|| Error::Configuration {
+                    message: "Call task requires 'with' attributes".to_string(),
+                })?;
 
             let module = with_attrs
                 .get("module")
                 .and_then(|v| v.as_str())
-                .ok_or_else(|| Error::Configuration { message: "Call task requires 'module' in 'with' attributes".to_string() })?;
+                .ok_or_else(|| Error::Configuration {
+                    message: "Call task requires 'module' in 'with' attributes".to_string(),
+                })?;
 
             let function = with_attrs
                 .get("function")
                 .and_then(|v| v.as_str())
-                .ok_or_else(|| Error::Configuration { message: "Call task requires 'function' in 'with' attributes".to_string() })?;
+                .ok_or_else(|| Error::Configuration {
+                    message: "Call task requires 'function' in 'with' attributes".to_string(),
+                })?;
 
             // Create executor based on call type
             if call_type == "python" {
@@ -383,10 +445,17 @@ impl DurableEngine {
 
                 Ok(handler)
             } else {
-                Err(Error::Configuration { message: format!("Unsupported call type: {}. Only 'python' and 'typescript' are currently supported", call_type) })
+                Err(Error::Configuration {
+                    message: format!(
+                        "Unsupported call type: {}. Only 'python' and 'typescript' are currently supported",
+                        call_type
+                    ),
+                })
             }
         } else {
-            Err(Error::Configuration { message: "First task in foreach.do must be a Call task".to_string() })
+            Err(Error::Configuration {
+                message: "First task in foreach.do must be a Call task".to_string(),
+            })
         }
     }
 }

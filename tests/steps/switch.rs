@@ -1,16 +1,27 @@
 use crate::CtKWorld;
 
-pub use cucumber::{then};
+pub use cucumber::then;
 pub use qyvx::workflow::WorkflowEvent;
 
 // Helper function to get the timestamp when a task started or completed
-fn get_task_timestamp(events: &[WorkflowEvent], task_name: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+fn get_task_timestamp(
+    events: &[WorkflowEvent],
+    task_name: &str,
+) -> Option<chrono::DateTime<chrono::Utc>> {
     for event in events {
         match event {
-            WorkflowEvent::TaskStarted { task_name: name, timestamp, .. } if name == task_name => {
+            WorkflowEvent::TaskStarted {
+                task_name: name,
+                timestamp,
+                ..
+            } if name == task_name => {
                 return Some(*timestamp);
             }
-            WorkflowEvent::TaskCompleted { task_name: name, timestamp, .. } if name == task_name => {
+            WorkflowEvent::TaskCompleted {
+                task_name: name,
+                timestamp,
+                ..
+            } if name == task_name => {
                 return Some(*timestamp);
             }
             _ => {}
@@ -22,15 +33,21 @@ fn get_task_timestamp(events: &[WorkflowEvent], task_name: &str) -> Option<chron
 // Check that a specific task ran last (latest timestamp)
 #[then(expr = "{word} should run last")]
 async fn then_task_runs_last(world: &mut CtKWorld, task_name: String) {
-    let task_timestamp = get_task_timestamp(&world.workflow_events, &task_name)
-        .expect(&format!("Task '{}' was not found in workflow events", task_name));
+    let task_timestamp = get_task_timestamp(&world.workflow_events, &task_name).expect(&format!(
+        "Task '{}' was not found in workflow events",
+        task_name
+    ));
 
     // Find all task timestamps
     let mut all_task_timestamps: Vec<(String, chrono::DateTime<chrono::Utc>)> = Vec::new();
 
     for event in &world.workflow_events {
         match event {
-            WorkflowEvent::TaskStarted { task_name: name, timestamp, .. } => {
+            WorkflowEvent::TaskStarted {
+                task_name: name,
+                timestamp,
+                ..
+            } => {
                 all_task_timestamps.push((name.clone(), timestamp.clone()));
             }
             _ => {}

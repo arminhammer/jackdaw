@@ -1,10 +1,13 @@
-use crate::common::parse_docstring;
 use crate::NestedWorkflowWorld;
+use crate::common::parse_docstring;
 use cucumber::{given, then, when};
 use serverless_workflow_core::models::workflow::WorkflowDefinition;
 
 #[given(regex = r"^the following workflows are registered:$")]
-async fn given_workflows_registered(world: &mut NestedWorkflowWorld, step: &cucumber::gherkin::Step) {
+async fn given_workflows_registered(
+    world: &mut NestedWorkflowWorld,
+    step: &cucumber::gherkin::Step,
+) {
     let table = step.table.as_ref().expect("Table required");
 
     // Get the base path for workflow files
@@ -53,10 +56,7 @@ async fn when_execute_workflow(
         .unwrap_or_else(|e| panic!("Failed to parse workflow YAML: {}", e));
 
     // Get the engine
-    let engine = world
-        .engine
-        .as_ref()
-        .expect("Engine not initialized");
+    let engine = world.engine.as_ref().expect("Engine not initialized");
 
     // Before starting the workflow, we need to register all workflows with the engine
     // so that nested workflows can be found during execution
@@ -65,7 +65,8 @@ async fn when_execute_workflow(
             .unwrap_or_else(|e| panic!("Failed to parse workflow {}: {}", key, e));
 
         // Register the workflow with the engine
-        engine.register_workflow(wf.clone())
+        engine
+            .register_workflow(wf.clone())
             .await
             .unwrap_or_else(|e| panic!("Failed to register workflow {}: {}", key, e));
     }
@@ -76,14 +77,18 @@ async fn when_execute_workflow(
             world.instance_id = Some(instance_id.clone());
 
             // Wait for the workflow to complete
-            match engine.wait_for_completion(&instance_id, std::time::Duration::from_secs(30)).await {
+            match engine
+                .wait_for_completion(&instance_id, std::time::Duration::from_secs(30))
+                .await
+            {
                 Ok(output) => {
                     world.workflow_output = Some(output);
                     world.workflow_status = Some(crate::common::WorkflowStatus::Completed);
                 }
                 Err(e) => {
                     world.error_message = Some(format!("Workflow execution failed: {}", e));
-                    world.workflow_status = Some(crate::common::WorkflowStatus::Faulted(e.to_string()));
+                    world.workflow_status =
+                        Some(crate::common::WorkflowStatus::Faulted(e.to_string()));
                 }
             }
         }
@@ -113,13 +118,11 @@ async fn then_workflow_output(world: &mut NestedWorkflowWorld, step: &cucumber::
     let expected: serde_json::Value = serde_json::from_str(&expected_text)
         .unwrap_or_else(|e| panic!("Failed to parse expected output JSON: {}", e));
 
-    let actual = world
-        .workflow_output
-        .as_ref()
-        .expect("No workflow output");
+    let actual = world.workflow_output.as_ref().expect("No workflow output");
 
     assert_eq!(
-        actual, &expected,
+        actual,
+        &expected,
         "Workflow output mismatch.\nExpected: {}\nActual: {}",
         serde_json::to_string_pretty(&expected).unwrap(),
         serde_json::to_string_pretty(actual).unwrap()

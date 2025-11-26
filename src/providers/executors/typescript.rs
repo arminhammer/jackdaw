@@ -1,7 +1,7 @@
+use crate::executor::{Error, Result};
 use rustyscript::{Module, Runtime, RuntimeOptions};
 use serde_json::Value;
 use std::path::Path;
-use crate::executor::{Result, Error};
 
 /// TypeScriptExecutor executes TypeScript functions using embedded Deno runtime via rustyscript
 /// Note: Each execution creates a fresh runtime since Runtime contains non-Send types (Rc)
@@ -29,12 +29,16 @@ impl TypeScriptExecutor {
         // called from spawn_blocking or a non-async context.
 
         // Create a fresh runtime for this execution
-        let mut runtime = Runtime::new(RuntimeOptions::default())
-            .map_err(|e| Error::Execution { message: format!("Failed to create Deno runtime: {}", e) })?;
+        let mut runtime =
+            Runtime::new(RuntimeOptions::default()).map_err(|e| Error::Execution {
+                message: format!("Failed to create Deno runtime: {}", e),
+            })?;
 
         // Read the TypeScript module file
-        let mut module_content = std::fs::read_to_string(module_path)
-            .map_err(|e| Error::Execution { message: format!("Failed to read TypeScript module {}: {}", module_path, e) })?;
+        let mut module_content =
+            std::fs::read_to_string(module_path).map_err(|e| Error::Execution {
+                message: format!("Failed to read TypeScript module {}: {}", module_path, e),
+            })?;
 
         // Remove type-only imports as they are stripped at runtime anyway
         // This is a simple workaround for rustyscript 0.12.3's limited import support
@@ -48,9 +52,9 @@ impl TypeScriptExecutor {
         let module = Module::new(module_path, &module_content);
 
         // Load the module
-        let module_handle = runtime
-            .load_module(&module)
-            .map_err(|e| Error::Execution { message: format!("Failed to load TypeScript module: {}", e) })?;
+        let module_handle = runtime.load_module(&module).map_err(|e| Error::Execution {
+            message: format!("Failed to load TypeScript module: {}", e),
+        })?;
 
         // Call the exported function from the module
         // Since we only have 1 arg (a JSON object), pass it directly
@@ -63,14 +67,11 @@ impl TypeScriptExecutor {
         // Call the function from the module's exports (not global scope)
         let result: Value = runtime
             .call_function(Some(&module_handle), function_name, &arg)
-            .map_err(|e| {
-                Error::Execution {
-                    message: format!(
-                        "Failed to call TypeScript function {}: {}",
-                        function_name,
-                        e
-                    )
-                }
+            .map_err(|e| Error::Execution {
+                message: format!(
+                    "Failed to call TypeScript function {}: {}",
+                    function_name, e
+                ),
             })?;
 
         Ok(result)

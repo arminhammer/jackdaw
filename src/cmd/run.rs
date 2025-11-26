@@ -134,13 +134,15 @@ fn discover_workflow_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
                 workflow_files.push(path.clone());
             } else {
                 return Err(Error::InvalidWorkflowFile {
-                    message: format!("File {:?} is not a valid workflow file (.yaml or .yml)", path),
+                    message: format!(
+                        "File {:?} is not a valid workflow file (.yaml or .yml)",
+                        path
+                    ),
                 });
             }
         } else if path.is_dir() {
             // Directory - recursively find all workflow files
-            let entries = std::fs::read_dir(path)
-                .map_err(|e| Error::Io { source: e })?;
+            let entries = std::fs::read_dir(path).map_err(|e| Error::Io { source: e })?;
 
             for entry in entries {
                 let entry = entry?;
@@ -194,7 +196,9 @@ async fn execute_workflow(
     }
 
     // Execute workflow - returns both instance_id and final result
-    let (instance_id, result) = engine.start_with_input(workflow.clone(), serde_json::json!({})).await?;
+    let (instance_id, result) = engine
+        .start_with_input(workflow.clone(), serde_json::json!({}))
+        .await?;
 
     if verbose {
         println!(
@@ -220,7 +224,10 @@ fn parse_diagram_format(format_str: &str) -> Result<DiagramFormat> {
         "pdf" => Ok(DiagramFormat::PDF),
         "ascii" => Ok(DiagramFormat::ASCII),
         _ => Err(Error::InvalidWorkflowFile {
-            message: format!("Invalid format '{}'. Valid formats: svg, png, pdf, ascii", format_str),
+            message: format!(
+                "Invalid format '{}'. Valid formats: svg, png, pdf, ascii",
+                format_str
+            ),
         }),
     }
 }

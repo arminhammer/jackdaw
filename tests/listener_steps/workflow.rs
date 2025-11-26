@@ -1,6 +1,6 @@
 use crate::ListenerWorld;
 use crate::common::parse_docstring;
-use cucumber::{given, when, then};
+use cucumber::{given, then, when};
 use serde_json::Value;
 
 // Workflow definition step (reuse common workflow parsing)
@@ -57,7 +57,8 @@ async fn when_workflow_executed(_world: &mut ListenerWorld) {
 #[then(expr = "the workflow output should be:")]
 async fn then_workflow_output(world: &mut ListenerWorld, step: &cucumber::gherkin::Step) {
     let expected_yaml = parse_docstring(step.docstring.as_ref().unwrap());
-    let expected: Value = serde_yaml::from_str(&expected_yaml).expect("Failed to parse expected output");
+    let expected: Value =
+        serde_yaml::from_str(&expected_yaml).expect("Failed to parse expected output");
 
     let actual = world.workflow_output.as_ref().expect("No workflow output");
     assert_eq!(actual, &expected, "Workflow output mismatch");

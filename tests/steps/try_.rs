@@ -76,7 +76,10 @@ async fn then_output_has_property_with_value(
         let actual_str = if let Some(s) = current.as_str() {
             s
         } else {
-            panic!("Property '{}' is not a string and couldn't parse expected as YAML: {:?}", property_path, current);
+            panic!(
+                "Property '{}' is not a string and couldn't parse expected as YAML: {:?}",
+                property_path, current
+            );
         };
 
         assert_eq!(

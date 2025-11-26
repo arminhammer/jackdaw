@@ -18,11 +18,8 @@ pub async fn exec_run_task(
     // This ensures that expressions like $workflow.id are evaluated to their actual values
     let current_data = ctx.data.read().await.clone();
     let params = serde_json::to_value(&run_task.run)?;
-    let evaluated_params = crate::expressions::evaluate_value_with_input(
-        &params,
-        &current_data,
-        &ctx.initial_input,
-    )?;
+    let evaluated_params =
+        crate::expressions::evaluate_value_with_input(&params, &current_data, &ctx.initial_input)?;
 
     // Combine task definition with current context data for cache key
     // This ensures that input.from filters affect caching
@@ -64,7 +61,9 @@ pub async fn exec_run_task(
         let registry = engine.workflow_registry.read().await;
         let workflow = registry
             .get(&workflow_key)
-            .ok_or_else(|| Error::Configuration { message: format!("Workflow not found in registry: {}", workflow_key) })?
+            .ok_or_else(|| Error::Configuration {
+                message: format!("Workflow not found in registry: {}", workflow_key),
+            })?
             .clone();
         drop(registry);
 
@@ -91,10 +90,9 @@ pub async fn exec_run_task(
         }
     } else if let Some(script) = run_task.run.script.as_ref() {
         // Script execution
-        let executor = engine
-            .executors
-            .get("python")
-            .ok_or(Error::TaskExecution { message: "No python executor found".to_string() })?;
+        let executor = engine.executors.get("python").ok_or(Error::TaskExecution {
+            message: "No python executor found".to_string(),
+        })?;
 
         // Get script code - either inline or from external source
         let script_code = if let Some(source) = script.source.as_ref() {
@@ -113,25 +111,38 @@ pub async fn exec_run_task(
                     .map_err(|e| Error::Io { source: e })?
             } else if source_uri.starts_with("http://") || source_uri.starts_with("https://") {
                 // Load from HTTP(S)
-                let response = reqwest::get(source_uri).await.map_err(|e| {
-                    Error::TaskExecution { message: format!("Failed to fetch script from {}: {}", source_uri, e) }
-                })?;
+                let response =
+                    reqwest::get(source_uri)
+                        .await
+                        .map_err(|e| Error::TaskExecution {
+                            message: format!("Failed to fetch script from {}: {}", source_uri, e),
+                        })?;
 
                 if !response.status().is_success() {
-                    return Err(Error::TaskExecution { message: format!("Failed to fetch script from {}: HTTP {}", source_uri, response.status()) });
+                    return Err(Error::TaskExecution {
+                        message: format!(
+                            "Failed to fetch script from {}: HTTP {}",
+                            source_uri,
+                            response.status()
+                        ),
+                    });
                 }
 
-                response.text().await.map_err(|e| {
-                    Error::TaskExecution { message: format!("Failed to read script response from {}: {}", source_uri, e) }
+                response.text().await.map_err(|e| Error::TaskExecution {
+                    message: format!("Failed to read script response from {}: {}", source_uri, e),
                 })?
             } else {
-                return Err(Error::Configuration { message: format!("Unsupported source URI scheme: {}", source_uri) });
+                return Err(Error::Configuration {
+                    message: format!("Unsupported source URI scheme: {}", source_uri),
+                });
             }
         } else if let Some(inline_code) = script.code.as_ref() {
             // Use inline code
             inline_code.clone()
         } else {
-            return Err(Error::Configuration { message: "Script must have either 'code' or 'source' defined".to_string() });
+            return Err(Error::Configuration {
+                message: "Script must have either 'code' or 'source' defined".to_string(),
+            });
         };
 
         // Get script arguments if provided and evaluate them against context
@@ -154,8 +165,67 @@ pub async fn exec_run_task(
         });
 
         executor.exec(task_name, &script_params, ctx).await?
+    } else if let Some(shell) = run_task.run.shell.as_ref() {
+        // Shell command execution
+        let command = &shell.command;
+        let args = shell
+            .arguments
+            .as_ref()
+            .map(|a| a.as_slice())
+            .unwrap_or(&[]);
+
+        // Evaluate arguments against current context
+        let current_data = ctx.data.read().await.clone();
+        let evaluated_args: Vec<String> = args
+            .iter()
+            .map(|arg| {
+                // Try to evaluate as expression, fall back to literal string
+                match crate::expressions::evaluate_value_with_input(
+                    &serde_json::Value::String(arg.clone()),
+                    &current_data,
+                    &ctx.initial_input,
+                ) {
+                    Ok(serde_json::Value::String(s)) => s,
+                    _ => arg.clone(),
+                }
+            })
+            .collect();
+
+        // Execute shell command
+        let output = tokio::process::Command::new(command)
+            .args(&evaluated_args)
+            .output()
+            .await
+            .map_err(|e| Error::TaskExecution {
+                message: format!("Failed to execute command '{}': {}", command, e),
+            })?;
+
+        // Check exit status
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            return Err(Error::TaskExecution {
+                message: format!(
+                    "Command '{}' failed with exit code {:?}\nstdout: {}\nstderr: {}",
+                    command,
+                    output.status.code(),
+                    stdout,
+                    stderr
+                ),
+            });
+        }
+
+        // Return stdout and stderr as result
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+        serde_json::json!({
+            "stdout": stdout,
+            "stderr": stderr,
+            "exit_code": output.status.code().unwrap_or(0)
+        })
     } else {
-        // Other run types (container, shell, etc.) not yet implemented
+        // Other run types (container, etc.) not yet implemented
         serde_json::json!({})
     };
 

@@ -383,26 +383,42 @@ impl MultiMethodGrpcService {
         let input_descriptor = method.input();
         let _output_descriptor = method.output();
 
-        println!("  Method: {}, input descriptor: {}", method_name, input_descriptor.full_name());
+        println!(
+            "  Method: {}, input descriptor: {}",
+            method_name,
+            input_descriptor.full_name()
+        );
         println!("  Input fields:");
         for field in input_descriptor.fields() {
-            println!("    - {} (field {}, kind: {:?})", field.name(), field.number(), field.kind());
+            println!(
+                "    - {} (field {}, kind: {:?})",
+                field.name(),
+                field.number(),
+                field.kind()
+            );
         }
 
         // Get the handler for this method
         let handler = {
             let handlers = self.method_handlers.read().await;
             println!("  Looking up handler for method: {}", method_name);
-            println!("  Available handlers: {:?}", handlers.keys().collect::<Vec<_>>());
+            println!(
+                "  Available handlers: {:?}",
+                handlers.keys().collect::<Vec<_>>()
+            );
             handlers.get(method_name).cloned().ok_or_else(|| {
                 Status::unimplemented(format!("No handler for method {}", method_name))
             })?
         };
 
-        println!("  About to decode {} bytes into {}", request_bytes.len(), input_descriptor.full_name());
+        println!(
+            "  About to decode {} bytes into {}",
+            request_bytes.len(),
+            input_descriptor.full_name()
+        );
         // Decode request bytes into DynamicMessage
-        let request_msg = DynamicMessage::decode(input_descriptor.clone(), request_bytes)
-            .map_err(|e| {
+        let request_msg =
+            DynamicMessage::decode(input_descriptor.clone(), request_bytes).map_err(|e| {
                 eprintln!("  Decode error: {}", e);
                 Status::invalid_argument(format!("Failed to decode request: {}", e))
             })?;
@@ -432,10 +448,16 @@ impl Service<http::Request<BoxBody>> for MultiMethodServiceWrapper {
     type Response = http::Response<BoxBody>;
     type Error = std::convert::Infallible;
     type Future = std::pin::Pin<
-        Box<dyn std::future::Future<Output = std::result::Result<Self::Response, Self::Error>> + Send>,
+        Box<
+            dyn std::future::Future<Output = std::result::Result<Self::Response, Self::Error>>
+                + Send,
+        >,
     >;
 
-    fn poll_ready(&mut self, _cx: &mut TaskContext<'_>) -> Poll<std::result::Result<(), Self::Error>> {
+    fn poll_ready(
+        &mut self,
+        _cx: &mut TaskContext<'_>,
+    ) -> Poll<std::result::Result<(), Self::Error>> {
         println!("  MultiMethodServiceWrapper::poll_ready called");
         Poll::Ready(Ok(()))
     }
@@ -465,7 +487,10 @@ impl Service<http::Request<BoxBody>> for MultiMethodServiceWrapper {
             let request_service_name = parts[0];
             let method_name = parts[1];
 
-            println!("  Request service: {}, method: {}", request_service_name, method_name);
+            println!(
+                "  Request service: {}, method: {}",
+                request_service_name, method_name
+            );
             println!("  Our service descriptor: {}", service_name);
 
             // Check if this request is for our service
@@ -498,7 +523,10 @@ impl Service<http::Request<BoxBody>> for MultiMethodServiceWrapper {
             // Skip the 5-byte gRPC frame header
             if request_bytes.len() >= 5 {
                 request_bytes = request_bytes.slice(5..);
-                println!("  After skipping frame header, message length: {}", request_bytes.len());
+                println!(
+                    "  After skipping frame header, message length: {}",
+                    request_bytes.len()
+                );
                 if request_bytes.len() > 0 {
                     println!("  Message bytes: {:?}", &request_bytes[..]);
                 }
@@ -592,10 +620,16 @@ impl Service<http::Request<BoxBody>> for DynamicServiceWrapper {
     type Response = http::Response<BoxBody>;
     type Error = std::convert::Infallible;
     type Future = std::pin::Pin<
-        Box<dyn std::future::Future<Output = std::result::Result<Self::Response, Self::Error>> + Send>,
+        Box<
+            dyn std::future::Future<Output = std::result::Result<Self::Response, Self::Error>>
+                + Send,
+        >,
     >;
 
-    fn poll_ready(&mut self, _cx: &mut TaskContext<'_>) -> Poll<std::result::Result<(), Self::Error>> {
+    fn poll_ready(
+        &mut self,
+        _cx: &mut TaskContext<'_>,
+    ) -> Poll<std::result::Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
     }
 

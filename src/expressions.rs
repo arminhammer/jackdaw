@@ -140,11 +140,9 @@ pub fn evaluate_jq(jq_expr: &str, context: &Value) -> Result<Value> {
 
     // Compile with standard library native functions (including jaq-json funs)
     let compiler = Compiler::default().with_funs(jaq_std::funs().chain(jaq_json::funs()));
-    let filter = compiler
-        .compile(modules)
-        .map_err(|errs| Error::JqCompile {
-            errors: format!("{:?}", errs),
-        })?;
+    let filter = compiler.compile(modules).map_err(|errs| Error::JqCompile {
+        errors: format!("{:?}", errs),
+    })?;
 
     // Convert serde_json::Value to jaq_json::Val using From trait
     let input: jaq_json::Val = context.clone().into();
