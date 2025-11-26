@@ -147,7 +147,7 @@ async fn execute_workflow_and_call_grpc(
                     } else {
                         continue;
                     }
-                },
+                }
                 _ => continue,
             };
             request_msg.set_field(&field, field_value);
@@ -167,9 +167,7 @@ async fn execute_workflow_and_call_grpc(
     framed_request.extend_from_slice(&request_bytes);
 
     // Use reqwest with HTTP/2 for gRPC
-    let client = reqwest::Client::builder()
-        .http2_prior_knowledge()
-        .build()?;
+    let client = reqwest::Client::builder().http2_prior_knowledge().build()?;
     let http_response = client
         .post(format!("{}/{}/{}", endpoint, service_name, method_name))
         .header("content-type", "application/grpc")
@@ -187,10 +185,8 @@ async fn execute_workflow_and_call_grpc(
     } else {
         response_body.to_vec()
     };
-    let response_msg = prost_reflect::DynamicMessage::decode(
-        method_desc.output(),
-        response_bytes.as_slice()
-    )?;
+    let response_msg =
+        prost_reflect::DynamicMessage::decode(method_desc.output(), response_bytes.as_slice())?;
 
     // Convert DynamicMessage to JSON using reflect
     use prost_reflect::ReflectMessage;
@@ -201,7 +197,7 @@ async fn execute_workflow_and_call_grpc(
         match value.as_ref() {
             prost_reflect::Value::I32(i) => {
                 response_json_map.insert(field.name().to_string(), serde_json::json!(i));
-            },
+            }
             _ => {}
         }
     }

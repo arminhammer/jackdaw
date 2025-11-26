@@ -19,9 +19,7 @@ pub enum Error {
     NoTasks,
 
     #[snafu(display("Persistence error: {source}"))]
-    Persistence {
-        source: crate::persistence::Error,
-    },
+    Persistence { source: crate::persistence::Error },
 
     #[snafu(display("Serialization error: {source}"))]
     Serialization { source: serde_json::Error },

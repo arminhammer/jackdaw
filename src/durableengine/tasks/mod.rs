@@ -9,8 +9,8 @@ use super::{DurableEngine, Result};
 // Submodules for individual task types
 mod call;
 mod emit;
-mod fork;
 mod for_loop;
+mod fork;
 mod raise;
 mod run;
 mod switch;
@@ -19,8 +19,8 @@ mod try_catch;
 // Re-export task execution methods
 pub use call::exec_call_task;
 pub use emit::exec_emit_task;
-pub use fork::exec_fork_task;
 pub use for_loop::exec_for_task;
+pub use fork::exec_fork_task;
 pub use raise::exec_raise_task;
 pub use run::exec_run_task;
 pub use switch::exec_switch_task;
@@ -66,9 +66,13 @@ impl DurableEngine {
 
         // Execute the task
         let result = match task {
-            TaskDefinition::Call(call_task) => exec_call_task(self, task_name, call_task, ctx).await,
+            TaskDefinition::Call(call_task) => {
+                exec_call_task(self, task_name, call_task, ctx).await
+            }
             TaskDefinition::Set(set_task) => exec_set_task(self, task_name, set_task, ctx).await,
-            TaskDefinition::Fork(fork_task) => exec_fork_task(self, task_name, fork_task, ctx).await,
+            TaskDefinition::Fork(fork_task) => {
+                exec_fork_task(self, task_name, fork_task, ctx).await
+            }
             TaskDefinition::Run(run_task) => exec_run_task(self, task_name, run_task, ctx).await,
             TaskDefinition::Do(do_task) => exec_do_task(self, task_name, do_task, ctx).await,
             TaskDefinition::For(for_task) => exec_for_task(self, task_name, for_task, ctx).await,
@@ -79,7 +83,9 @@ impl DurableEngine {
                 exec_raise_task(self, task_name, raise_task, ctx).await
             }
             TaskDefinition::Try(try_task) => exec_try_task(self, task_name, try_task, ctx).await,
-            TaskDefinition::Emit(emit_task) => exec_emit_task(self, task_name, emit_task, ctx).await,
+            TaskDefinition::Emit(emit_task) => {
+                exec_emit_task(self, task_name, emit_task, ctx).await
+            }
             TaskDefinition::Listen(listen_task) => {
                 exec_listen_task(self, task_name, listen_task, ctx).await
             }
@@ -95,7 +101,11 @@ impl DurableEngine {
     }
 
     /// Apply input filter to task
-    pub(super) async fn apply_input_filter(&self, task: &TaskDefinition, ctx: &Context) -> Result<bool> {
+    pub(super) async fn apply_input_filter(
+        &self,
+        task: &TaskDefinition,
+        ctx: &Context,
+    ) -> Result<bool> {
         // Get the common task fields to check for input.from
         let input_config = match task {
             TaskDefinition::Call(t) => t.common.input.as_ref(),

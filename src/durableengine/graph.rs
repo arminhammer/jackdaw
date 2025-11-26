@@ -31,7 +31,9 @@ pub(super) fn build_graph(
     let mut has_explicit_transitions = false;
     for entry in &workflow.do_.entries {
         for (name, task) in entry {
-            let src = nodes.get(name).ok_or(Error::TaskExecution { message: "Task not found".to_string() })?;
+            let src = nodes.get(name).ok_or(Error::TaskExecution {
+                message: "Task not found".to_string(),
+            })?;
             let transitions = get_task_transitions(task);
             if !transitions.is_empty() {
                 has_explicit_transitions = true;
@@ -47,10 +49,12 @@ pub(super) fn build_graph(
     // If no explicit transitions, create implicit sequential edges
     if !has_explicit_transitions && task_names.len() > 1 {
         for i in 0..task_names.len() - 1 {
-            let src = nodes.get(&task_names[i]).ok_or(Error::TaskExecution { message: "Task not found".to_string() })?;
-            let dst = nodes
-                .get(&task_names[i + 1])
-                .ok_or(Error::TaskExecution { message: "Task not found".to_string() })?;
+            let src = nodes.get(&task_names[i]).ok_or(Error::TaskExecution {
+                message: "Task not found".to_string(),
+            })?;
+            let dst = nodes.get(&task_names[i + 1]).ok_or(Error::TaskExecution {
+                message: "Task not found".to_string(),
+            })?;
             graph.add_edge(*src, *dst, ());
         }
     }

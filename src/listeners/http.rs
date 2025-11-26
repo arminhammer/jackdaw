@@ -1,11 +1,6 @@
 use super::{Listener, Result};
 use async_trait::async_trait;
-use axum::{
-    Json, Router,
-    http::StatusCode,
-    response::IntoResponse,
-    routing::post,
-};
+use axum::{Json, Router, http::StatusCode, response::IntoResponse, routing::post};
 use openapiv3::OpenAPI;
 use snafu::prelude::*;
 use std::sync::Arc;
@@ -154,10 +149,8 @@ impl Listener for HttpListener {
         }
 
         // Parse bind address
-        let addr: std::net::SocketAddr = bind_addr.parse().map_err(|e| {
-            super::Error::Listener {
-                message: format!("Invalid bind address {}: {}", bind_addr, e),
-            }
+        let addr: std::net::SocketAddr = bind_addr.parse().map_err(|e| super::Error::Listener {
+            message: format!("Invalid bind address {}: {}", bind_addr, e),
         })?;
 
         // Spawn server in background

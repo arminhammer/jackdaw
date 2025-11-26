@@ -33,7 +33,9 @@ impl DurableEngine {
             // Catalog reference: "function-name:version"
             let parts: Vec<&str> = function_name.split(':').collect();
             if parts.len() != 2 {
-                return Err(Error::Configuration { message: format!("Invalid catalog function reference: {}", function_name) });
+                return Err(Error::Configuration {
+                    message: format!("Invalid catalog function reference: {}", function_name),
+                });
             }
             let (name, version) = (parts[0], parts[1]);
 
@@ -72,7 +74,9 @@ impl DurableEngine {
                         version
                     )
                 } else {
-                    return Err(Error::Configuration { message: format!("Unsupported catalog URI scheme: {}", catalog_uri) });
+                    return Err(Error::Configuration {
+                        message: format!("Unsupported catalog URI scheme: {}", catalog_uri),
+                    });
                 };
 
                 function_url = Some(url);
@@ -97,22 +101,38 @@ impl DurableEngine {
                 .map_err(|e| Error::Io { source: e })?
         } else {
             // HTTP(S) URL
-            let response = reqwest::get(&function_url).await.map_err(|e| {
-                Error::TaskExecution { message: format!("Failed to fetch catalog function from {}: {}", function_url, e) }
-            })?;
+            let response = reqwest::get(&function_url)
+                .await
+                .map_err(|e| Error::TaskExecution {
+                    message: format!(
+                        "Failed to fetch catalog function from {}: {}",
+                        function_url, e
+                    ),
+                })?;
 
             if !response.status().is_success() {
-                return Err(Error::TaskExecution { message: format!("Failed to fetch catalog function from {}: HTTP {}", function_url, response.status()) });
+                return Err(Error::TaskExecution {
+                    message: format!(
+                        "Failed to fetch catalog function from {}: HTTP {}",
+                        function_url,
+                        response.status()
+                    ),
+                });
             }
 
-            response.text().await.map_err(|e| {
-                Error::TaskExecution { message: format!("Failed to read catalog function response from {}: {}", function_url, e) }
+            response.text().await.map_err(|e| Error::TaskExecution {
+                message: format!(
+                    "Failed to read catalog function response from {}: {}",
+                    function_url, e
+                ),
             })?
         };
 
         // Parse the workflow definition
         let function_workflow: WorkflowDefinition = serde_yaml::from_str(&function_content)
-            .map_err(|e| Error::Configuration { message: format!("Failed to parse catalog function {}: {}", function_name, e) })?;
+            .map_err(|e| Error::Configuration {
+                message: format!("Failed to parse catalog function {}: {}", function_name, e),
+            })?;
 
         // Execute the catalog function as a nested workflow with the provided inputs
         let input_data = serde_json::to_value(with_params)?;

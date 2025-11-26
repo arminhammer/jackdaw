@@ -197,7 +197,9 @@ impl DurableEngine {
     }
 
     pub async fn start(&self, workflow: WorkflowDefinition) -> Result<String> {
-        let (instance_id, _) = self.start_with_input(workflow, serde_json::json!({})).await?;
+        let (instance_id, _) = self
+            .start_with_input(workflow, serde_json::json!({}))
+            .await?;
         Ok(instance_id)
     }
 
@@ -536,7 +538,7 @@ impl DurableEngine {
             "d2" => Box::new(D2Provider::new()),
             _ => {
                 return Err(Error::Configuration {
-                    message: format!("Unknown visualization tool: {}", tool),    
+                    message: format!("Unknown visualization tool: {}", tool),
                 });
             }
         };

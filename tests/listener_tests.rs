@@ -46,7 +46,8 @@ impl ListenerWorld {
         let temp_dir = tempfile::tempdir()?;
         let db_path = temp_dir.path().join("test.db");
         let persistence = Arc::new(RedbPersistence::new(db_path.to_str().unwrap())?);
-        let cache = Arc::new(RedbCache::new(Arc::clone(&persistence.db))?) as Arc<dyn CacheProvider>;
+        let cache =
+            Arc::new(RedbCache::new(Arc::clone(&persistence.db))?) as Arc<dyn CacheProvider>;
         let engine = Arc::new(DurableEngine::new(
             Arc::clone(&persistence) as Arc<dyn PersistenceProvider>,
             Arc::clone(&cache),

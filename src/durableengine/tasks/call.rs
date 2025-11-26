@@ -57,47 +57,54 @@ pub async fn exec_call_task(
     let function_name = &call_task.call;
 
     // First check user-defined functions
-    let function_result = if let Some(function_def) = ctx
-        .workflow
-        .use_
-        .as_ref()
-        .and_then(|use_| use_.functions.as_ref())
-        .and_then(|funcs| funcs.get(function_name))
-    {
-        // User-defined function
-        use serverless_workflow_core::models::task::TaskDefinition;
-        let (call_type, func_params) = match function_def {
-            TaskDefinition::Call(call_def) => {
-                (&call_def.call, call_def.with.clone().unwrap_or_default())
-            }
-            _ => return Err(super::super::Error::Configuration { message: format!("Function {} is not a call task", function_name) }),
+    let function_result =
+        if let Some(function_def) = ctx
+            .workflow
+            .use_
+            .as_ref()
+            .and_then(|use_| use_.functions.as_ref())
+            .and_then(|funcs| funcs.get(function_name))
+        {
+            // User-defined function
+            use serverless_workflow_core::models::task::TaskDefinition;
+            let (call_type, func_params) = match function_def {
+                TaskDefinition::Call(call_def) => {
+                    (&call_def.call, call_def.with.clone().unwrap_or_default())
+                }
+                _ => {
+                    return Err(super::super::Error::Configuration {
+                        message: format!("Function {} is not a call task", function_name),
+                    });
+                }
+            };
+            let mut merged_params = func_params;
+            merged_params.extend(evaluated_with_params.clone());
+
+            let executor = engine.executors.get(call_type.as_str()).ok_or(
+                super::super::Error::TaskExecution {
+                    message: format!("No executor for call type: {}", call_type),
+                },
+            )?;
+
+            let final_params = serde_json::to_value(&merged_params)?;
+            executor.exec(task_name, &final_params, ctx).await?
+        } else if let Some(catalog_result) = engine
+            .try_load_catalog_function(function_name, &evaluated_with_params, ctx)
+            .await?
+        {
+            // Catalog function - execute as nested workflow
+            catalog_result
+        } else {
+            // Built-in protocol
+            let executor = engine.executors.get(function_name.as_str()).ok_or(
+                super::super::Error::TaskExecution {
+                    message: format!("No executor for call type: {}", function_name),
+                },
+            )?;
+
+            let final_params = serde_json::to_value(&evaluated_with_params)?;
+            executor.exec(task_name, &final_params, ctx).await?
         };
-        let mut merged_params = func_params;
-        merged_params.extend(evaluated_with_params.clone());
-
-        let executor = engine
-            .executors
-            .get(call_type.as_str())
-            .ok_or(super::super::Error::TaskExecution { message: format!("No executor for call type: {}", call_type) })?;
-
-        let final_params = serde_json::to_value(&merged_params)?;
-        executor.exec(task_name, &final_params, ctx).await?
-    } else if let Some(catalog_result) = engine
-        .try_load_catalog_function(function_name, &evaluated_with_params, ctx)
-        .await?
-    {
-        // Catalog function - execute as nested workflow
-        catalog_result
-    } else {
-        // Built-in protocol
-        let executor = engine
-            .executors
-            .get(function_name.as_str())
-            .ok_or(super::super::Error::TaskExecution { message: format!("No executor for call type: {}", function_name) })?;
-
-        let final_params = serde_json::to_value(&evaluated_with_params)?;
-        executor.exec(task_name, &final_params, ctx).await?
-    };
 
     let mut result = function_result;
 

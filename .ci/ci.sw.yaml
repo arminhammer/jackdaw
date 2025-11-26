@@ -77,82 +77,81 @@ do:
               input:
                 from: "${ {hash: .computeHashes.rust_sources} }"
 
-  #         # Lint check - clippy
-  #         - clippyCheck:
-  #             run:
-  #               shell:
-  #                 command: cargo
-  #                 arguments:
-  #                   - clippy
-  #                   - --
-  #                   - -D
-  #                   - warnings
-  #             input:
-  #               from:
-  #                 hash: ${ .hashes.results.rust_sources.hash }
+          # # Lint check - clippy
+          # - clippyCheck:
+          #     run:
+          #       shell:
+          #         command: cargo
+          #         arguments:
+          #           - clippy
+          #           - --
+          #           - -D
+          #           - warnings
+          #     input:
+          #       from:
+          #         hash: ${ .hashes.results.rust_sources.hash }
 
-  #         # Unit tests
-  #         - unitTests:
-  #             run:
-  #               shell:
-  #                 command: cargo
-  #                 arguments:
-  #                   - test
-  #                   - --lib
-  #             input:
-  #               from:
-  #                 hash: ${ .hashes.results.rust_sources.hash }
+          # Unit tests
+          - unitTests:
+              run:
+                shell:
+                  command: cargo
+                  arguments:
+                    - test
+              input:
+                from:
+                  hash: ${ .hashes.results.rust_sources.hash }
 
-  #         # CTK conformance tests
-  #         - ctkTests:
-  #             run:
-  #               shell:
-  #                 command: cargo
-  #                 arguments:
-  #                   - test
-  #                   - --test
-  #                   - ctk_conformance
-  #             input:
-  #               from:
-  #                 hash: ${ .hashes.results.rust_sources.hash }
+          # # CTK conformance tests
+          # - ctkTests:
+          #     run:
+          #       shell:
+          #         command: cargo
+          #         arguments:
+          #           - test
+          #           - --test
+          #           - ctk_conformance
+          #     input:
+          #       from:
+          #         hash: ${ .hashes.results.rust_sources.hash }
 
-  #         # Listener tests
-  #         - listenerTests:
-  #             run:
-  #               shell:
-  #                 command: cargo
-  #                 arguments:
-  #                   - test
-  #                   - --test
-  #                   - listener_tests
-  #             input:
-  #               from:
-  #                 hash: ${ .hashes.results.rust_sources.hash }
+          # # Listener tests
+          # - listenerTests:
+          #     run:
+          #       shell:
+          #         command: cargo
+          #         arguments:
+          #           - test
+          #           - --test
+          #           - listener_tests
+          #     input:
+          #       from:
+          #         hash: ${ .hashes.results.rust_sources.hash }
 
-  #         # Nested workflow tests
-  #         - nestedWorkflowTests:
-  #             run:
-  #               shell:
-  #                 command: cargo
-  #                 arguments:
-  #                   - test
-  #                   - --test
-  #                   - nested_workflow_tests
-  #             input:
-  #               from:
-  #                 hash: ${ .hashes.results.rust_sources.hash }
+          # # Nested workflow tests
+          # - nestedWorkflowTests:
+          #     run:
+          #       shell:
+          #         command: cargo
+          #         arguments:
+          #           - test
+          #           - --test
+          #           - nested_workflow_tests
+          #     input:
+          #       from:
+          #         hash: ${ .hashes.results.rust_sources.hash }
 
-  #         # Build release binary
-  #         - buildRelease:
-  #             run:
-  #               shell:
-  #                 command: cargo
-  #                 arguments:
-  #                   - build
-  #                   - --release
-  #             input:
-  #               from:
-  #                 hash: ${ .hashes.results.all_sources.hash }
+          # # Build release binary
+          # - buildRelease:
+          #     run:
+          #       shell:
+          #         command: cargo
+          #         arguments:
+          #           - build
+          #           - --release
+          #     input:
+          #       from:
+          #         hash: ${ .hashes.results.all_sources.hash }
 
   # # Step 3: Verify build artifacts
   # - verifyArtifacts:

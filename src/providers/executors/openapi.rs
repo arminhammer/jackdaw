@@ -1,8 +1,8 @@
-use async_trait::async_trait;
-use crate::executor::{Executor, Result, Error};
 use crate::context::Context;
+use crate::executor::{Error, Executor, Result};
+use async_trait::async_trait;
+use openapiv3::{OpenAPI, ParameterKind, ReferenceOr, VersionedOpenAPI, v2};
 use reqwest::Url;
-use openapiv3::{OpenAPI, VersionedOpenAPI, ReferenceOr, ParameterKind, v2};
 
 pub struct OpenApiExecutor(pub reqwest::Client);
 
@@ -19,16 +19,24 @@ impl Executor for OpenApiExecutor {
             .get("document")
             .and_then(|d| d.get("endpoint"))
             .and_then(|e| e.as_str())
-            .ok_or(Error::Execution { message: "No document endpoint specified".to_string() })?;
+            .ok_or(Error::Execution {
+                message: "No document endpoint specified".to_string(),
+            })?;
 
         // Extract operation ID
-        let operation_id = params
-            .get("operationId")
-            .and_then(|o| o.as_str())
-            .ok_or(Error::Execution { message: "No operationId specified".to_string() })?;
+        let operation_id =
+            params
+                .get("operationId")
+                .and_then(|o| o.as_str())
+                .ok_or(Error::Execution {
+                    message: "No operationId specified".to_string(),
+                })?;
 
         // Extract and evaluate parameters
-        let parameters_raw = params.get("parameters").cloned().unwrap_or(serde_json::json!({}));
+        let parameters_raw = params
+            .get("parameters")
+            .cloned()
+            .unwrap_or(serde_json::json!({}));
         let parameters = evaluate_parameters(&parameters_raw, ctx).await?;
 
         // Check for output mode (default is "content")
@@ -40,34 +48,73 @@ impl Executor for OpenApiExecutor {
         println!("  OpenAPI call: {} at {}", operation_id, doc_endpoint);
 
         // Fetch the OpenAPI spec
-        let spec_text = self.0.get(doc_endpoint).send().await
-            .map_err(|e| Error::Execution { message: format!("Failed to fetch OpenAPI spec: {}", e) })?
-            .text().await
-            .map_err(|e| Error::Execution { message: format!("Failed to read spec text: {}", e) })?;
+        let spec_text = self
+            .0
+            .get(doc_endpoint)
+            .send()
+            .await
+            .map_err(|e| Error::Execution {
+                message: format!("Failed to fetch OpenAPI spec: {}", e),
+            })?
+            .text()
+            .await
+            .map_err(|e| Error::Execution {
+                message: format!("Failed to read spec text: {}", e),
+            })?;
 
-        println!("  Fetched spec (first 200 chars): {}", &spec_text.chars().take(200).collect::<String>());
+        println!(
+            "  Fetched spec (first 200 chars): {}",
+            &spec_text.chars().take(200).collect::<String>()
+        );
 
         // Parse as JSON value first to check version
         let spec_value: serde_json::Value = serde_json::from_str(&spec_text)
             .or_else(|_| serde_yaml::from_str(&spec_text))
-            .map_err(|e| Error::Execution { message: format!("Failed to parse spec as JSON or YAML: {}", e) })?;
+            .map_err(|e| Error::Execution {
+                message: format!("Failed to parse spec as JSON or YAML: {}", e),
+            })?;
 
         // Check if it's a Swagger 2.0 spec and convert it manually
-        if spec_value.get("swagger").and_then(|v| v.as_str()).map(|s| s.starts_with("2.")) == Some(true) {
+        if spec_value
+            .get("swagger")
+            .and_then(|v| v.as_str())
+            .map(|s| s.starts_with("2."))
+            == Some(true)
+        {
             println!("  Detected Swagger 2.0 spec, converting to OpenAPI 3.x");
-            return execute_swagger_v2_spec(&self.0, task_name, operation_id, &parameters, &spec_value, output_mode, doc_endpoint).await;
+            return execute_swagger_v2_spec(
+                &self.0,
+                task_name,
+                operation_id,
+                &parameters,
+                &spec_value,
+                output_mode,
+                doc_endpoint,
+            )
+            .await;
         }
 
         // Try to parse as VersionedOpenAPI (fallback)
-        let versioned_spec: VersionedOpenAPI = serde_json::from_value(spec_value.clone())
-            .map_err(|e| Error::Execution { message: format!("Failed to deserialize as OpenAPI spec: {}", e) })?;
+        let versioned_spec: VersionedOpenAPI =
+            serde_json::from_value(spec_value.clone()).map_err(|e| Error::Execution {
+                message: format!("Failed to deserialize as OpenAPI spec: {}", e),
+            })?;
 
         // Upgrade to OpenAPI 3.x if it's a Swagger 2.0 spec
         let spec: OpenAPI = versioned_spec.upgrade();
 
         println!("  Parsed OpenAPI spec successfully");
 
-        execute_openapi_v3_spec(&self.0, task_name, operation_id, &parameters, &spec, output_mode, doc_endpoint).await
+        execute_openapi_v3_spec(
+            &self.0,
+            task_name,
+            operation_id,
+            &parameters,
+            &spec,
+            output_mode,
+            doc_endpoint,
+        )
+        .await
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
@@ -85,9 +132,12 @@ async fn execute_swagger_v2_spec(
     doc_endpoint: &str,
 ) -> Result<serde_json::Value> {
     // Find operation by operationId in the spec
-    let paths = spec_value.get("paths")
+    let paths = spec_value
+        .get("paths")
         .and_then(|p| p.as_object())
-        .ok_or(Error::Execution { message: "No paths in Swagger spec".to_string() })?;
+        .ok_or(Error::Execution {
+            message: "No paths in Swagger spec".to_string(),
+        })?;
 
     let mut found_operation: Option<(&str, &str, &serde_json::Value)> = None;
 
@@ -107,17 +157,20 @@ async fn execute_swagger_v2_spec(
         }
     }
 
-    let (path_pattern, method, operation) = found_operation
-        .ok_or(Error::Execution { message: format!("Operation '{}' not found in Swagger spec", operation_id) })?;
+    let (path_pattern, method, operation) = found_operation.ok_or(Error::Execution {
+        message: format!("Operation '{}' not found in Swagger spec", operation_id),
+    })?;
 
     // Build base URL
-    let schemes = spec_value.get("schemes")
+    let schemes = spec_value
+        .get("schemes")
         .and_then(|s| s.as_array())
         .and_then(|arr| arr.first())
         .and_then(|v| v.as_str())
         .unwrap_or("https");
 
-    let host = spec_value.get("host")
+    let host = spec_value
+        .get("host")
         .and_then(|h| h.as_str())
         .map(|s| s.to_string())
         .or_else(|| {
@@ -128,7 +181,8 @@ async fn execute_swagger_v2_spec(
         })
         .unwrap_or_default();
 
-    let base_path = spec_value.get("basePath")
+    let base_path = spec_value
+        .get("basePath")
         .and_then(|b| b.as_str())
         .unwrap_or("");
 
@@ -175,17 +229,53 @@ async fn execute_swagger_v2_spec(
 
     // Make the HTTP request
     let response = match method.to_uppercase().as_str() {
-        "GET" => client.get(&url).send().await.map_err(|e| Error::Execution { message: format!("Request failed: {}", e) })?,
+        "GET" => client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| Error::Execution {
+                message: format!("Request failed: {}", e),
+            })?,
         "POST" => {
-            let body = parameters.get("body").cloned().unwrap_or(serde_json::json!({}));
-            client.post(&url).json(&body).send().await.map_err(|e| Error::Execution { message: format!("Request failed: {}", e) })?
+            let body = parameters
+                .get("body")
+                .cloned()
+                .unwrap_or(serde_json::json!({}));
+            client
+                .post(&url)
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| Error::Execution {
+                    message: format!("Request failed: {}", e),
+                })?
         }
         "PUT" => {
-            let body = parameters.get("body").cloned().unwrap_or(serde_json::json!({}));
-            client.put(&url).json(&body).send().await.map_err(|e| Error::Execution { message: format!("Request failed: {}", e) })?
+            let body = parameters
+                .get("body")
+                .cloned()
+                .unwrap_or(serde_json::json!({}));
+            client
+                .put(&url)
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| Error::Execution {
+                    message: format!("Request failed: {}", e),
+                })?
         }
-        "DELETE" => client.delete(&url).send().await.map_err(|e| Error::Execution { message: format!("Request failed: {}", e) })?,
-        _ => return Err(Error::Execution { message: format!("Unsupported HTTP method: {}", method) }),
+        "DELETE" => client
+            .delete(&url)
+            .send()
+            .await
+            .map_err(|e| Error::Execution {
+                message: format!("Request failed: {}", e),
+            })?,
+        _ => {
+            return Err(Error::Execution {
+                message: format!("Unsupported HTTP method: {}", method),
+            });
+        }
     };
 
     let status = response.status();
@@ -202,16 +292,20 @@ async fn execute_swagger_v2_spec(
             "instance": format!("/do/0/{}", task_name)
         });
         return Err(Error::Execution {
-            message: serde_json::to_string(&error_obj)
-                .map_err(|e| Error::Execution { message: format!("Failed to serialize error: {}", e) })?
+            message: serde_json::to_string(&error_obj).map_err(|e| Error::Execution {
+                message: format!("Failed to serialize error: {}", e),
+            })?,
         });
     }
 
     // Get response body
-    let body_text = response.text().await.map_err(|e| Error::Execution { message: format!("Failed to read response body: {}", e) })?;
+    let body_text = response.text().await.map_err(|e| Error::Execution {
+        message: format!("Failed to read response body: {}", e),
+    })?;
 
     // Try to parse as JSON
-    let content_type = headers.get("content-type")
+    let content_type = headers
+        .get("content-type")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
 
@@ -225,12 +319,7 @@ async fn execute_swagger_v2_spec(
     let result = if output_mode == "response" {
         let headers_map: serde_json::Map<String, serde_json::Value> = headers
             .iter()
-            .map(|(k, v)| {
-                (
-                    k.to_string(),
-                    serde_json::json!(v.to_str().unwrap_or("")),
-                )
-            })
+            .map(|(k, v)| (k.to_string(), serde_json::json!(v.to_str().unwrap_or(""))))
             .collect();
 
         serde_json::json!({
@@ -260,15 +349,19 @@ async fn execute_openapi_v3_spec(
     doc_endpoint: &str,
 ) -> Result<serde_json::Value> {
     // Find operation by operationId
-    let (path_pattern, method, operation) = find_operation(spec, operation_id)
-        .ok_or(Error::Execution { message: format!("Operation '{}' not found in OpenAPI spec", operation_id) })?;
+    let (path_pattern, method, operation) =
+        find_operation(spec, operation_id).ok_or(Error::Execution {
+            message: format!("Operation '{}' not found in OpenAPI spec", operation_id),
+        })?;
 
     // Build base URL
     let base_url = if !spec.servers.is_empty() {
         spec.servers.first().map(|s| s.url.as_str()).unwrap_or("")
     } else {
         // Extract from doc endpoint
-        let url = Url::parse(doc_endpoint).map_err(|e| Error::Execution { message: format!("Failed to parse doc endpoint URL: {}", e) })?;
+        let url = Url::parse(doc_endpoint).map_err(|e| Error::Execution {
+            message: format!("Failed to parse doc endpoint URL: {}", e),
+        })?;
         &format!("{}://{}", url.scheme(), url.host_str().unwrap_or(""))
     };
 
@@ -310,17 +403,53 @@ async fn execute_openapi_v3_spec(
 
     // Make the HTTP request
     let response = match method.to_uppercase().as_str() {
-        "GET" => client.get(&url).send().await.map_err(|e| Error::Execution { message: format!("Request failed: {}", e) })?,
+        "GET" => client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| Error::Execution {
+                message: format!("Request failed: {}", e),
+            })?,
         "POST" => {
-            let body = parameters.get("body").cloned().unwrap_or(serde_json::json!({}));
-            client.post(&url).json(&body).send().await.map_err(|e| Error::Execution { message: format!("Request failed: {}", e) })?
+            let body = parameters
+                .get("body")
+                .cloned()
+                .unwrap_or(serde_json::json!({}));
+            client
+                .post(&url)
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| Error::Execution {
+                    message: format!("Request failed: {}", e),
+                })?
         }
         "PUT" => {
-            let body = parameters.get("body").cloned().unwrap_or(serde_json::json!({}));
-            client.put(&url).json(&body).send().await.map_err(|e| Error::Execution { message: format!("Request failed: {}", e) })?
+            let body = parameters
+                .get("body")
+                .cloned()
+                .unwrap_or(serde_json::json!({}));
+            client
+                .put(&url)
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| Error::Execution {
+                    message: format!("Request failed: {}", e),
+                })?
         }
-        "DELETE" => client.delete(&url).send().await.map_err(|e| Error::Execution { message: format!("Request failed: {}", e) })?,
-        _ => return Err(Error::Execution { message: format!("Unsupported HTTP method: {}", method) }),
+        "DELETE" => client
+            .delete(&url)
+            .send()
+            .await
+            .map_err(|e| Error::Execution {
+                message: format!("Request failed: {}", e),
+            })?,
+        _ => {
+            return Err(Error::Execution {
+                message: format!("Unsupported HTTP method: {}", method),
+            });
+        }
     };
 
     let status = response.status();
@@ -337,16 +466,20 @@ async fn execute_openapi_v3_spec(
             "instance": format!("/do/0/{}", task_name)
         });
         return Err(Error::Execution {
-            message: serde_json::to_string(&error_obj)
-                .map_err(|e| Error::Execution { message: format!("Failed to serialize error: {}", e) })?
+            message: serde_json::to_string(&error_obj).map_err(|e| Error::Execution {
+                message: format!("Failed to serialize error: {}", e),
+            })?,
         });
     }
 
     // Get response body
-    let body_text = response.text().await.map_err(|e| Error::Execution { message: format!("Failed to read response body: {}", e) })?;
+    let body_text = response.text().await.map_err(|e| Error::Execution {
+        message: format!("Failed to read response body: {}", e),
+    })?;
 
     // Try to parse as JSON
-    let content_type = headers.get("content-type")
+    let content_type = headers
+        .get("content-type")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
 
@@ -360,12 +493,7 @@ async fn execute_openapi_v3_spec(
     let result = if output_mode == "response" {
         let headers_map: serde_json::Map<String, serde_json::Value> = headers
             .iter()
-            .map(|(k, v)| {
-                (
-                    k.to_string(),
-                    serde_json::json!(v.to_str().unwrap_or("")),
-                )
-            })
+            .map(|(k, v)| (k.to_string(), serde_json::json!(v.to_str().unwrap_or(""))))
             .collect();
 
         serde_json::json!({
@@ -430,8 +558,14 @@ async fn evaluate_parameters(
         let current_data = ctx.data.read().await.clone();
 
         for (key, value) in obj {
-            let evaluated = crate::expressions::evaluate_value_with_input(value, &current_data, &ctx.initial_input)
-                .map_err(|e| Error::Execution { message: format!("Failed to evaluate parameter '{}': {}", key, e) })?;
+            let evaluated = crate::expressions::evaluate_value_with_input(
+                value,
+                &current_data,
+                &ctx.initial_input,
+            )
+            .map_err(|e| Error::Execution {
+                message: format!("Failed to evaluate parameter '{}': {}", key, e),
+            })?;
             result.insert(key.clone(), evaluated);
         }
 

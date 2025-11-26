@@ -74,12 +74,7 @@ pub struct WorkflowDescriptor {
 }
 
 impl WorkflowDescriptor {
-    pub fn new(
-        id: String,
-        definition: Value,
-        input: Value,
-        started_at: DateTime<Utc>,
-    ) -> Self {
+    pub fn new(id: String, definition: Value, input: Value, started_at: DateTime<Utc>) -> Self {
         Self {
             id,
             definition,

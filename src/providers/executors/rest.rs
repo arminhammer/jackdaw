@@ -1,5 +1,5 @@
 use crate::context::Context;
-use crate::executor::{Executor, Result, Error};
+use crate::executor::{Error, Executor, Result};
 use async_trait::async_trait;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 
@@ -21,15 +21,23 @@ impl Executor for RestExecutor {
                     let uri = obj
                         .get("uri")
                         .and_then(|v| v.as_str())
-                        .ok_or(Error::Execution { message: "No 'uri' field in endpoint object".to_string() })?
+                        .ok_or(Error::Execution {
+                            message: "No 'uri' field in endpoint object".to_string(),
+                        })?
                         .to_string();
                     let auth = obj.get("authentication").cloned();
                     (uri, auth)
                 }
-                _ => return Err(Error::Execution { message: "Invalid endpoint format".to_string() }),
+                _ => {
+                    return Err(Error::Execution {
+                        message: "Invalid endpoint format".to_string(),
+                    });
+                }
             }
         } else {
-            return Err(Error::Execution { message: "No endpoint specified".to_string() });
+            return Err(Error::Execution {
+                message: "No endpoint specified".to_string(),
+            });
         };
 
         // Interpolate path parameters from context if needed
@@ -88,14 +96,18 @@ impl Executor for RestExecutor {
 
                     // Return error as JSON string
                     return Err(Error::Execution {
-                        message: serde_json::to_string(&error_obj)
-                            .map_err(|e| Error::Execution { message: format!("Failed to serialize error: {}", e) })?
+                        message: serde_json::to_string(&error_obj).map_err(|e| {
+                            Error::Execution {
+                                message: format!("Failed to serialize error: {}", e),
+                            }
+                        })?,
                     });
                 }
 
                 // Get response body
-                let body_text = response.text().await
-                    .map_err(|e| Error::Execution { message: format!("Failed to read response body: {}", e) })?;
+                let body_text = response.text().await.map_err(|e| Error::Execution {
+                    message: format!("Failed to read response body: {}", e),
+                })?;
 
                 // Try to parse as JSON if content-type is application/json
                 let content_type = headers
@@ -145,8 +157,9 @@ impl Executor for RestExecutor {
                 });
 
                 Err(Error::Execution {
-                    message: serde_json::to_string(&error_obj)
-                        .map_err(|e| Error::Execution { message: format!("Failed to serialize error: {}", e) })?
+                    message: serde_json::to_string(&error_obj).map_err(|e| Error::Execution {
+                        message: format!("Failed to serialize error: {}", e),
+                    })?,
                 })
             }
         }
@@ -172,10 +185,14 @@ async fn apply_authentication(
                 &current_data,
                 &ctx.initial_input,
             )
-            .map_err(|e| Error::Execution { message: format!("Failed to evaluate username expression: {}", e) })?;
+            .map_err(|e| Error::Execution {
+                message: format!("Failed to evaluate username expression: {}", e),
+            })?;
             evaluated.as_str().unwrap_or("").to_string()
         } else {
-            return Err(Error::Execution { message: "No username in basic auth".to_string() });
+            return Err(Error::Execution {
+                message: "No username in basic auth".to_string(),
+            });
         };
 
         let password = if let Some(password_expr) = basic.get("password") {
@@ -186,10 +203,14 @@ async fn apply_authentication(
                 &current_data,
                 &ctx.initial_input,
             )
-            .map_err(|e| Error::Execution { message: format!("Failed to evaluate password expression: {}", e) })?;
+            .map_err(|e| Error::Execution {
+                message: format!("Failed to evaluate password expression: {}", e),
+            })?;
             evaluated.as_str().unwrap_or("").to_string()
         } else {
-            return Err(Error::Execution { message: "No password in basic auth".to_string() });
+            return Err(Error::Execution {
+                message: "No password in basic auth".to_string(),
+            });
         };
 
         Ok(request.basic_auth(username, Some(password)))

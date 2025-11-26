@@ -123,7 +123,5 @@ async fn then_workflow_completes(world: &mut CtKWorld) {
 #[tokio::main]
 async fn main() {
     // Run all features together with a single consolidated summary
-    CtKWorld::cucumber()
-        .run("ctk/ctk/features/")
-        .await;
+    CtKWorld::cucumber().run("ctk/ctk/features/").await;
 }

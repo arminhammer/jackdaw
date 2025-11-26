@@ -1,6 +1,6 @@
 use crate::ListenerWorld;
 use crate::common::parse_docstring;
-use cucumber::{given, when, then};
+use cucumber::{given, then, when};
 use serde_json::Value;
 use serverless_workflow_core::models::workflow::WorkflowDefinition;
 
@@ -14,7 +14,11 @@ fn parse_request_body(text: &str) -> serde_json::Value {
 
 // HTTP POST Python Add request
 #[given(regex = r#"^(?:given )?the HTTP POST python add request body for "([^"]+)" is:$"#)]
-async fn given_http_post_python_add_request(world: &mut ListenerWorld, path: String, step: &cucumber::gherkin::Step) {
+async fn given_http_post_python_add_request(
+    world: &mut ListenerWorld,
+    path: String,
+    step: &cucumber::gherkin::Step,
+) {
     let request_text = parse_docstring(step.docstring.as_ref().unwrap());
     let request = parse_request_body(&request_text);
     world.http_requests.insert(path, request);
@@ -22,7 +26,11 @@ async fn given_http_post_python_add_request(world: &mut ListenerWorld, path: Str
 
 // HTTP POST Python Multiply request
 #[given(regex = r#"^(?:given )?the HTTP POST python multiply request body for "([^"]+)" is:$"#)]
-async fn given_http_post_python_multiply_request(world: &mut ListenerWorld, path: String, step: &cucumber::gherkin::Step) {
+async fn given_http_post_python_multiply_request(
+    world: &mut ListenerWorld,
+    path: String,
+    step: &cucumber::gherkin::Step,
+) {
     let request_text = parse_docstring(step.docstring.as_ref().unwrap());
     let request = parse_request_body(&request_text);
     world.http_requests.insert(path, request);
@@ -30,7 +38,11 @@ async fn given_http_post_python_multiply_request(world: &mut ListenerWorld, path
 
 // HTTP POST TypeScript Add request
 #[given(regex = r#"^(?:given )?the HTTP POST typescript add request body for "([^"]+)" is:$"#)]
-async fn given_http_post_typescript_add_request(world: &mut ListenerWorld, path: String, step: &cucumber::gherkin::Step) {
+async fn given_http_post_typescript_add_request(
+    world: &mut ListenerWorld,
+    path: String,
+    step: &cucumber::gherkin::Step,
+) {
     let request_text = parse_docstring(step.docstring.as_ref().unwrap());
     let request = parse_request_body(&request_text);
     world.http_requests.insert(path, request);
@@ -38,7 +50,11 @@ async fn given_http_post_typescript_add_request(world: &mut ListenerWorld, path:
 
 // HTTP POST TypeScript Multiply request
 #[given(regex = r#"^(?:given )?the HTTP POST typescript multiply request body for "([^"]+)" is:$"#)]
-async fn given_http_post_typescript_multiply_request(world: &mut ListenerWorld, path: String, step: &cucumber::gherkin::Step) {
+async fn given_http_post_typescript_multiply_request(
+    world: &mut ListenerWorld,
+    path: String,
+    step: &cucumber::gherkin::Step,
+) {
     let request_text = parse_docstring(step.docstring.as_ref().unwrap());
     let request = parse_request_body(&request_text);
     world.http_requests.insert(path, request);
@@ -49,12 +65,18 @@ async fn given_http_post_typescript_multiply_request(world: &mut ListenerWorld, 
 async fn when_http_python_add_endpoint_called(world: &mut ListenerWorld, path: String) {
     // First, start the workflow if it hasn't been started yet
     if world.instance_id.is_none() {
-        let workflow_yaml = world.workflow_definition.as_ref().expect("No workflow definition");
-        let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml)
-            .expect("Failed to parse workflow");
+        let workflow_yaml = world
+            .workflow_definition
+            .as_ref()
+            .expect("No workflow definition");
+        let workflow: WorkflowDefinition =
+            serde_yaml::from_str(workflow_yaml).expect("Failed to parse workflow");
 
         let engine = world.engine.as_ref().expect("No engine");
-        let instance_id = engine.start(workflow).await.expect("Failed to start workflow");
+        let instance_id = engine
+            .start(workflow)
+            .await
+            .expect("Failed to start workflow");
 
         // Wait a bit for listeners to start
         tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
@@ -64,11 +86,16 @@ async fn when_http_python_add_endpoint_called(world: &mut ListenerWorld, path: S
 
     // Extract just the path from "POST /api/v1/add"
     let path_only = path.split_whitespace().last().unwrap_or(&path);
-    let request = world.http_requests.get(path_only).cloned().unwrap_or(serde_json::json!({}));
+    let request = world
+        .http_requests
+        .get(path_only)
+        .cloned()
+        .unwrap_or(serde_json::json!({}));
 
     // Send HTTP request to the listener
     let client = reqwest::Client::new();
-    let response = client.post(&format!("http://localhost:8080{}", path_only))
+    let response = client
+        .post(&format!("http://localhost:8080{}", path_only))
         .json(&request)
         .send()
         .await
@@ -105,16 +132,24 @@ async fn when_http_typescript_multiply_endpoint_called(world: &mut ListenerWorld
 // HTTP response status verification
 #[then(regex = r#"^the HTTP response status should be (\d+)$"#)]
 async fn then_http_response_status(world: &mut ListenerWorld, expected_status: u16) {
-    let actual_status = world.http_response_status.expect("No HTTP response status recorded");
+    let actual_status = world
+        .http_response_status
+        .expect("No HTTP response status recorded");
 
     // If status is 500, print the error response for debugging
     if actual_status == 500 {
         if let Some(response_body) = world.http_responses.values().last() {
-            eprintln!("HTTP 500 error response: {}", serde_json::to_string_pretty(response_body).unwrap());
+            eprintln!(
+                "HTTP 500 error response: {}",
+                serde_json::to_string_pretty(response_body).unwrap()
+            );
         }
     }
 
-    assert_eq!(actual_status, expected_status, "HTTP response status mismatch");
+    assert_eq!(
+        actual_status, expected_status,
+        "HTTP response status mismatch"
+    );
 }
 
 // HTTP response body verification
@@ -124,7 +159,11 @@ async fn then_http_response_body(world: &mut ListenerWorld, step: &cucumber::ghe
     let expected: serde_json::Value = parse_request_body(&expected_text);
 
     // Get the last response (we should have only one in the simple case)
-    let actual = world.http_responses.values().last().expect("No HTTP response recorded");
+    let actual = world
+        .http_responses
+        .values()
+        .last()
+        .expect("No HTTP response recorded");
 
     assert_eq!(actual, &expected, "HTTP response body mismatch");
 }
