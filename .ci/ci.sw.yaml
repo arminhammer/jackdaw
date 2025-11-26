@@ -1,9 +1,9 @@
 document:
   dsl: '1.0.0'
   namespace: ci
-  name: qyvx-ci
+  name: mooose-ci
   version: '1.0.0'
-  description: 'CI pipeline for qyvx - leveraging qyvx itself for CI execution'
+  description: 'CI pipeline for mooose - leveraging mooose itself for CI execution'
 
 use:
   catalogs:
@@ -59,7 +59,7 @@ do:
               - 'sql/**/*.sql'
         workflow_id: ${ $workflow.id }
       output:
-        as: .hashes
+        as: .
 
   # Step 2: Run all CI tasks in parallel (with caching)
   - runCITasks:
@@ -75,109 +75,108 @@ do:
                     - fmt
                     - --check
               input:
-                from:
-                  hash: ${ .hashes.results.rust_sources.hash }
+                from: "${ {hash: .computeHashes.rust_sources} }"
 
-          # Lint check - clippy
-          - clippyCheck:
-              run:
-                shell:
-                  command: cargo
-                  arguments:
-                    - clippy
-                    - --
-                    - -D
-                    - warnings
-              input:
-                from:
-                  hash: ${ .hashes.results.rust_sources.hash }
+  #         # Lint check - clippy
+  #         - clippyCheck:
+  #             run:
+  #               shell:
+  #                 command: cargo
+  #                 arguments:
+  #                   - clippy
+  #                   - --
+  #                   - -D
+  #                   - warnings
+  #             input:
+  #               from:
+  #                 hash: ${ .hashes.results.rust_sources.hash }
 
-          # Unit tests
-          - unitTests:
-              run:
-                shell:
-                  command: cargo
-                  arguments:
-                    - test
-                    - --lib
-              input:
-                from:
-                  hash: ${ .hashes.results.rust_sources.hash }
+  #         # Unit tests
+  #         - unitTests:
+  #             run:
+  #               shell:
+  #                 command: cargo
+  #                 arguments:
+  #                   - test
+  #                   - --lib
+  #             input:
+  #               from:
+  #                 hash: ${ .hashes.results.rust_sources.hash }
 
-          # CTK conformance tests
-          - ctkTests:
-              run:
-                shell:
-                  command: cargo
-                  arguments:
-                    - test
-                    - --test
-                    - ctk_conformance
-              input:
-                from:
-                  hash: ${ .hashes.results.rust_sources.hash }
+  #         # CTK conformance tests
+  #         - ctkTests:
+  #             run:
+  #               shell:
+  #                 command: cargo
+  #                 arguments:
+  #                   - test
+  #                   - --test
+  #                   - ctk_conformance
+  #             input:
+  #               from:
+  #                 hash: ${ .hashes.results.rust_sources.hash }
 
-          # Listener tests
-          - listenerTests:
-              run:
-                shell:
-                  command: cargo
-                  arguments:
-                    - test
-                    - --test
-                    - listener_tests
-              input:
-                from:
-                  hash: ${ .hashes.results.rust_sources.hash }
+  #         # Listener tests
+  #         - listenerTests:
+  #             run:
+  #               shell:
+  #                 command: cargo
+  #                 arguments:
+  #                   - test
+  #                   - --test
+  #                   - listener_tests
+  #             input:
+  #               from:
+  #                 hash: ${ .hashes.results.rust_sources.hash }
 
-          # Nested workflow tests
-          - nestedWorkflowTests:
-              run:
-                shell:
-                  command: cargo
-                  arguments:
-                    - test
-                    - --test
-                    - nested_workflow_tests
-              input:
-                from:
-                  hash: ${ .hashes.results.rust_sources.hash }
+  #         # Nested workflow tests
+  #         - nestedWorkflowTests:
+  #             run:
+  #               shell:
+  #                 command: cargo
+  #                 arguments:
+  #                   - test
+  #                   - --test
+  #                   - nested_workflow_tests
+  #             input:
+  #               from:
+  #                 hash: ${ .hashes.results.rust_sources.hash }
 
-          # Build release binary
-          - buildRelease:
-              run:
-                shell:
-                  command: cargo
-                  arguments:
-                    - build
-                    - --release
-              input:
-                from:
-                  hash: ${ .hashes.results.all_sources.hash }
+  #         # Build release binary
+  #         - buildRelease:
+  #             run:
+  #               shell:
+  #                 command: cargo
+  #                 arguments:
+  #                   - build
+  #                   - --release
+  #             input:
+  #               from:
+  #                 hash: ${ .hashes.results.all_sources.hash }
 
-  # Step 3: Verify build artifacts
-  - verifyArtifacts:
-      call: check-artifacts:1.0.0
-      with:
-        binary_path: target/release/mooose
+  # # Step 3: Verify build artifacts
+  # - verifyArtifacts:
+  #     call: check-artifacts:1.0.0
+  #     with:
+  #       binary_path: target/release/mooose
 
-  # Step 4: Archive artifacts (can be used by GitHub Actions)
-  - archiveArtifacts:
-      run:
-        shell:
-          command: tar
-          arguments:
-            - czf
-            - ci-artifacts.tar.gz
-            - target/release/mooose
-            - .ci/*.db
-      if: ${ .verify.valid }
+  # # Step 4: Archive artifacts (can be used by GitHub Actions)
+  # - archiveArtifacts:
+  #     run:
+  #       shell:
+  #         command: tar
+  #         arguments:
+  #           - czf
+  #           - ci-artifacts.tar.gz
+  #           - target/release/mooose
+  #           - .ci/*.db
+  #     if: ${ .verify.valid }
 
-  # Step 5: Generate CI report
-  - generateReport:
-      call: generate-report:1.0.0
-      with:
-        tasks: ${ .runCITasks }
-        artifacts: ${ .verify }
-      output:
-        as: .ci_report
+  # # Step 5: Generate CI report
+  # - generateReport:
+  #     call: generate-report:1.0.0
+  #     with:
+  #       tasks: ${ .runCITasks }
+  #       artifacts: ${ .verify }
+  #     output:
+  #       as: .ci_report

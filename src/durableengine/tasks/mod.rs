@@ -115,8 +115,11 @@ impl DurableEngine {
             if let Some(from_expr) = &input.from {
                 if let Some(expr_str) = from_expr.as_str() {
                     let current_data = ctx.data.read().await.clone();
-                    let filtered =
-                        crate::expressions::evaluate_jq_expression(expr_str, &current_data)?;
+                    let filtered = crate::expressions::evaluate_expression_with_input(
+                        expr_str,
+                        &current_data,
+                        &ctx.initial_input,
+                    )?;
                     *ctx.data.write().await = filtered;
                     return Ok(true);
                 }

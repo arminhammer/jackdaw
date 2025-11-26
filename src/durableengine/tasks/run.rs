@@ -14,8 +14,24 @@ pub async fn exec_run_task(
     run_task: &serverless_workflow_core::models::task::RunTaskDefinition,
     ctx: &Context,
 ) -> Result<serde_json::Value> {
+    // Evaluate expressions in the run task definition before computing cache key
+    // This ensures that expressions like $workflow.id are evaluated to their actual values
+    let current_data = ctx.data.read().await.clone();
     let params = serde_json::to_value(&run_task.run)?;
-    let cache_key = compute_cache_key(task_name, &params);
+    let evaluated_params = crate::expressions::evaluate_value_with_input(
+        &params,
+        &current_data,
+        &ctx.initial_input,
+    )?;
+
+    // Combine task definition with current context data for cache key
+    // This ensures that input.from filters affect caching
+    let cache_params = serde_json::json!({
+        "task": evaluated_params,
+        "input": current_data
+    });
+
+    let cache_key = compute_cache_key(task_name, &cache_params);
 
     if let Some(cached) = ctx.cache.get(&cache_key).await? {
         output::format_cache_hit(
@@ -64,13 +80,12 @@ pub async fn exec_run_task(
         )?;
 
         // Execute the nested workflow
-        let instance_id = engine.start_with_input(workflow, evaluated_input).await?;
+        let (instance_id, final_data) = engine.start_with_input(workflow, evaluated_input).await?;
 
         // Wait for completion if await is true (default)
         let should_await = run_task.run.await_.unwrap_or(true);
         if should_await {
-            engine.wait_for_completion(&instance_id, std::time::Duration::from_secs(300))
-                .await?
+            final_data
         } else {
             serde_json::json!({ "instance_id": instance_id })
         }
@@ -146,7 +161,7 @@ pub async fn exec_run_task(
 
     let cache_entry = CacheEntry {
         key: cache_key.clone(),
-        inputs: params,
+        inputs: evaluated_params,
         output: result.clone(),
         timestamp: Utc::now(),
     };

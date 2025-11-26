@@ -193,8 +193,8 @@ async fn execute_workflow(
         pb.set_message(format!("Executing {}", workflow.document.name));
     }
 
-    // Execute workflow
-    let instance_id = engine.start(workflow.clone()).await?;
+    // Execute workflow - returns both instance_id and final result
+    let (instance_id, result) = engine.start_with_input(workflow.clone(), serde_json::json!({})).await?;
 
     if verbose {
         println!(
@@ -204,9 +204,6 @@ async fn execute_workflow(
             instance_id
         );
     }
-
-    // Get final result
-    let result = engine.resume(workflow.clone(), instance_id.clone()).await?;
 
     if let Some(pb) = progress {
         pb.finish_with_message(format!("Completed {}", workflow_path.display()));
