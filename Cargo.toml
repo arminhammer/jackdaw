@@ -16,7 +16,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 indicatif = "0.17"
 indicatif-log-bridge = "0.2"
 snafu = "0.8.9"
-serverless_workflow_core = "1.0.0-alpha6.3"
+serverless_workflow_core = { git = "https://github.com/serverlessworkflow/sdk-rust.git", rev = "e2cf5179a74898b09461d90d06c6c800695a18cb" }
 console = "0.15"
 tempfile = "3"
 chrono = { version = "0.4", features = ["serde"] }

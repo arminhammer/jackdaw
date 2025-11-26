@@ -43,52 +43,10 @@ pub fn evaluate_expression_with_input(
     }
 
     let mut jq_expr = expr[2..expr.len() - 1].trim().to_string();
-
-    // Build evaluation context
-    // If context is an object, we can add special variables to it
-    // If context is a scalar, we keep it as-is and pass special variables through jaq vars
-    let eval_context = if let Some(obj) = context.as_object() {
-        let mut combined = obj.clone();
-
-        // Handle $input
-        if jq_expr.contains("$input") {
-            combined.insert("input".to_string(), input.clone());
-            jq_expr = jq_expr.replace("$input", ".input");
-        }
-
-        // Handle $workflow - check if workflow descriptor is in context
-        if jq_expr.contains("$workflow") {
-            if let Some(workflow_desc) = combined.get("__workflow").cloned() {
-                combined.insert("workflow".to_string(), workflow_desc);
-            }
-            jq_expr = jq_expr.replace("$workflow", ".workflow");
-        }
-
-        // Handle $runtime - check if runtime descriptor is in context
-        if jq_expr.contains("$runtime") {
-            if let Some(runtime_desc) = combined.get("__runtime").cloned() {
-                combined.insert("runtime".to_string(), runtime_desc);
-            }
-            jq_expr = jq_expr.replace("$runtime", ".runtime");
-        }
-
-        // Replace $varname with .varname for variables that exist as top-level fields in context
-        for key in combined.keys() {
-            let var_ref = format!("${}", key);
-            let field_ref = format!(".{}", key);
-            jq_expr = jq_expr.replace(&var_ref, &field_ref);
-        }
-
-        Value::Object(combined)
-    } else {
-        // Context is not an object (e.g., a string after input filtering)
-        // Keep it as-is and special variables will be handled via jaq vars if needed
-        context.clone()
-    };
-
+    
     // Null-safe array operations: wrap field accesses before + with // []
     // This handles cases like: (.processed.colors + [x]) -> (((.processed // {}).colors // []) + [x])
-    // First, wrap parent object accesses: .processed.colors -> (.processed // {}).colors
+    // Do this BEFORE variable binding to avoid interfering with the binding syntax
     use regex::Regex;
     let re_parent = Regex::new(r"(\.[a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)").unwrap();
     jq_expr = re_parent
@@ -106,12 +64,64 @@ pub fn evaluate_expression_with_input(
         })
         .to_string();
 
-    debug!("  Evaluating jq expression: {}", jq_expr);
+    // Build evaluation context and bind variables
+    // We need to detect which $variables are used and bind them using jaq's 'as' syntax
+    let eval_context = if let Some(obj) = context.as_object() {
+        let mut combined = obj.clone();
+        let mut var_bindings = Vec::new();
 
+        // Handle $input
+        if jq_expr.contains("$input") {
+            combined.insert("input".to_string(), input.clone());
+            var_bindings.push("input".to_string());
+        }
+
+        // Handle $workflow - check if workflow descriptor is in context
+        if jq_expr.contains("$workflow") {
+            if let Some(workflow_desc) = combined.get("__workflow").cloned() {
+                combined.insert("workflow".to_string(), workflow_desc);
+            }
+            var_bindings.push("workflow".to_string());
+        }
+
+        // Handle $runtime - check if runtime descriptor is in context
+        if jq_expr.contains("$runtime") {
+            if let Some(runtime_desc) = combined.get("__runtime").cloned() {
+                combined.insert("runtime".to_string(), runtime_desc);
+            }
+            var_bindings.push("runtime".to_string());
+        }
+
+        // Detect all $varname references in the expression
+        let var_regex = Regex::new(r"\$([a-zA-Z_][a-zA-Z0-9_]*)").unwrap();
+        for cap in var_regex.captures_iter(&jq_expr.clone()) {
+            let var_name = &cap[1];
+            // Only bind if the variable exists in context and we haven't already added it
+            if combined.contains_key(var_name) && !var_bindings.contains(&var_name.to_string()) {
+                var_bindings.push(var_name.to_string());
+             }
+        }
+
+        // Build the variable bindings at the start of the expression
+        // Format: .varname as $varname | .var2 as $var2 | <original expression>
+        if !var_bindings.is_empty() {
+            let bindings: Vec<String> = var_bindings
+                .iter()
+                .map(|v| format!(".{} as ${}", v, v))
+                .collect();
+            jq_expr = format!("{} | {}", bindings.join(" | "), jq_expr);
+        }
+
+        Value::Object(combined)
+    } else {
+        // Context is not an object (e.g., a string after input filtering)
+        // Keep it as-is and special variables will be handled via jaq vars if needed
+        context.clone()
+    };
+
+    debug!("  Evaluating jq expression: {}", jq_expr);
+ 
     let result = evaluate_jq(&jq_expr, &eval_context);
-    if let Err(ref e) = result {
-        println!("  Expression evaluation error: {}", e);
-    }
     result
 }
 
