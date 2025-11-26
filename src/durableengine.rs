@@ -456,28 +456,19 @@ impl DurableEngine {
         let data_was_modified = *ctx.data_modified.read().await;
         if data_was_modified {
             if let Some(obj) = final_data.as_object_mut() {
-                eprintln!("DEBUG: Before cleanup - keys: {:?}", obj.keys().collect::<Vec<_>>());
-
                 // Remove internal metadata fields before checking length
                 obj.remove("__workflow");
                 obj.remove("__runtime");
 
                 if let Some(input_obj) = ctx.initial_input.as_object() {
                     let task_output_keys = ctx.task_output_keys.read().await;
-                    eprintln!("DEBUG: Input keys: {:?}, Task output keys: {:?}",
-                        input_obj.keys().collect::<Vec<_>>(),
-                        task_output_keys.iter().collect::<Vec<_>>());
                     for key in input_obj.keys() {
                         // Only remove input keys that weren't set by tasks
                         if !task_output_keys.contains(key) {
-                            eprintln!("DEBUG: Removing input key: {}", key);
                             obj.remove(key);
                         }
                     }
                 }
-
-                eprintln!("DEBUG: After cleanup - keys: {:?}, length: {}",
-                    obj.keys().collect::<Vec<_>>(), obj.len());
 
                 // If there's only one task output key that's a scalar from output filtering, unwrap it
                 if obj.len() == 1 {
@@ -485,7 +476,6 @@ impl DurableEngine {
                         let scalar_tasks = ctx.scalar_output_tasks.read().await;
                         // Unwrap if it's a scalar value from output filtering
                         if scalar_tasks.contains(key) && !value.is_object() && !value.is_array() {
-                            eprintln!("DEBUG: Unwrapping scalar task output: {} = {:?}", key, value);
                             final_data = value.clone();
                         }
                     }

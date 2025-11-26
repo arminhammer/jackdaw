@@ -158,7 +158,15 @@ async fn when_workflow_executed(world: &mut CtKWorld) {
             }
             world.workflow_status = Some(WorkflowStatus::Completed);
         }
-        Err(e) => world.workflow_status = Some(WorkflowStatus::Faulted(e.to_string())),
+        Err(e) => {
+            // Extract the actual message from the error
+            // For TaskExecution errors from Raise tasks, the message is JSON
+            let error_msg = match &e {
+                jackdaw::durableengine::Error::TaskExecution { message } => message.clone(),
+                _ => e.to_string(),
+            };
+            world.workflow_status = Some(WorkflowStatus::Faulted(error_msg));
+        }
     }
 }
 
