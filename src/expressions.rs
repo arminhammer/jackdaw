@@ -9,6 +9,7 @@ use jaq_json::Val;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::process::{ExitCode, Termination};
+use tracing::debug;
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -102,7 +103,7 @@ pub fn evaluate_expression_with_input(
         })
         .to_string();
 
-    println!("  Evaluating jq expression: {}", jq_expr);
+    debug!("  Evaluating jq expression: {}", jq_expr);
 
     let result = evaluate_jq(&jq_expr, &eval_context);
     if let Err(ref e) = result {

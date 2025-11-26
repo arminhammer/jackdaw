@@ -13,25 +13,13 @@ class CategoryConfig(TypedDict):
     patterns: List[str]
 
 
-class HashResult(TypedDict):
-    """Result of hashing a category of files."""
-    hash: str
-    files: List[str]
-    count: int
-
-
 class ComputeHashesInput(TypedDict, total=False):
     """Input schema for handler function."""
     categories: Dict[str, CategoryConfig]
     workflow_id: str  # Workflow execution ID for cache busting
 
 
-class ComputeHashesOutput(TypedDict):
-    """Output schema for handler function."""
-    results: Dict[str, HashResult]
-
-
-def handler(request: ComputeHashesInput) -> ComputeHashesOutput:
+def handler(request: ComputeHashesInput) -> Dict[str, str]:
     """
     Compute SHA256 hashes for different file categories.
 
@@ -41,7 +29,7 @@ def handler(request: ComputeHashesInput) -> ComputeHashesOutput:
     Returns:
         Dictionary mapping category names to their hash results
     """
-    results: Dict[str, HashResult] = {}
+    results: Dict[str, str] = {}
 
     for category_name, config in request['categories'].items():
         files: List[str] = []
@@ -65,13 +53,9 @@ def handler(request: ComputeHashesInput) -> ComputeHashesOutput:
                 # Skip files that can't be read
                 pass
 
-        results[category_name] = HashResult(
-            hash=hasher.hexdigest(),
-            files=files,
-            count=len(files)
-        )
+        results[category_name] = hasher.hexdigest()
 
-    return ComputeHashesOutput(results=results)
+    return results
 
 
 # Serverless Workflow script execution

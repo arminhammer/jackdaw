@@ -197,7 +197,8 @@ impl DurableEngine {
     }
 
     pub async fn start(&self, workflow: WorkflowDefinition) -> Result<String> {
-        self.start_with_input(workflow, serde_json::json!({})).await
+        let (instance_id, _) = self.start_with_input(workflow, serde_json::json!({})).await?;
+        Ok(instance_id)
     }
 
     #[async_recursion(?Send)]
@@ -205,7 +206,7 @@ impl DurableEngine {
         &self,
         workflow: WorkflowDefinition,
         initial_data: serde_json::Value,
-    ) -> Result<String> {
+    ) -> Result<(String, serde_json::Value)> {
         let instance_id = uuid::Uuid::new_v4().to_string();
 
         // Format workflow start
@@ -220,7 +221,7 @@ impl DurableEngine {
             .run_instance(workflow, Some(instance_id.clone()), initial_data)
             .await
         {
-            Ok(_) => Ok(instance_id),
+            Ok(final_data) => Ok((instance_id, final_data)),
             Err(e) => {
                 // Save WorkflowFailed event before returning error
                 let _ = self
@@ -463,12 +464,18 @@ impl DurableEngine {
                     }
                 }
 
-                // If there's only one task output key and it was marked as a scalar output from filtering,
-                // unwrap it to return just the scalar (for workflows with single-task scalar outputs)
+                // If there's only one task output key, unwrap it for cleaner output
+                // This is especially important for catalog functions which should return their result directly
                 if obj.len() == 1 {
                     if let Some((key, value)) = obj.iter().next() {
                         let scalar_tasks = ctx.scalar_output_tasks.read().await;
+                        // Unwrap if:
+                        // 1. It's a scalar value from filtering (original behavior)
+                        // 2. OR it's the only task output and workflow has no explicit output filter
                         if scalar_tasks.contains(key) && !value.is_object() && !value.is_array() {
+                            final_data = value.clone();
+                        } else if workflow.output.is_none() {
+                            // No explicit output filter, so unwrap the single task result
                             final_data = value.clone();
                         }
                     }
@@ -529,7 +536,7 @@ impl DurableEngine {
             "d2" => Box::new(D2Provider::new()),
             _ => {
                 return Err(Error::Configuration {
-                    message: format!("Unknown visualization tool: {}", tool),
+                    message: format!("Unknown visualization tool: {}", tool),    
                 });
             }
         };
