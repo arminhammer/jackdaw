@@ -1,0 +1,3 @@
+[submodule "ctk"]
+	path = ctk
+	url = https://github.com/serverlessworkflow/specification.git

@@ -57,3 +57,20 @@ rustyscript = "0.12.3"
 petgraph = "0.6"
 async-recursion = "1.0"
 futures = "0.3"
+
+[dev-dependencies]
+cucumber = "0.21"
+testcontainers = "0.23"
+testcontainers-modules = { version = "0.11", features = ["postgres"] }
+
+[[test]]
+name = "ctk_conformance"
+harness = false
+
+[[test]]
+name = "listener_tests"
+harness = false
+
+[[test]]
+name = "nested_workflow_tests"
+harness = false

@@ -2,14 +2,64 @@ mod common;
 mod steps;
 use crate::common::{WorkflowStatus, parse_docstring};
 use cucumber::{World, given, then, when};
-use qyvx::cache::CacheProvider;
-use qyvx::durableengine::DurableEngine;
-use qyvx::persistence::PersistenceProvider;
-use qyvx::providers::cache::RedbCache;
-use qyvx::providers::persistence::RedbPersistence;
+use mooose::cache::CacheProvider;
+use mooose::durableengine::DurableEngine;
+use mooose::persistence::PersistenceProvider;
+use mooose::providers::cache::RedbCache;
+use mooose::providers::persistence::RedbPersistence;
 use serde_json::Value;
+use snafu::prelude::*;
 pub use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use std::sync::Arc;
+
+#[derive(Debug, Snafu)]
+pub enum TestError {
+    #[snafu(display("Test setup error: {message}"))]
+    Setup { message: String },
+
+    #[snafu(display("Persistence error: {source}"))]
+    Persistence {
+        source: mooose::persistence::Error,
+    },
+
+    #[snafu(display("Cache error: {source}"))]
+    Cache { source: mooose::cache::Error },
+
+    #[snafu(display("Engine error: {source}"))]
+    Engine {
+        source: mooose::durableengine::Error,
+    },
+
+    #[snafu(display("I/O error: {source}"))]
+    Io { source: std::io::Error },
+}
+
+// Manual From implementations for error conversions
+impl From<std::io::Error> for TestError {
+    fn from(source: std::io::Error) -> Self {
+        TestError::Io { source }
+    }
+}
+
+impl From<mooose::persistence::Error> for TestError {
+    fn from(source: mooose::persistence::Error) -> Self {
+        TestError::Persistence { source }
+    }
+}
+
+impl From<mooose::cache::Error> for TestError {
+    fn from(source: mooose::cache::Error) -> Self {
+        TestError::Cache { source }
+    }
+}
+
+impl From<mooose::durableengine::Error> for TestError {
+    fn from(source: mooose::durableengine::Error) -> Self {
+        TestError::Engine { source }
+    }
+}
+
+type Result<T> = std::result::Result<T, TestError>;
 
 // Single unified World for all CTK features
 #[derive(Debug, Clone, World)]
@@ -22,11 +72,11 @@ pub struct CtKWorld {
     pub engine: Option<Arc<DurableEngine>>,
     pub persistence: Option<Arc<RedbPersistence>>,
     pub instance_id: Option<String>,
-    pub workflow_events: Vec<qyvx::workflow::WorkflowEvent>,
+    pub workflow_events: Vec<mooose::workflow::WorkflowEvent>,
 }
 
 impl CtKWorld {
-    async fn new() -> Result<Self, anyhow::Error> {
+    async fn new() -> Result<Self> {
         let temp_dir = tempfile::tempdir()?;
         let db_path = temp_dir.path().join("test.db");
         let persistence = Arc::new(RedbPersistence::new(db_path.to_str().unwrap())?);
@@ -79,6 +129,7 @@ async fn when_workflow_executed(world: &mut CtKWorld) {
             .unwrap()
             .start_with_input(workflow, input.clone())
             .await
+            .map(|(id, _)| id)
     } else {
         world.engine.as_ref().unwrap().start(workflow).await
     };
@@ -95,8 +146,9 @@ async fn when_workflow_executed(world: &mut CtKWorld) {
             {
                 world.workflow_events = events.clone();
                 for event in events {
-                    if let qyvx::workflow::WorkflowEvent::WorkflowCompleted { final_data, .. } =
-                        event
+                    if let mooose::workflow::WorkflowEvent::WorkflowCompleted {
+                        final_data, ..
+                    } = event
                     {
                         world.workflow_output = Some(final_data);
                         world.workflow_status = Some(WorkflowStatus::Completed);

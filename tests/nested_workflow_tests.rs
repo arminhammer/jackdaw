@@ -2,11 +2,11 @@ mod common;
 mod nested_workflow_steps;
 
 use cucumber::World;
-use qyvx::cache::CacheProvider;
-use qyvx::durableengine::DurableEngine;
-use qyvx::persistence::PersistenceProvider;
-use qyvx::providers::cache::RedbCache;
-use qyvx::providers::persistence::RedbPersistence;
+use mooose::cache::CacheProvider;
+use mooose::durableengine::DurableEngine;
+use mooose::persistence::PersistenceProvider;
+use mooose::providers::cache::RedbCache;
+use mooose::providers::persistence::RedbPersistence;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -24,7 +24,7 @@ pub struct NestedWorkflowWorld {
     pub engine: Option<Arc<DurableEngine>>,
     pub persistence: Option<Arc<RedbPersistence>>,
     pub instance_id: Option<String>,
-    pub workflow_events: Vec<qyvx::workflow::WorkflowEvent>,
+    pub workflow_events: Vec<mooose::workflow::WorkflowEvent>,
     pub error_message: Option<String>,
 }
 

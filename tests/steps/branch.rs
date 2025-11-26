@@ -1,8 +1,8 @@
 use crate::CtKWorld;
 
 pub use cucumber::{World, given, then, when};
-pub use qyvx::cache::CacheProvider;
-pub use qyvx::persistence::PersistenceProvider;
+pub use mooose::cache::CacheProvider;
+pub use mooose::persistence::PersistenceProvider;
 pub use serde_json::Value;
 
 // Branch-specific step: check that a property contains a specific number of items
