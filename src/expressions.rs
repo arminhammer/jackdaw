@@ -44,44 +44,47 @@ pub fn evaluate_expression_with_input(
 
     let mut jq_expr = expr[2..expr.len() - 1].trim().to_string();
 
-    // Build evaluation context with special variables ($input, $workflow, etc.)
-    let mut combined = serde_json::Map::new();
-    if let Some(obj) = context.as_object() {
-        combined.extend(obj.clone());
-    }
+    // Build evaluation context
+    // If context is an object, we can add special variables to it
+    // If context is a scalar, we keep it as-is and pass special variables through jaq vars
+    let eval_context = if let Some(obj) = context.as_object() {
+        let mut combined = obj.clone();
 
-    // Handle $input
-    if jq_expr.contains("$input") {
-        combined.insert("input".to_string(), input.clone());
-        jq_expr = jq_expr.replace("$input", ".input");
-    }
-
-    // Handle $workflow - check if workflow descriptor is in context
-    if jq_expr.contains("$workflow") {
-        if let Some(workflow_desc) = combined.get("__workflow").cloned() {
-            combined.insert("workflow".to_string(), workflow_desc);
+        // Handle $input
+        if jq_expr.contains("$input") {
+            combined.insert("input".to_string(), input.clone());
+            jq_expr = jq_expr.replace("$input", ".input");
         }
-        jq_expr = jq_expr.replace("$workflow", ".workflow");
-    }
 
-    // Handle $runtime - check if runtime descriptor is in context
-    if jq_expr.contains("$runtime") {
-        if let Some(runtime_desc) = combined.get("__runtime").cloned() {
-            combined.insert("runtime".to_string(), runtime_desc);
+        // Handle $workflow - check if workflow descriptor is in context
+        if jq_expr.contains("$workflow") {
+            if let Some(workflow_desc) = combined.get("__workflow").cloned() {
+                combined.insert("workflow".to_string(), workflow_desc);
+            }
+            jq_expr = jq_expr.replace("$workflow", ".workflow");
         }
-        jq_expr = jq_expr.replace("$runtime", ".runtime");
-    }
 
-    let eval_context = Value::Object(combined);
+        // Handle $runtime - check if runtime descriptor is in context
+        if jq_expr.contains("$runtime") {
+            if let Some(runtime_desc) = combined.get("__runtime").cloned() {
+                combined.insert("runtime".to_string(), runtime_desc);
+            }
+            jq_expr = jq_expr.replace("$runtime", ".runtime");
+        }
 
-    // Replace $varname with .varname for variables that exist as top-level fields in context
-    if let Some(obj) = eval_context.as_object() {
-        for key in obj.keys() {
+        // Replace $varname with .varname for variables that exist as top-level fields in context
+        for key in combined.keys() {
             let var_ref = format!("${}", key);
             let field_ref = format!(".{}", key);
             jq_expr = jq_expr.replace(&var_ref, &field_ref);
         }
-    }
+
+        Value::Object(combined)
+    } else {
+        // Context is not an object (e.g., a string after input filtering)
+        // Keep it as-is and special variables will be handled via jaq vars if needed
+        context.clone()
+    };
 
     // Null-safe array operations: wrap field accesses before + with // []
     // This handles cases like: (.processed.colors + [x]) -> (((.processed // {}).colors // []) + [x])
