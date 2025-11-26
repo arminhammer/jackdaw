@@ -1,7 +1,7 @@
 use crate::CtKWorld;
 
 pub use cucumber::then;
-pub use mooose::workflow::WorkflowEvent;
+pub use jackdaw::workflow::WorkflowEvent;
 
 // Helper function to get the timestamp when a task started or completed
 fn get_task_timestamp(

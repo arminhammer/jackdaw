@@ -15,7 +15,7 @@ impl PostgresCache {
     ///
     /// # Example
     /// ```no_run
-    /// # use qyvx::providers::cache::PostgresCache;
+    /// # use jackdaw::providers::cache::PostgresCache;
     /// # async fn example() -> anyhow::Result<()> {
     /// let cache = PostgresCache::new("postgresql://user:password@localhost/mydb").await?;
     /// # Ok(())
