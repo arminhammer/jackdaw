@@ -8,9 +8,66 @@ use jackdaw::persistence::PersistenceProvider;
 use jackdaw::providers::cache::RedbCache;
 use jackdaw::providers::persistence::RedbPersistence;
 use serde_json::Value;
+use snafu::prelude::*;
 use std::sync::Arc;
 
 use crate::common::WorkflowStatus;
+
+#[derive(Debug, Snafu)]
+pub enum Error {
+    #[snafu(display("Test setup error: {message}"))]
+    TestSetup { message: String },
+
+    #[snafu(display("Persistence error: {source}"))]
+    Persistence {
+        source: jackdaw::persistence::Error,
+    },
+
+    #[snafu(display("Cache error: {source}"))]
+    Cache { source: jackdaw::cache::Error },
+
+    #[snafu(display("Engine error: {source}"))]
+    Engine {
+        source: jackdaw::durableengine::Error,
+    },
+
+    #[snafu(display("I/O error: {source}"))]
+    Io { source: std::io::Error },
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+impl From<std::io::Error> for Error {
+    fn from(source: std::io::Error) -> Self {
+        Error::Io { source }
+    }
+}
+
+impl From<jackdaw::persistence::Error> for Error {
+    fn from(source: jackdaw::persistence::Error) -> Self {
+        Error::Persistence { source }
+    }
+}
+
+impl From<jackdaw::cache::Error> for Error {
+    fn from(source: jackdaw::cache::Error) -> Self {
+        Error::Cache { source }
+    }
+}
+
+impl From<jackdaw::durableengine::Error> for Error {
+    fn from(source: jackdaw::durableengine::Error) -> Self {
+        Error::Engine { source }
+    }
+}
+
+impl From<jackdaw::executor::Error> for Error {
+    fn from(source: jackdaw::executor::Error) -> Self {
+        Error::TestSetup {
+            message: format!("Executor error: {}", source),
+        }
+    }
+}
 
 /// World for listener integration tests (gRPC and HTTP/OpenAPI)
 #[derive(Debug, Clone, World)]
@@ -37,7 +94,7 @@ pub struct ListenerWorld {
 }
 
 impl ListenerWorld {
-    async fn new() -> Result<Self, anyhow::Error> {
+    async fn new() -> Result<Self> {
         // Configure Python path for test fixtures
         use jackdaw::providers::executors::PythonExecutor;
         let python_executor = PythonExecutor::new();
