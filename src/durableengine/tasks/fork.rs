@@ -18,11 +18,13 @@ pub async fn exec_fork_task(
         // In compete mode, use boxed futures for select_all (requires Unpin)
         let mut branch_futures = Vec::new();
 
+        let mut branch_index = 0;
         for entry in &fork_task.fork.branches.entries {
             for (branch_name, branch_task) in entry {
                 let branch_name = branch_name.clone();
                 let branch_task = branch_task.clone();
-                let ctx = ctx.clone();
+                let mut ctx = ctx.clone();
+                ctx.task_index = Some(branch_index);
                 let engine = engine as *const DurableEngine;
 
                 let future = Box::pin(async move {
@@ -33,6 +35,7 @@ pub async fn exec_fork_task(
                     Ok::<_, Error>((branch_name, result))
                 });
                 branch_futures.push(future);
+                branch_index += 1;
             }
         }
 
@@ -45,11 +48,13 @@ pub async fn exec_fork_task(
         // In normal mode, plain futures work fine with join_all
         let mut branch_futures = Vec::new();
 
+        let mut branch_index = 0;
         for entry in &fork_task.fork.branches.entries {
             for (branch_name, branch_task) in entry {
                 let branch_name = branch_name.clone();
                 let branch_task = branch_task.clone();
-                let ctx = ctx.clone();
+                let mut ctx = ctx.clone();
+                ctx.task_index = Some(branch_index);
                 let engine = engine as *const DurableEngine;
 
                 let future = async move {
@@ -60,6 +65,7 @@ pub async fn exec_fork_task(
                     Ok::<_, Error>((branch_name, result))
                 };
                 branch_futures.push(future);
+                branch_index += 1;
             }
         }
 

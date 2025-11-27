@@ -2717,6 +2717,7 @@ dependencies = [
  "jaq-json",
  "jaq-parse",
  "jaq-std",
+ "lazy_static",
  "openapiv3-extended",
  "petgraph",
  "prost",

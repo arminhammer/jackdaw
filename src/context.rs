@@ -47,6 +47,8 @@ pub struct Context {
     // Descriptors for expression evaluation
     pub runtime_descriptor: Arc<RuntimeDescriptor>,
     pub workflow_descriptor: Arc<WorkflowDescriptor>,
+    // Task index for color-coding streaming output in concurrent scenarios
+    pub task_index: Option<usize>,
 }
 
 impl Context {
@@ -135,6 +137,7 @@ impl Context {
             scalar_output_tasks: Arc::new(RwLock::new(HashSet::new())),
             runtime_descriptor: Arc::new(runtime_descriptor),
             workflow_descriptor: Arc::new(workflow_descriptor),
+            task_index: None,
         })
     }
 
