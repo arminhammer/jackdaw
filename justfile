@@ -79,6 +79,10 @@ check:
 test-listeners:
     cargo test --test listener_tests --no-fail-fast
 
+# Run nested workflow tests
+test-nested-workflows:
+    cargo test --test nested_workflow_tests --no-fail-fast
+
 # Run full CI pipeline locally
 ci:
     cargo build --release
