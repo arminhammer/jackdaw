@@ -196,6 +196,16 @@ impl DurableEngine {
         })
     }
 
+    /// Validate workflow graph structure without executing
+    ///
+    /// This is a static method that can be used for validation without creating an engine instance.
+    /// Returns the workflow graph and task name mappings if validation succeeds.
+    pub fn validate_workflow_graph(
+        workflow: &WorkflowDefinition,
+    ) -> Result<(DiGraph<(String, TaskDefinition), ()>, HashMap<String, NodeIndex>)> {
+        graph::build_graph(workflow)
+    }
+
     pub async fn start(&self, workflow: WorkflowDefinition) -> Result<String> {
         let (instance_id, _) = self
             .start_with_input(workflow, serde_json::json!({}))

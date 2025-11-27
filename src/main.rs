@@ -19,12 +19,15 @@ mod providers;
 mod workflow;
 pub mod task_output;
 
-use cmd::{RunArgs, VisualizeArgs, handle_run, handle_visualize};
+use cmd::{RunArgs, ValidateArgs, VisualizeArgs, handle_run, handle_validate, handle_visualize};
 
 #[derive(Debug, Snafu)]
 pub enum Error {
     #[snafu(display("Run error: {source}"))]
     Run { source: cmd::run::Error },
+
+    #[snafu(display("Validate error: {source}"))]
+    Validate { source: cmd::validate::Error },
 
     #[snafu(display("Visualization error: {source}"))]
     Visualize { source: cmd::visualize::Error },
@@ -44,6 +47,8 @@ struct Cli {
 enum Commands {
     /// Execute workflow(s)
     Run(RunArgs),
+    /// Validate workflow(s) without executing
+    Validate(ValidateArgs),
     /// Visualize workflow structure and execution state
     Visualize(VisualizeArgs),
 }
@@ -73,12 +78,18 @@ async fn main() -> Result<(), Error> {
     match cli.command {
         Commands::Run(args) => {
             // Initialize tracing/logging with indicatif bridge
-            // init_tracing(args.verbose);
+            init_tracing(args.verbose);
 
             // Initialize MultiProgress for coordinating progress bars and logs/traces
             let multi_progress = MultiProgress::new();
 
             handle_run(args, multi_progress).await.context(RunSnafu)
+        }
+        Commands::Validate(args) => {
+            // Initialize tracing/logging with indicatif bridge
+            init_tracing(args.verbose);
+
+            handle_validate(args).await.context(ValidateSnafu)
         }
         Commands::Visualize(args) => {
             // Initialize tracing/logging with indicatif bridge
