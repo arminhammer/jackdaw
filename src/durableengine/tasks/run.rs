@@ -1,8 +1,10 @@
 use chrono::Utc;
+use std::process::Stdio;
 
 use crate::cache::{CacheEntry, compute_cache_key};
 use crate::context::Context;
 use crate::output;
+use crate::task_output::TaskOutputStreamer;
 use crate::workflow::WorkflowEvent;
 
 use super::super::{DurableEngine, Error, Result};
@@ -191,38 +193,43 @@ pub async fn exec_run_task(
             })
             .collect();
 
-        // Execute shell command
-        let output = tokio::process::Command::new(command)
+        // Create streamer for color-coded output
+        let task_index = ctx.task_index.unwrap_or(0);
+        let streamer = TaskOutputStreamer::new(task_name.to_string(), task_index);
+
+        // Execute shell command with piped stdout/stderr for streaming
+        let child = tokio::process::Command::new(command)
             .args(&evaluated_args)
-            .output()
-            .await
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
             .map_err(|e| Error::TaskExecution {
                 message: format!("Failed to execute command '{}': {}", command, e),
             })?;
 
+        // Stream output in real-time
+        let (stdout, stderr, exit_code) = streamer
+            .stream_process_output(child)
+            .await
+            .map_err(|e| Error::TaskExecution {
+                message: format!("Failed to stream command output: {}", e),
+            })?;
+
         // Check exit status
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let stdout = String::from_utf8_lossy(&output.stdout);
+        if exit_code != 0 {
             return Err(Error::TaskExecution {
                 message: format!(
-                    "Command '{}' failed with exit code {:?}\nstdout: {}\nstderr: {}",
-                    command,
-                    output.status.code(),
-                    stdout,
-                    stderr
+                    "Command '{}' failed with exit code {}\nstdout: {}\nstderr: {}",
+                    command, exit_code, stdout, stderr
                 ),
             });
         }
 
         // Return stdout and stderr as result
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
         serde_json::json!({
             "stdout": stdout,
             "stderr": stderr,
-            "exit_code": output.status.code().unwrap_or(0)
+            "exit_code": exit_code
         })
     } else {
         // Other run types (container, etc.) not yet implemented

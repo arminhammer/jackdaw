@@ -24,3 +24,7 @@ target
 # Added by cargo
 
 /target
+__pycache__/
+*.pyc
+*.pyo
+*.pyd

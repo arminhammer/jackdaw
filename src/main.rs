@@ -17,6 +17,7 @@ pub mod output;
 mod persistence;
 mod providers;
 mod workflow;
+pub mod task_output;
 
 use cmd::{RunArgs, VisualizeArgs, handle_run, handle_visualize};
 

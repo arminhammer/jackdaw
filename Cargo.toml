@@ -57,6 +57,7 @@ rustyscript = "0.12.3"
 petgraph = "0.6"
 async-recursion = "1.0"
 futures = "0.3"
+lazy_static = "1.4"
 
 [dev-dependencies]
 cucumber = "0.21"

@@ -1,0 +1,127 @@
+document:
+  dsl: '1.0.1'
+  namespace: test
+  name: three-stage-test
+  version: '1.0.0'
+  title: Three Stage Test Workflow
+  summary: Test workflow with single execution, fork, and for loop stages
+
+do:
+  # Stage 1: Single execution of the random number loop
+  - stage1Single:
+      run:
+        shell:
+          command: bash
+          arguments:
+            - -c
+            - |
+              max=$((RANDOM % 6 + 5))
+              echo "Stage 1: Starting with max=$max"
+              for ((i=1; i<=max; i++)); do
+                echo "Stage 1: Iteration $i/$max"
+                sleep 2
+              done
+              echo "Stage 1: Completed after $max iterations"
+              echo $max
+      output:
+        as: .stage1_iterations
+
+  # Stage 2: Fork with 3 parallel executions of the random number loop
+  - stage2Fork:
+      fork:
+        compete: false
+        branches:
+          - forkBranch1:
+              run:
+                shell:
+                  command: bash
+                  arguments:
+                    - -c
+                    - |
+                      max=$((RANDOM % 6 + 5))
+                      echo "Stage 2 Branch 1: Starting with max=$max"
+                      for ((i=1; i<=max; i++)); do
+                        echo "Stage 2 Branch 1: Iteration $i/$max"
+                        sleep 2
+                      done
+                      echo "Stage 2 Branch 1: Completed after $max iterations"
+                      echo $max
+              output:
+                as: .branch1_iterations
+
+          - forkBranch2:
+              run:
+                shell:
+                  command: bash
+                  arguments:
+                    - -c
+                    - |
+                      max=$((RANDOM % 6 + 5))
+                      echo "Stage 2 Branch 2: Starting with max=$max"
+                      for ((i=1; i<=max; i++)); do
+                        echo "Stage 2 Branch 2: Iteration $i/$max"
+                        sleep 2
+                      done
+                      echo "Stage 2 Branch 2: Completed after $max iterations"
+                      echo $max
+              output:
+                as: .branch2_iterations
+
+          - forkBranch3:
+              run:
+                shell:
+                  command: bash
+                  arguments:
+                    - -c
+                    - |
+                      max=$((RANDOM % 6 + 5))
+                      echo "Stage 2 Branch 3: Starting with max=$max"
+                      for ((i=1; i<=max; i++)); do
+                        echo "Stage 2 Branch 3: Iteration $i/$max"
+                        sleep 2
+                      done
+                      echo "Stage 2 Branch 3: Completed after $max iterations"
+                      echo $max
+              output:
+                as: .branch3_iterations
+
+  # # Stage 3: For loop with 3 sequential executions
+  # - stage3For:
+  #     for:
+  #       each: iteration
+  #       in: '${ [1, 2, 3] | .[] }'
+  #     do:
+  #       - loopTask:
+  #           run:
+  #             shell:
+  #               command: bash
+  #               arguments:
+  #                 - -c
+  #                 - |
+  #                   iteration_num=$1
+  #                   max=$((RANDOM % 6 + 5))
+  #                   echo "Stage 3 Iteration $iteration_num: Starting with max=$max"
+  #                   for ((i=1; i<=max; i++)); do
+  #                     echo "Stage 3 Iteration $iteration_num: Loop $i/$max"
+  #                     sleep 2
+  #                   done
+  #                   echo "Stage 3 Iteration $iteration_num: Completed after $max iterations"
+  #                   echo $max
+  #                 - _
+  #                 - '${ .iteration }'
+  #           output:
+  #             as: .iterations
+
+output:
+  as: |
+    ${
+      {
+        "stage1_iterations": .stage1_iterations,
+        "stage2_fork": {
+          "branch1_iterations": .stage2Fork.forkBranch1.branch1_iterations,
+          "branch2_iterations": .stage2Fork.forkBranch2.branch2_iterations,
+          "branch3_iterations": .stage2Fork.forkBranch3.branch3_iterations
+        },
+        # "stage3_for": .stage3For
+      }
+    }
