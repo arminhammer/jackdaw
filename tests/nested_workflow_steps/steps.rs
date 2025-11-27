@@ -73,7 +73,7 @@ async fn when_execute_workflow(
 
     // Execute the workflow
     match engine.start_with_input(workflow, input).await {
-        Ok(instance_id) => {
+        Ok((instance_id, _output)) => {
             world.instance_id = Some(instance_id.clone());
 
             // Wait for the workflow to complete
