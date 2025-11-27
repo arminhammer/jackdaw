@@ -3,6 +3,82 @@ use crate::common::parse_docstring;
 use cucumber::{given, then, when};
 use prost::Message;
 use serverless_workflow_core::models::workflow::WorkflowDefinition;
+use snafu::prelude::*;
+
+#[derive(Debug, Snafu)]
+pub enum Error {
+    #[snafu(display("gRPC test error: {message}"))]
+    GrpcTest { message: String },
+
+    #[snafu(display("Workflow YAML error: {source}"))]
+    WorkflowYaml { source: serde_yaml::Error },
+
+    #[snafu(display("Engine error: {source}"))]
+    Engine {
+        source: jackdaw::durableengine::Error,
+    },
+
+    #[snafu(display("Protobuf compilation error: {source}"))]
+    Protobuf { source: protox::Error },
+
+    #[snafu(display("Protobuf descriptor error: {source}"))]
+    ProtobufDescriptor {
+        source: prost_reflect::DescriptorError,
+    },
+
+    #[snafu(display("HTTP request error: {source}"))]
+    HttpRequest { source: reqwest::Error },
+
+    #[snafu(display("Prost decode error: {source}"))]
+    ProstDecode { source: prost::DecodeError },
+
+    #[snafu(display("Prost encode error: {source}"))]
+    ProstEncode { source: prost::EncodeError },
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+impl From<serde_yaml::Error> for Error {
+    fn from(source: serde_yaml::Error) -> Self {
+        Error::WorkflowYaml { source }
+    }
+}
+
+impl From<jackdaw::durableengine::Error> for Error {
+    fn from(source: jackdaw::durableengine::Error) -> Self {
+        Error::Engine { source }
+    }
+}
+
+impl From<protox::Error> for Error {
+    fn from(source: protox::Error) -> Self {
+        Error::Protobuf { source }
+    }
+}
+
+impl From<prost_reflect::DescriptorError> for Error {
+    fn from(source: prost_reflect::DescriptorError) -> Self {
+        Error::ProtobufDescriptor { source }
+    }
+}
+
+impl From<reqwest::Error> for Error {
+    fn from(source: reqwest::Error) -> Self {
+        Error::HttpRequest { source }
+    }
+}
+
+impl From<prost::DecodeError> for Error {
+    fn from(source: prost::DecodeError) -> Self {
+        Error::ProstDecode { source }
+    }
+}
+
+impl From<prost::EncodeError> for Error {
+    fn from(source: prost::EncodeError) -> Self {
+        Error::ProstEncode { source }
+    }
+}
 
 // Helper to parse proto text format to JSON
 fn parse_proto_text(text: &str) -> serde_json::Value {
@@ -80,19 +156,23 @@ async fn given_grpc_multiply_typescript_request(
 async fn execute_workflow_and_call_grpc(
     world: &mut ListenerWorld,
     method: String,
-) -> anyhow::Result<()> {
+) -> Result<()> {
     // Parse workflow
     let workflow_yaml = world
         .workflow_definition
         .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("No workflow definition"))?;
+        .ok_or_else(|| Error::GrpcTest {
+            message: "No workflow definition".to_string(),
+        })?;
     let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml)?;
 
     // Get engine
     let engine = world
         .engine
         .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("No engine"))?;
+        .ok_or_else(|| Error::GrpcTest {
+            message: "No engine".to_string(),
+        })?;
 
     // Start workflow - this will start the listeners
     let instance_id = engine.start(workflow).await?;
@@ -105,7 +185,9 @@ async fn execute_workflow_and_call_grpc(
     let request_json = world
         .grpc_requests
         .get(&method)
-        .ok_or_else(|| anyhow::anyhow!("No request for method {}", method))?
+        .ok_or_else(|| Error::GrpcTest {
+            message: format!("No request for method {}", method),
+        })?
         .clone();
 
     // Make actual gRPC call using tonic and prost-reflect
@@ -120,18 +202,24 @@ async fn execute_workflow_and_call_grpc(
     // Find the service and method
     let parts: Vec<&str> = method.split('/').collect();
     if parts.len() != 2 {
-        return Err(anyhow::anyhow!("Invalid method format: {}", method));
+        return Err(Error::GrpcTest {
+            message: format!("Invalid method format: {}", method),
+        });
     }
     let service_name = parts[0];
     let method_name = parts[1];
 
     let service = pool
         .get_service_by_name(service_name)
-        .ok_or_else(|| anyhow::anyhow!("Service not found: {}", service_name))?;
+        .ok_or_else(|| Error::GrpcTest {
+            message: format!("Service not found: {}", service_name),
+        })?;
     let method_desc = service
         .methods()
         .find(|m| m.name() == method_name)
-        .ok_or_else(|| anyhow::anyhow!("Method not found: {}", method_name))?;
+        .ok_or_else(|| Error::GrpcTest {
+            message: format!("Method not found: {}", method_name),
+        })?;
 
     // Create DynamicMessage from JSON properly using prost-reflect
     let input_descriptor = method_desc.input();
