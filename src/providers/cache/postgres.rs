@@ -16,7 +16,7 @@ impl PostgresCache {
     /// # Example
     /// ```no_run
     /// # use jackdaw::providers::cache::PostgresCache;
-    /// # async fn example() -> anyhow::Result<()> {
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let cache = PostgresCache::new("postgresql://user:password@localhost/mydb").await?;
     /// # Ok(())
     /// # }

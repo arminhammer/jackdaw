@@ -16,7 +16,7 @@ impl SqliteCache {
     /// # Example
     /// ```no_run
     /// # use jackdaw::providers::cache::SqliteCache;
-    /// # async fn example() -> anyhow::Result<()> {
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let cache = SqliteCache::new("sqlite::memory:").await?;
     /// # Ok(())
     /// # }
