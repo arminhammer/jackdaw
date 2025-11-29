@@ -1,3 +1,6 @@
 [submodule "ctk"]
 	path = ctk
 	url = https://github.com/serverlessworkflow/specification.git
+[submodule "submodules/sdk-rust"]
+	path = submodules/sdk-rust
+	url = https://github.com/arminhammer/sdk-rust.git

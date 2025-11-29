@@ -59,6 +59,25 @@ test-ctk-list:
 test-all:
     cargo test
 
+# Generate code coverage report for all tests (unit and integration tests)
+coverage:
+    cargo llvm-cov \
+        --all-features \
+        --workspace \
+        --html \
+        --open
+
+# Generate coverage report without opening browser
+coverage-report:
+    cargo llvm-cov \
+        --all-features \
+        --workspace \
+        --html
+
+# Clean coverage data
+coverage-clean:
+    cargo llvm-cov clean
+
 # Clean build artifacts
 clean:
     cargo clean

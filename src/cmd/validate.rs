@@ -308,15 +308,28 @@ fn extract_all_expressions(workflow: &WorkflowDefinition) -> Vec<(String, String
             // Extract task-specific expressions based on task type
             match task_def {
                 TaskDefinition::Set(set_task) => {
+                    use serverless_workflow_core::models::task::SetValue;
+
                     // Extract from set values
-                    for (var_name, value) in &set_task.set {
-                        if let Some(val_str) = value.as_str() {
-                            if val_str.starts_with("${") && val_str.ends_with("}") {
-                                expressions.push((
-                                    format!("task.{}.set.{}", task_name, var_name),
-                                    val_str.to_string(),
-                                ));
+                    match &set_task.set {
+                        SetValue::Map(map) => {
+                            for (var_name, value) in map {
+                                if let Some(val_str) = value.as_str() {
+                                    if val_str.starts_with("${") && val_str.ends_with("}") {
+                                        expressions.push((
+                                            format!("task.{}.set.{}", task_name, var_name),
+                                            val_str.to_string(),
+                                        ));
+                                    }
+                                }
                             }
+                        }
+                        SetValue::Expression(expr) => {
+                            // The entire set value is an expression
+                            expressions.push((
+                                format!("task.{}.set", task_name),
+                                expr.clone(),
+                            ));
                         }
                     }
 

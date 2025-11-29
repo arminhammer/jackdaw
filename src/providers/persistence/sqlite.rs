@@ -17,7 +17,7 @@ impl SqlitePersistence {
     /// # Example
     /// ```no_run
     /// # use jackdaw::providers::persistence::SqlitePersistence;
-    /// # async fn example() -> anyhow::Result<()> {
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let persistence = SqlitePersistence::new("sqlite:workflows.db").await?;
     /// # Ok(())
     /// # }

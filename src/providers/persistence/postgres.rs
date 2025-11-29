@@ -17,7 +17,7 @@ impl PostgresPersistence {
     /// # Example
     /// ```no_run
     /// # use jackdaw::providers::persistence::PostgresPersistence;
-    /// # async fn example() -> anyhow::Result<()> {
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let persistence = PostgresPersistence::new("postgresql://user:password@localhost/mydb").await?;
     /// # Ok(())
     /// # }

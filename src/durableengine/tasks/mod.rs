@@ -147,19 +147,39 @@ async fn exec_set_task(
     set_task: &serverless_workflow_core::models::task::SetTaskDefinition,
     ctx: &Context,
 ) -> Result<serde_json::Value> {
+    use serverless_workflow_core::models::task::SetValue;
+
     // Get current context data for expression evaluation
     let current_data = ctx.data.read().await.clone();
 
-    for (key, value) in set_task.set.iter() {
-        // Evaluate expressions in the value using current context and initial input
-        let evaluated_value = crate::expressions::evaluate_value_with_input(
-            value,
-            &current_data,
-            &ctx.initial_input,
-        )?;
-        ctx.merge(key, evaluated_value.clone()).await;
+    match &set_task.set {
+        SetValue::Map(map) => {
+            // Handle map of key-value pairs
+            for (key, value) in map.iter() {
+                // Evaluate expressions in the value using current context and initial input
+                let evaluated_value = crate::expressions::evaluate_value_with_input(
+                    value,
+                    &current_data,
+                    &ctx.initial_input,
+                )?;
+                ctx.merge(key, evaluated_value.clone()).await;
+            }
+            Ok(serde_json::to_value(map)?)
+        }
+        SetValue::Expression(expr) => {
+            // Handle runtime expression - evaluate it to get the data to set
+            let evaluated_value = crate::expressions::evaluate_expression(expr, &current_data)?;
+
+            // If the result is an object, merge all its properties into the context
+            if let serde_json::Value::Object(obj) = &evaluated_value {
+                for (key, value) in obj.iter() {
+                    ctx.merge(key, value.clone()).await;
+                }
+            }
+
+            Ok(evaluated_value)
+        }
     }
-    Ok(serde_json::to_value(&set_task.set)?)
 }
 
 /// Execute a Do task - sequential execution of subtasks
