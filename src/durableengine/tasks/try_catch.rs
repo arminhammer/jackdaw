@@ -28,18 +28,41 @@ pub async fn exec_try_task(
                     // An error occurred - check if it should be caught
 
                     // Try to parse the error as JSON to check if it matches the filter
+                    // The error might be wrapped in "Executor error: Execution error: {json}"
+                    let error_str = e.to_string();
                     let error_obj: serde_json::Value =
-                        if let Ok(parsed) = serde_json::from_str(&e.to_string()) {
+                        // First try to parse the whole string as JSON
+                        if let Ok(parsed) = serde_json::from_str(&error_str) {
                             parsed
                         } else {
-                            // If not JSON, create a generic error object
-                            serde_json::json!({
-                                "type": "https://serverlessworkflow.io/dsl/errors/types/runtime",
-                                "status": 500,
-                                "title": "Runtime Error",
-                                "detail": e.to_string(),
-                                "instance": format!("/do/0/{}/try/0/{}", task_name, subtask_name)
-                            })
+                            // Try to extract JSON from wrapped error messages
+                            // Look for patterns like "Executor error: Execution error: {json}"
+                            let json_start = error_str.find('{');
+                            let json_end = error_str.rfind('}');
+
+                            if let (Some(start), Some(end)) = (json_start, json_end) {
+                                if let Ok(parsed) = serde_json::from_str(&error_str[start..=end]) {
+                                    parsed
+                                } else {
+                                    // If extraction failed, create a generic error object
+                                    serde_json::json!({
+                                        "type": "https://serverlessworkflow.io/dsl/errors/types/runtime",
+                                        "status": 500,
+                                        "title": "Runtime Error",
+                                        "detail": error_str,
+                                        "instance": format!("/do/0/{}/try/0/{}", task_name, subtask_name)
+                                    })
+                                }
+                            } else {
+                                // No JSON found, create a generic error object
+                                serde_json::json!({
+                                    "type": "https://serverlessworkflow.io/dsl/errors/types/runtime",
+                                    "status": 500,
+                                    "title": "Runtime Error",
+                                    "detail": error_str,
+                                    "instance": format!("/do/0/{}/try/0/{}", task_name, subtask_name)
+                                })
+                            }
                         };
 
                     // Check if the error matches the catch filter
