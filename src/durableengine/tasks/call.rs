@@ -112,8 +112,10 @@ pub async fn exec_call_task(
     let has_output_filter = if let Some(output_config) = &call_task.common.output {
         if let Some(as_expr) = &output_config.as_ {
             if let Some(expr_str) = as_expr.as_str() {
-                // Evaluate the jq expression on the result
-                result = crate::expressions::evaluate_jq_expression(expr_str, &result)?;
+                // Evaluate the jq expression on the result with access to $input
+                // $input represents the task input (previous task's output for sequential tasks)
+                let task_input = ctx.task_input.read().await.clone();
+                result = crate::expressions::evaluate_jq_expression_with_context(expr_str, &result, &task_input)?;
                 true
             } else {
                 false
@@ -124,24 +126,6 @@ pub async fn exec_call_task(
     } else {
         false
     };
-
-    // If there's an output filter, merge the result directly into context (not nested)
-    // This allows the filtered result to be at the root level of the workflow output
-    if has_output_filter {
-        if let serde_json::Value::Object(map) = &result {
-            for (key, value) in map {
-                ctx.merge(key, value.clone()).await;
-            }
-        } else {
-            // If result is a scalar, store it with the task name
-            // Track that this task produced a scalar output so we can unwrap it later
-            ctx.merge(task_name, result.clone()).await;
-            ctx.scalar_output_tasks
-                .write()
-                .await
-                .insert(task_name.to_string());
-        }
-    }
 
     let cache_entry = CacheEntry {
         key: cache_key.clone(),

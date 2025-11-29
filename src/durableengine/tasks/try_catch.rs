@@ -10,7 +10,7 @@ pub async fn exec_try_task(
     ctx: &Context,
 ) -> Result<serde_json::Value> {
     // Execute the tasks in the try block
-    let mut try_result = Ok(serde_json::json!({}));
+    let mut last_result = serde_json::Value::Null;
 
     for entry in &try_task.try_.entries {
         for (subtask_name, subtask) in entry {
@@ -20,9 +20,46 @@ pub async fn exec_try_task(
             let exec_future = engine.exec_task(subtask_name, subtask, ctx);
             match Box::pin(exec_future).await {
                 Ok(result) => {
-                    // Merge the result into context
-                    ctx.merge(subtask_name, result.clone()).await;
-                    try_result = Ok(result);
+                    // Update task_input for the next subtask
+                    *ctx.task_input.write().await = result.clone();
+
+                    // Handle export.as for subtasks (same logic as main execution loop)
+                    use serverless_workflow_core::models::task::TaskDefinition;
+                    let export_config = match subtask {
+                        TaskDefinition::Call(t) => t.common.export.as_ref(),
+                        TaskDefinition::Do(t) => t.common.export.as_ref(),
+                        TaskDefinition::Emit(t) => t.common.export.as_ref(),
+                        TaskDefinition::For(t) => t.common.export.as_ref(),
+                        TaskDefinition::Fork(t) => t.common.export.as_ref(),
+                        TaskDefinition::Listen(t) => t.common.export.as_ref(),
+                        TaskDefinition::Raise(t) => t.common.export.as_ref(),
+                        TaskDefinition::Run(t) => t.common.export.as_ref(),
+                        TaskDefinition::Set(t) => t.common.export.as_ref(),
+                        TaskDefinition::Switch(t) => t.common.export.as_ref(),
+                        TaskDefinition::Try(t) => t.common.export.as_ref(),
+                        TaskDefinition::Wait(t) => t.common.export.as_ref(),
+                    };
+
+                    if let Some(export_def) = export_config {
+                        if let Some(export_expr) = &export_def.as_ {
+                            if let Some(expr_str) = export_expr.as_str() {
+                                let new_context = crate::expressions::evaluate_expression(expr_str, &result)?;
+                                *ctx.data.write().await = new_context;
+                            }
+                        }
+                    } else {
+                        // No explicit export.as - apply default behavior (merge into context)
+                        let mut current_context = ctx.data.write().await;
+                        if let serde_json::Value::Object(result_obj) = &result {
+                            if let Some(context_obj) = (*current_context).as_object_mut() {
+                                for (key, value) in result_obj {
+                                    context_obj.insert(key.clone(), value.clone());
+                                }
+                            }
+                        }
+                    }
+
+                    last_result = result;
                 }
                 Err(e) => {
                     // An error occurred - check if it should be caught
@@ -81,13 +118,53 @@ pub async fn exec_try_task(
                                     let exec_future =
                                         engine.exec_task(catch_task_name, catch_task, ctx);
                                     let catch_result = Box::pin(exec_future).await?;
-                                    ctx.merge(catch_task_name, catch_result).await;
+
+                                    // Update task_input for the next subtask
+                                    *ctx.task_input.write().await = catch_result.clone();
+
+                                    // Handle export.as for catch handler subtasks
+                                    use serverless_workflow_core::models::task::TaskDefinition;
+                                    let export_config = match catch_task {
+                                        TaskDefinition::Call(t) => t.common.export.as_ref(),
+                                        TaskDefinition::Do(t) => t.common.export.as_ref(),
+                                        TaskDefinition::Emit(t) => t.common.export.as_ref(),
+                                        TaskDefinition::For(t) => t.common.export.as_ref(),
+                                        TaskDefinition::Fork(t) => t.common.export.as_ref(),
+                                        TaskDefinition::Listen(t) => t.common.export.as_ref(),
+                                        TaskDefinition::Raise(t) => t.common.export.as_ref(),
+                                        TaskDefinition::Run(t) => t.common.export.as_ref(),
+                                        TaskDefinition::Set(t) => t.common.export.as_ref(),
+                                        TaskDefinition::Switch(t) => t.common.export.as_ref(),
+                                        TaskDefinition::Try(t) => t.common.export.as_ref(),
+                                        TaskDefinition::Wait(t) => t.common.export.as_ref(),
+                                    };
+
+                                    if let Some(export_def) = export_config {
+                                        if let Some(export_expr) = &export_def.as_ {
+                                            if let Some(expr_str) = export_expr.as_str() {
+                                                let new_context = crate::expressions::evaluate_expression(expr_str, &catch_result)?;
+                                                *ctx.data.write().await = new_context;
+                                            }
+                                        }
+                                    } else {
+                                        // No explicit export.as - apply default behavior (merge into context)
+                                        let mut current_context = ctx.data.write().await;
+                                        if let serde_json::Value::Object(result_obj) = &catch_result {
+                                            if let Some(context_obj) = (*current_context).as_object_mut() {
+                                                for (key, value) in result_obj {
+                                                    context_obj.insert(key.clone(), value.clone());
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    last_result = catch_result;
                                 }
                             }
                         }
 
-                        // Try task completes successfully after catching and handling the error
-                        return Ok(serde_json::json!({}));
+                        // Try task returns the last catch handler result
+                        return Ok(last_result);
                     } else {
                         // Error doesn't match the filter, propagate it
                         return Err(e);
@@ -97,7 +174,7 @@ pub async fn exec_try_task(
         }
     }
 
-    try_result
+    Ok(last_result)
 }
 
 /// Check if an error should be caught based on the catch definition

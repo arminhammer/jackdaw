@@ -11,8 +11,6 @@ pub async fn exec_fork_task(
     fork_task: &serverless_workflow_core::models::task::ForkTaskDefinition,
     ctx: &Context,
 ) -> Result<serde_json::Value> {
-    let mut results = HashMap::new();
-
     // Check if compete mode is enabled - use different future types
     if fork_task.fork.compete {
         // In compete mode, use boxed futures for select_all (requires Unpin)
@@ -41,12 +39,17 @@ pub async fn exec_fork_task(
 
         if !branch_futures.is_empty() {
             let (result, _index, _remaining) = futures::future::select_all(branch_futures).await;
-            let (branch_name, branch_result) = result?;
-            results.insert(branch_name, branch_result);
+            let (_branch_name, branch_result) = result?;
+            // In compete mode, return only the winning branch's result
+            return Ok(branch_result);
         }
+
+        // No branches - return empty object
+        Ok(serde_json::json!({}))
     } else {
         // In normal mode, plain futures work fine with join_all
         let mut branch_futures = Vec::new();
+        let mut results = HashMap::new();
 
         let mut branch_index = 0;
         for entry in &fork_task.fork.branches.entries {
@@ -75,7 +78,7 @@ pub async fn exec_fork_task(
             let (branch_name, branch_result) = result?;
             results.insert(branch_name, branch_result);
         }
-    }
 
-    Ok(serde_json::to_value(&results)?)
+        Ok(serde_json::to_value(&results)?)
+    }
 }

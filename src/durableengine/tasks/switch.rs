@@ -38,10 +38,7 @@ pub async fn exec_switch_task(
                 if let Some(then_target) = &case_def.then {
                     *ctx.next_task.write().await = Some(then_target.clone());
                 }
-                // The switch task doesn't execute anything itself
-                // It just evaluates conditions and the graph will follow the 'then' transition
-                // Return empty result since the actual work is done by the transitioned-to task
-                return Ok(serde_json::json!({}));
+                return Ok(ctx.task_input.read().await.clone());
             }
         }
     }
@@ -50,5 +47,5 @@ pub async fn exec_switch_task(
     if let Some(then_target) = &switch_task.common.then {
         *ctx.next_task.write().await = Some(then_target.clone());
     }
-    Ok(serde_json::json!({}))
+    Ok(ctx.task_input.read().await.clone())
 }

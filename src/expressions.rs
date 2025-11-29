@@ -72,7 +72,8 @@ pub fn evaluate_expression_with_input(
 
         // Handle $input
         if jq_expr.contains("$input") {
-            combined.insert("input".to_string(), input.clone());
+            // Strip internal descriptors from $input as they shouldn't be part of data flow
+            combined.insert("input".to_string(), strip_descriptors(input));
             var_bindings.push("input".to_string());
         }
 
@@ -130,6 +131,28 @@ pub fn evaluate_jq_expression(jq_expr: &str, value: &Value) -> Result<Value> {
     evaluate_jq(jq_expr, value)
 }
 
+/// Evaluates a jq expression with access to $input variable (used for output.as expressions)
+pub fn evaluate_jq_expression_with_context(jq_expr: &str, value: &Value, context: &Value) -> Result<Value> {
+    // If the expression uses $input, we need to bind it
+    if jq_expr.contains("$input") {
+        // Strip descriptors from context when used as $input
+        let input_value = strip_descriptors(context);
+
+        // Wrap both value and input in an object so we can bind them
+        let mut wrapper = serde_json::Map::new();
+        wrapper.insert("__value".to_string(), value.clone());
+        wrapper.insert("__input".to_string(), input_value);
+
+        // Bind $input, then evaluate expression on the value
+        let modified_expr = format!(".__input as $input | .__value | {}", jq_expr);
+
+        evaluate_jq(&modified_expr, &Value::Object(wrapper))
+    } else {
+        // No $input, just evaluate directly
+        evaluate_jq(jq_expr, value)
+    }
+}
+
 /// Evaluates a jq expression directly without requiring ${ } wrapper
 pub fn evaluate_jq(jq_expr: &str, context: &Value) -> Result<Value> {
     use jaq_core::{
@@ -175,6 +198,18 @@ pub fn evaluate_jq(jq_expr: &str, context: &Value) -> Result<Value> {
         Err(e) => Err(Error::JqEvaluation {
             message: format!("{}", e),
         }),
+    }
+}
+
+/// Remove internal descriptor fields from a value (used for $input in output.as expressions)
+pub fn strip_descriptors(value: &Value) -> Value {
+    if let Value::Object(obj) = value {
+        let mut cleaned = obj.clone();
+        cleaned.remove("__workflow");
+        cleaned.remove("__runtime");
+        Value::Object(cleaned)
+    } else {
+        value.clone()
     }
 }
 

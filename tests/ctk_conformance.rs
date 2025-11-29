@@ -180,8 +180,108 @@ async fn then_workflow_completes(world: &mut CtKWorld) {
     );
 }
 
+/// Pet IDs that are used in CTK conformance tests
+const REQUIRED_PET_IDS: &[i64] = &[1, 2];
+
+/// Ensure that all required pets exist in the Petstore API
+/// This prevents test instability due to the globally mutable Petstore API
+async fn ensure_petstore_health() -> Result<()> {
+    println!("Checking Petstore API health...");
+
+    let client = reqwest::Client::new();
+
+    for pet_id in REQUIRED_PET_IDS {
+        // Check if the pet exists
+        let get_url = format!("https://petstore.swagger.io/v2/pet/{}", pet_id);
+        let response = client.get(&get_url).send().await;
+
+        let needs_creation = match response {
+            Ok(resp) if resp.status().is_success() => {
+                // Pet exists, verify it has the required fields
+                if let Ok(pet) = resp.json::<serde_json::Value>().await {
+                    // Check if pet has valid data
+                    if pet.get("id").is_some() && pet.get("name").is_some() && pet.get("status").is_some() {
+                        println!("  ✓ Pet {} exists and is healthy", pet_id);
+                        false
+                    } else {
+                        println!("  ⚠ Pet {} exists but has invalid data, recreating...", pet_id);
+                        true
+                    }
+                } else {
+                    println!("  ⚠ Pet {} exists but response is invalid, recreating...", pet_id);
+                    true
+                }
+            }
+            Ok(resp) if resp.status() == 404 => {
+                println!("  ⚠ Pet {} not found, creating...", pet_id);
+                true
+            }
+            Ok(resp) => {
+                println!("  ⚠ Pet {} returned status {}, recreating...", pet_id, resp.status());
+                true
+            }
+            Err(e) => {
+                println!("  ⚠ Failed to check pet {}: {}, attempting to create...", pet_id, e);
+                true
+            }
+        };
+
+        if needs_creation {
+            // Create or update the pet using PUT
+            let pet_data = serde_json::json!({
+                "id": pet_id,
+                "name": format!("TestPet{}", pet_id),
+                "status": "available",
+                "photoUrls": ["https://example.com/photo.jpg"],
+                "category": {
+                    "id": 1,
+                    "name": "Dogs"
+                },
+                "tags": [
+                    {
+                        "id": 1,
+                        "name": "test"
+                    }
+                ]
+            });
+
+            let put_response = client
+                .put("https://petstore.swagger.io/v2/pet")
+                .header("Content-Type", "application/json")
+                .json(&pet_data)
+                .send()
+                .await;
+
+            match put_response {
+                Ok(resp) if resp.status().is_success() => {
+                    println!("  ✓ Successfully created/updated pet {}", pet_id);
+                }
+                Ok(resp) => {
+                    let status = resp.status();
+                    let body = resp.text().await.unwrap_or_default();
+                    println!("  ⚠ Failed to create pet {} (status {}): {}", pet_id, status, body);
+                    // Don't fail the tests, just warn
+                }
+                Err(e) => {
+                    println!("  ⚠ Error creating pet {}: {}", pet_id, e);
+                    // Don't fail the tests, just warn
+                }
+            }
+        }
+    }
+
+    println!("Petstore API health check complete\n");
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() {
+    // Ensure Petstore API is healthy before running tests
+    if let Err(e) = ensure_petstore_health().await {
+        eprintln!("Warning: Petstore health check failed: {}", e);
+        eprintln!("Continuing with tests anyway...\n");
+    }
+
     // Run all features together with a single consolidated summary
     CtKWorld::cucumber().run("ctk/ctk/features/").await;
 }
