@@ -373,62 +373,55 @@ impl DurableEngine {
                 })
                 .await?;
 
-            // Only merge task results for tasks that don't directly modify context
-            // Set, Do, For, Switch, and Emit tasks modify context directly or produce standalone output
-            // Call tasks with output filters also modify context directly
-            match task {
-                TaskDefinition::Set(_)
-                | TaskDefinition::Do(_)
-                | TaskDefinition::For(_)
-                | TaskDefinition::Switch(_)
-                | TaskDefinition::Emit(_) => {
-                    // These tasks already modified the context directly or produce output that shouldn't be nested
-                }
-                TaskDefinition::Call(call_task) => {
-                    // Check if there's an output filter - if so, result is already merged directly
-                    let has_output_filter = call_task
-                        .common
-                        .output
-                        .as_ref()
-                        .and_then(|o| o.as_.as_ref())
-                        .and_then(|v| v.as_str())
-                        .is_some();
+            // Update task_input for the next task before result gets moved
+            // According to the spec, each task's transformed output becomes the next task's input
+            *ctx.task_input.write().await = result.clone();
 
-                    if !has_output_filter {
-                        // For call tasks without output filters, merge the result directly (not nested)
-                        // This makes call task results appear at the root level of workflow output
-                        if let serde_json::Value::Object(map) = &result {
-                            for (key, value) in map {
-                                ctx.merge(key, value.clone()).await;
-                            }
-                        } else {
-                            // If result is not an object, store with task name
-                            ctx.merge(task_name, result).await;
-                        }
+            // Handle export.as to update context
+            // According to spec: "defaults to the expression that returns the existing context"
+            // So if no export.as is specified, context remains unchanged
+            let export_config = match task {
+                TaskDefinition::Call(t) => t.common.export.as_ref(),
+                TaskDefinition::Do(t) => t.common.export.as_ref(),
+                TaskDefinition::Emit(t) => t.common.export.as_ref(),
+                TaskDefinition::For(t) => t.common.export.as_ref(),
+                TaskDefinition::Fork(t) => t.common.export.as_ref(),
+                TaskDefinition::Listen(t) => t.common.export.as_ref(),
+                TaskDefinition::Raise(t) => t.common.export.as_ref(),
+                TaskDefinition::Run(t) => t.common.export.as_ref(),
+                TaskDefinition::Set(t) => t.common.export.as_ref(),
+                TaskDefinition::Switch(t) => t.common.export.as_ref(),
+                TaskDefinition::Try(t) => t.common.export.as_ref(),
+                TaskDefinition::Wait(t) => t.common.export.as_ref(),
+            };
+
+            if let Some(export_def) = export_config {
+                if let Some(export_expr) = &export_def.as_ {
+                    if let Some(expr_str) = export_expr.as_str() {
+                        // Evaluate export.as expression on the transformed task output
+                        // The result becomes the new context
+                        let new_context = crate::expressions::evaluate_expression(expr_str, &result)?;
+                        *ctx.data.write().await = new_context;
                     }
                 }
-                TaskDefinition::Run(run_task) => {
-                    // For run tasks that execute workflows, merge the result directly (not nested)
-                    // This makes nested workflow results appear at the root level like call tasks
-                    if run_task.run.workflow.is_some() {
-                        if let serde_json::Value::Object(map) = &result {
-                            for (key, value) in map {
-                                ctx.merge(key, value.clone()).await;
-                            }
-                        } else {
-                            // If result is not an object, store with task name
-                            ctx.merge(task_name, result).await;
+            } else {
+                // No explicit export.as - apply default behavior
+                // Default: merge the transformed task output into the existing context
+                // This respects the task's output - every task produces output that should be used
+                let mut current_context = ctx.data.write().await;
+                if let serde_json::Value::Object(result_obj) = &result {
+                    if let Some(context_obj) = (*current_context).as_object_mut() {
+                        for (key, value) in result_obj {
+                            context_obj.insert(key.clone(), value.clone());
                         }
                     } else {
-                        // For other run tasks (script, container, shell), keep nested under task name
-                        ctx.merge(task_name, result).await;
                     }
-                }
-                _ => {
-                    // Other tasks (Fork, etc.) should merge their results with task name
-                    ctx.merge(task_name, result).await;
+                } else {
+                    // If result is not an object, we cannot merge - replace the context entirely
+                    *current_context = result.clone();
                 }
             }
+
             ctx.save_checkpoint(task_name).await?;
 
             // Check if we've reached the end of the graph naturally
@@ -458,40 +451,10 @@ impl DurableEngine {
             }
         }
 
-        // Workflow completed - clean up final data
-        let mut final_data = ctx.data.read().await.clone();
-
-        // Remove initial input fields from final output if data was modified by tasks
-        // However, keep any keys that were explicitly set by task outputs
-        let data_was_modified = *ctx.data_modified.read().await;
-        if data_was_modified {
-            if let Some(obj) = final_data.as_object_mut() {
-                // Remove internal metadata fields before checking length
-                obj.remove("__workflow");
-                obj.remove("__runtime");
-
-                if let Some(input_obj) = ctx.initial_input.as_object() {
-                    let task_output_keys = ctx.task_output_keys.read().await;
-                    for key in input_obj.keys() {
-                        // Only remove input keys that weren't set by tasks
-                        if !task_output_keys.contains(key) {
-                            obj.remove(key);
-                        }
-                    }
-                }
-
-                // If there's only one task output key that's a scalar from output filtering, unwrap it
-                if obj.len() == 1 {
-                    if let Some((key, value)) = obj.iter().next() {
-                        let scalar_tasks = ctx.scalar_output_tasks.read().await;
-                        // Unwrap if it's a scalar value from output filtering
-                        if scalar_tasks.contains(key) && !value.is_object() && !value.is_array() {
-                            final_data = value.clone();
-                        }
-                    }
-                }
-            }
-        }
+        // Workflow completed - according to the spec, the workflow output is the last task's transformed output
+        // "If no more tasks are defined, the transformed output is passed to the workflow output transformation step."
+        // "Workflow `output.as` | Last task's transformed output | Transformed workflow output"
+        let mut final_data = ctx.task_input.read().await.clone();
 
         // Apply workflow output filter if specified
         if let Some(output_config) = &workflow.output {

@@ -44,6 +44,9 @@ pub struct Context {
     pub data_modified: Arc<RwLock<bool>>,
     pub task_output_keys: Arc<RwLock<HashSet<String>>>,
     pub scalar_output_tasks: Arc<RwLock<HashSet<String>>>,
+    // Current task input (used for $input in expressions)
+    // Tracks the previous task's output for sequential task execution
+    pub task_input: Arc<RwLock<serde_json::Value>>,
     // Descriptors for expression evaluation
     pub runtime_descriptor: Arc<RuntimeDescriptor>,
     pub workflow_descriptor: Arc<WorkflowDescriptor>,
@@ -124,17 +127,18 @@ impl Context {
 
         Ok(Self {
             instance_id,
-            data: Arc::new(RwLock::new(data_with_descriptors)),
+            data: Arc::new(RwLock::new(data_with_descriptors.clone())),
             persistence,
             cache,
             history,
             current_task: Arc::new(RwLock::new(current_task)),
             workflow: Arc::new(workflow.clone()),
             next_task: Arc::new(RwLock::new(None)),
-            initial_input: Arc::new(initial_data),
+            initial_input: Arc::new(initial_data.clone()),
             data_modified: Arc::new(RwLock::new(false)),
             task_output_keys: Arc::new(RwLock::new(HashSet::new())),
             scalar_output_tasks: Arc::new(RwLock::new(HashSet::new())),
+            task_input: Arc::new(RwLock::new(data_with_descriptors)),
             runtime_descriptor: Arc::new(runtime_descriptor),
             workflow_descriptor: Arc::new(workflow_descriptor),
             task_index: None,

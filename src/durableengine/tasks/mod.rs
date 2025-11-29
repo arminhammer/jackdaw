@@ -152,31 +152,29 @@ async fn exec_set_task(
     // Get current context data for expression evaluation
     let current_data = ctx.data.read().await.clone();
 
+    let task_input = ctx.task_input.read().await.clone();
+
     match &set_task.set {
         SetValue::Map(map) => {
-            // Handle map of key-value pairs
+            // Handle map of key-value pairs - evaluate each value
+            let mut result_map = serde_json::Map::new();
             for (key, value) in map.iter() {
-                // Evaluate expressions in the value using current context and initial input
                 let evaluated_value = crate::expressions::evaluate_value_with_input(
                     value,
                     &current_data,
-                    &ctx.initial_input,
+                    &task_input,
                 )?;
-                ctx.merge(key, evaluated_value.clone()).await;
+                result_map.insert(key.clone(), evaluated_value);
             }
-            Ok(serde_json::to_value(map)?)
+            Ok(serde_json::Value::Object(result_map))
         }
         SetValue::Expression(expr) => {
-            // Handle runtime expression - evaluate it to get the data to set
-            let evaluated_value = crate::expressions::evaluate_expression(expr, &current_data)?;
-
-            // If the result is an object, merge all its properties into the context
-            if let serde_json::Value::Object(obj) = &evaluated_value {
-                for (key, value) in obj.iter() {
-                    ctx.merge(key, value.clone()).await;
-                }
-            }
-
+            // Handle runtime expression - evaluate it and return the result
+            let evaluated_value = crate::expressions::evaluate_expression_with_input(
+                expr,
+                &current_data,
+                &task_input,
+            )?;
             Ok(evaluated_value)
         }
     }
@@ -189,18 +187,58 @@ async fn exec_do_task(
     do_task: &serverless_workflow_core::models::task::DoTaskDefinition,
     ctx: &Context,
 ) -> Result<serde_json::Value> {
-    let mut results = serde_json::Map::new();
+    let mut last_result = serde_json::Value::Null;
 
     // Execute subtasks sequentially in order
     for entry in &do_task.do_.entries {
         for (subtask_name, subtask) in entry {
             // Box the recursive call to avoid infinite sized future
             let result = Box::pin(engine.exec_task(subtask_name, subtask, ctx)).await?;
-            results.insert(subtask_name.clone(), result);
+
+            // Update task_input for the next subtask
+            *ctx.task_input.write().await = result.clone();
+
+            // Handle export.as for subtasks (same logic as main execution loop)
+            let export_config = match subtask {
+                TaskDefinition::Call(t) => t.common.export.as_ref(),
+                TaskDefinition::Do(t) => t.common.export.as_ref(),
+                TaskDefinition::Emit(t) => t.common.export.as_ref(),
+                TaskDefinition::For(t) => t.common.export.as_ref(),
+                TaskDefinition::Fork(t) => t.common.export.as_ref(),
+                TaskDefinition::Listen(t) => t.common.export.as_ref(),
+                TaskDefinition::Raise(t) => t.common.export.as_ref(),
+                TaskDefinition::Run(t) => t.common.export.as_ref(),
+                TaskDefinition::Set(t) => t.common.export.as_ref(),
+                TaskDefinition::Switch(t) => t.common.export.as_ref(),
+                TaskDefinition::Try(t) => t.common.export.as_ref(),
+                TaskDefinition::Wait(t) => t.common.export.as_ref(),
+            };
+
+            if let Some(export_def) = export_config {
+                if let Some(export_expr) = &export_def.as_ {
+                    if let Some(expr_str) = export_expr.as_str() {
+                        let new_context = crate::expressions::evaluate_expression(expr_str, &result)?;
+                        *ctx.data.write().await = new_context;
+                    }
+                }
+            } else {
+                // No explicit export.as - apply default behavior (merge into context)
+                let mut current_context = ctx.data.write().await;
+                if let serde_json::Value::Object(result_obj) = &result {
+                    if let Some(context_obj) = (*current_context).as_object_mut() {
+                        for (key, value) in result_obj {
+                            context_obj.insert(key.clone(), value.clone());
+                        }
+                    }
+                }
+            }
+
+            last_result = result;
         }
     }
 
-    Ok(serde_json::Value::Object(results))
+    // Do task returns the last subtask's result
+    Ok(last_result)
 }
 
 /// Execute a Listen task - listeners are initialized at workflow startup
