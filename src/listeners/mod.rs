@@ -3,6 +3,12 @@ use serde::{Deserialize, Serialize};
 use snafu::prelude::*;
 use std::sync::Arc;
 
+pub mod grpc;
+pub mod http;
+
+// pub use grpc::GrpcListener;
+pub use http::HttpListener;
+
 #[derive(Debug, Snafu)]
 pub enum Error {
     #[snafu(display("Listener error: {message}"))]
@@ -25,7 +31,7 @@ pub enum Error {
 impl From<std::io::Error> for Error {
     fn from(source: std::io::Error) -> Self {
         Error::Listener {
-            message: format!("IO error: {}", source),
+            message: format!("IO error: {source}"),
         }
     }
 }
@@ -33,7 +39,7 @@ impl From<std::io::Error> for Error {
 impl From<serde_yaml::Error> for Error {
     fn from(source: serde_yaml::Error) -> Self {
         Error::Listener {
-            message: format!("YAML error: {}", source),
+            message: format!("YAML error: {source}"),
         }
     }
 }
@@ -41,7 +47,7 @@ impl From<serde_yaml::Error> for Error {
 impl From<protox::Error> for Error {
     fn from(source: protox::Error) -> Self {
         Error::Listener {
-            message: format!("Proto compilation error: {}", source),
+            message: format!("Proto compilation error: {source}"),
         }
     }
 }
@@ -49,7 +55,7 @@ impl From<protox::Error> for Error {
 impl From<prost::EncodeError> for Error {
     fn from(source: prost::EncodeError) -> Self {
         Error::Listener {
-            message: format!("Proto encoding error: {}", source),
+            message: format!("Proto encoding error: {source}"),
         }
     }
 }
@@ -57,18 +63,12 @@ impl From<prost::EncodeError> for Error {
 impl From<prost_reflect::DescriptorError> for Error {
     fn from(source: prost_reflect::DescriptorError) -> Self {
         Error::Listener {
-            message: format!("Proto descriptor error: {}", source),
+            message: format!("Proto descriptor error: {source}"),
         }
     }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
-
-pub mod grpc;
-pub mod http;
-
-pub use grpc::GrpcListener;
-pub use http::HttpListener;
 
 /// Listener trait for handling incoming events from various sources
 #[async_trait]
@@ -86,7 +86,7 @@ pub trait Listener: Send + Sync {
 /// Event source configuration from workflow Listen task
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventSource {
-    /// URI of the event source (e.g., grpc://localhost:50051/service.Method or http://localhost:8080/path)
+    /// URI of the event source (e.g., <grpc://localhost:50051/service.Method> or <http://localhost:8080/path>)
     pub uri: String,
 
     /// Schema definition for the event
@@ -110,7 +110,7 @@ pub struct ResourceLocation {
     /// Path to the schema file
     pub endpoint: String,
 
-    /// Optional name/reference within the schema (e.g., message name in OpenAPI)
+    /// Optional name/reference within the schema (e.g., message name in ``OpenAPI``)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
 }
@@ -121,8 +121,10 @@ pub struct ListenerRegistry {
     listeners: Vec<Arc<dyn Listener>>,
 }
 
+#[allow(dead_code)]
 impl ListenerRegistry {
     /// Create a new listener registry
+    #[must_use]
     pub fn new() -> Self {
         Self {
             listeners: Vec::new(),
@@ -135,6 +137,8 @@ impl ListenerRegistry {
     }
 
     /// Start all registered listeners
+    /// # Errors
+    /// Returns an error if any listener fails to start.
     pub async fn start_all(&self) -> Result<()> {
         for listener in &self.listeners {
             listener.start().await?;
@@ -143,6 +147,8 @@ impl ListenerRegistry {
     }
 
     /// Stop all registered listeners
+    /// # Errors
+    /// Returns an error if any listener fails to stop.
     pub async fn stop_all(&self) -> Result<()> {
         for listener in &self.listeners {
             listener.stop().await?;
@@ -151,6 +157,7 @@ impl ListenerRegistry {
     }
 
     /// Get all listener endpoints
+    #[must_use]
     pub fn get_endpoints(&self) -> Vec<String> {
         self.listeners.iter().map(|l| l.get_endpoint()).collect()
     }

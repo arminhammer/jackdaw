@@ -14,20 +14,18 @@ pub async fn exec_switch_task(
 
     // Evaluate each case in order
     for entry in &switch_task.switch.entries {
-        for (_case_name, case_def) in entry {
+        for case_def in entry.values() {
             // If there's a 'when' condition, evaluate it
             let matches = if let Some(when_expr) = &case_def.when {
                 // Evaluate the condition expression
                 let result = crate::expressions::evaluate_jq(when_expr, &current_data)?;
 
                 // Check if the result is truthy
-                let matches = match result {
+                match result {
                     serde_json::Value::Bool(b) => b,
                     serde_json::Value::Null => false,
                     _ => true, // Non-null, non-bool values are truthy
-                };
-
-                matches
+                }
             } else {
                 // No 'when' condition means this is a default case
                 true

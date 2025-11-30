@@ -38,6 +38,7 @@ pub enum WorkflowEvent {
 }
 
 impl WorkflowEvent {
+    #[must_use]
     pub fn instance_id(&self) -> &str {
         match self {
             WorkflowEvent::WorkflowStarted { instance_id, .. }

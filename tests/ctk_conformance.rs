@@ -8,8 +8,8 @@ use jackdaw::persistence::PersistenceProvider;
 use jackdaw::providers::cache::RedbCache;
 use jackdaw::providers::persistence::RedbPersistence;
 use serde_json::Value;
-use snafu::prelude::*;
 pub use serverless_workflow_core::models::workflow::WorkflowDefinition;
+use snafu::prelude::*;
 use std::sync::Arc;
 
 #[derive(Debug, Snafu)]
@@ -18,9 +18,7 @@ pub enum TestError {
     Setup { message: String },
 
     #[snafu(display("Persistence error: {source}"))]
-    Persistence {
-        source: jackdaw::persistence::Error,
-    },
+    Persistence { source: jackdaw::persistence::Error },
 
     #[snafu(display("Cache error: {source}"))]
     Cache { source: jackdaw::cache::Error },
@@ -200,28 +198,44 @@ async fn ensure_petstore_health() -> Result<()> {
                 // Pet exists, verify it has the required fields
                 if let Ok(pet) = resp.json::<serde_json::Value>().await {
                     // Check if pet has valid data
-                    if pet.get("id").is_some() && pet.get("name").is_some() && pet.get("status").is_some() {
-                        println!("  ✓ Pet {} exists and is healthy", pet_id);
+                    if pet.get("id").is_some()
+                        && pet.get("name").is_some()
+                        && pet.get("status").is_some()
+                    {
+                        println!("  Pet {} exists and is healthy", pet_id);
                         false
                     } else {
-                        println!("  ⚠ Pet {} exists but has invalid data, recreating...", pet_id);
+                        println!(
+                            "  Pet {} exists but has invalid data, recreating...",
+                            pet_id
+                        );
                         true
                     }
                 } else {
-                    println!("  ⚠ Pet {} exists but response is invalid, recreating...", pet_id);
+                    println!(
+                        "  Pet {} exists but response is invalid, recreating...",
+                        pet_id
+                    );
                     true
                 }
             }
             Ok(resp) if resp.status() == 404 => {
-                println!("  ⚠ Pet {} not found, creating...", pet_id);
+                println!("  Pet {} not found, creating...", pet_id);
                 true
             }
             Ok(resp) => {
-                println!("  ⚠ Pet {} returned status {}, recreating...", pet_id, resp.status());
+                println!(
+                    "  Pet {} returned status {}, recreating...",
+                    pet_id,
+                    resp.status()
+                );
                 true
             }
             Err(e) => {
-                println!("  ⚠ Failed to check pet {}: {}, attempting to create...", pet_id, e);
+                println!(
+                    "  Failed to check pet {}: {}, attempting to create...",
+                    pet_id, e
+                );
                 true
             }
         };
@@ -259,11 +273,14 @@ async fn ensure_petstore_health() -> Result<()> {
                 Ok(resp) => {
                     let status = resp.status();
                     let body = resp.text().await.unwrap_or_default();
-                    println!("  ⚠ Failed to create pet {} (status {}): {}", pet_id, status, body);
+                    println!(
+                        "  Failed to create pet {} (status {}): {}",
+                        pet_id, status, body
+                    );
                     // Don't fail the tests, just warn
                 }
                 Err(e) => {
-                    println!("  ⚠ Error creating pet {}: {}", pet_id, e);
+                    println!("  Error creating pet {}: {}", pet_id, e);
                     // Don't fail the tests, just warn
                 }
             }

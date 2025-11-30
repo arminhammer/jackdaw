@@ -6,4 +6,9 @@
 [build]
 # Add custom library path for Python shared library
 # The symlink ~/lib/libpython3.14.so points to the brew python installation
-rustflags = ["-L/var/home/armin/lib", "-L/home/linuxbrew/.linuxbrew/opt/python@3.14/lib"]
+rustflags = [
+    "-L/var/home/armin/lib",
+    "-L/home/linuxbrew/.linuxbrew/opt/python@3.14/lib",
+    "-Aclippy::type_complexity",
+    "-Aclippy::too_many_arguments",
+]

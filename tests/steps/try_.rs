@@ -1,7 +1,6 @@
 use crate::CtKWorld;
 use crate::common::WorkflowStatus;
 use cucumber::then;
-use serde_json::Value;
 
 // Try-specific step: check that workflow output has specific properties
 #[then(regex = r"^the workflow output should have properties (.+)$")]

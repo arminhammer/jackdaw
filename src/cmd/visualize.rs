@@ -70,10 +70,10 @@ pub struct VisualizeArgs {
 /// Parse diagram format from string
 fn parse_diagram_format(format_str: &str) -> Result<DiagramFormat, Error> {
     match format_str.to_lowercase().as_str() {
-        "svg" => Ok(DiagramFormat::SVG),
-        "png" => Ok(DiagramFormat::PNG),
-        "pdf" => Ok(DiagramFormat::PDF),
-        "ascii" => Ok(DiagramFormat::ASCII),
+        "svg" => Ok(DiagramFormat::Svg),
+        "png" => Ok(DiagramFormat::Png),
+        "pdf" => Ok(DiagramFormat::Pdf),
+        "ascii" => Ok(DiagramFormat::Ascii),
         _ => Err(Error::InvalidFormat {
             format: format_str.to_string(),
         }),
@@ -108,7 +108,7 @@ pub async fn handle_visualize(args: VisualizeArgs) -> Result<(), Error> {
     let format = parse_diagram_format(&args.format)?;
 
     // Validate output path for non-ASCII formats
-    if !matches!(format, DiagramFormat::ASCII) && args.output.is_none() {
+    if !matches!(format, DiagramFormat::Ascii) && args.output.is_none() {
         return Err(Error::MissingOutputPath {
             format: args.format.clone(),
         });

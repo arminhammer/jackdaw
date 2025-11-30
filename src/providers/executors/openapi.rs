@@ -1,7 +1,7 @@
 use crate::context::Context;
 use crate::executor::{Error, Executor, Result};
 use async_trait::async_trait;
-use openapiv3::{OpenAPI, ParameterKind, ReferenceOr, VersionedOpenAPI, v2};
+use openapiv3::{OpenAPI, ParameterKind, ReferenceOr, VersionedOpenAPI};
 use reqwest::Url;
 
 pub struct OpenApiExecutor(pub reqwest::Client);
@@ -45,7 +45,7 @@ impl Executor for OpenApiExecutor {
             .and_then(|v| v.as_str())
             .unwrap_or("content");
 
-        println!("  OpenAPI call: {} at {}", operation_id, doc_endpoint);
+        println!("  OpenAPI call: {operation_id} at {doc_endpoint}");
 
         // Fetch the OpenAPI spec
         let spec_text = self
@@ -54,12 +54,12 @@ impl Executor for OpenApiExecutor {
             .send()
             .await
             .map_err(|e| Error::Execution {
-                message: format!("Failed to fetch OpenAPI spec: {}", e),
+                message: format!("Failed to fetch OpenAPI spec: {e}"),
             })?
             .text()
             .await
             .map_err(|e| Error::Execution {
-                message: format!("Failed to read spec text: {}", e),
+                message: format!("Failed to read spec text: {e}"),
             })?;
 
         println!(
@@ -71,15 +71,14 @@ impl Executor for OpenApiExecutor {
         let spec_value: serde_json::Value = serde_json::from_str(&spec_text)
             .or_else(|_| serde_yaml::from_str(&spec_text))
             .map_err(|e| Error::Execution {
-                message: format!("Failed to parse spec as JSON or YAML: {}", e),
+                message: format!("Failed to parse spec as JSON or YAML: {e}"),
             })?;
 
         // Check if it's a Swagger 2.0 spec and convert it manually
         if spec_value
             .get("swagger")
             .and_then(|v| v.as_str())
-            .map(|s| s.starts_with("2."))
-            == Some(true)
+            .is_some_and(|s| s.starts_with("2."))
         {
             println!("  Detected Swagger 2.0 spec, converting to OpenAPI 3.x");
             return execute_swagger_v2_spec(
@@ -97,7 +96,7 @@ impl Executor for OpenApiExecutor {
         // Try to parse as VersionedOpenAPI (fallback)
         let versioned_spec: VersionedOpenAPI =
             serde_json::from_value(spec_value.clone()).map_err(|e| Error::Execution {
-                message: format!("Failed to deserialize as OpenAPI spec: {}", e),
+                message: format!("Failed to deserialize as OpenAPI spec: {e}"),
             })?;
 
         // Upgrade to OpenAPI 3.x if it's a Swagger 2.0 spec
@@ -144,11 +143,11 @@ async fn execute_swagger_v2_spec(
     for (path, path_item) in paths {
         if let Some(path_obj) = path_item.as_object() {
             for (method, operation) in path_obj {
-                if let Some(op_id) = operation.get("operationId").and_then(|v| v.as_str()) {
-                    if op_id == operation_id {
-                        found_operation = Some((path.as_str(), method.as_str(), operation));
-                        break;
-                    }
+                if let Some(op_id) = operation.get("operationId").and_then(|v| v.as_str())
+                    && op_id == operation_id
+                {
+                    found_operation = Some((path.as_str(), method.as_str(), operation));
+                    break;
                 }
             }
             if found_operation.is_some() {
@@ -158,7 +157,7 @@ async fn execute_swagger_v2_spec(
     }
 
     let (path_pattern, method, operation) = found_operation.ok_or(Error::Execution {
-        message: format!("Operation '{}' not found in Swagger spec", operation_id),
+        message: format!("Operation '{operation_id}' not found in Swagger spec"),
     })?;
 
     // Build base URL
@@ -172,12 +171,12 @@ async fn execute_swagger_v2_spec(
     let host = spec_value
         .get("host")
         .and_then(|h| h.as_str())
-        .map(|s| s.to_string())
+        .map(str::to_string)
         .or_else(|| {
             // Extract from doc endpoint
             Url::parse(doc_endpoint)
                 .ok()
-                .and_then(|u| u.host_str().map(|s| s.to_string()))
+                .and_then(|u| u.host_str().map(str::to_string))
         })
         .unwrap_or_default();
 
@@ -186,36 +185,36 @@ async fn execute_swagger_v2_spec(
         .and_then(|b| b.as_str())
         .unwrap_or("");
 
-    let base_url = format!("{}://{}{}", schemes, host, base_path);
+    let base_url = format!("{schemes}://{host}{base_path}");
 
     // Build URL with path and query parameters
-    let mut url = format!("{}{}", base_url, path_pattern);
+    let mut url = format!("{base_url}{path_pattern}");
     let mut query_params = Vec::new();
 
-    println!("  Parameters: {:?}", parameters);
+    println!("  Parameters: {parameters:?}");
 
     // Process parameters
     if let Some(params_array) = operation.get("parameters").and_then(|p| p.as_array()) {
         for param in params_array {
-            if let Some(param_name) = param.get("name").and_then(|n| n.as_str()) {
-                if let Some(value) = parameters.get(param_name) {
-                    let value_str = match value {
-                        serde_json::Value::String(s) => s.clone(),
-                        serde_json::Value::Number(n) => n.to_string(),
-                        serde_json::Value::Bool(b) => b.to_string(),
-                        _ => value.to_string(),
-                    };
+            if let Some(param_name) = param.get("name").and_then(|n| n.as_str())
+                && let Some(value) = parameters.get(param_name)
+            {
+                let value_str = match value {
+                    serde_json::Value::String(s) => s.clone(),
+                    serde_json::Value::Number(n) => n.to_string(),
+                    serde_json::Value::Bool(b) => b.to_string(),
+                    _ => value.to_string(),
+                };
 
-                    let param_in = param.get("in").and_then(|i| i.as_str()).unwrap_or("");
-                    match param_in {
-                        "path" => {
-                            url = url.replace(&format!("{{{}}}", param_name), &value_str);
-                        }
-                        "query" => {
-                            query_params.push(format!("{}={}", param_name, value_str));
-                        }
-                        _ => {}
+                let param_in = param.get("in").and_then(|i| i.as_str()).unwrap_or("");
+                match param_in {
+                    "path" => {
+                        url = url.replace(&format!("{{{param_name}}}"), &value_str);
                     }
+                    "query" => {
+                        query_params.push(format!("{param_name}={value_str}"));
+                    }
+                    _ => {}
                 }
             }
         }
@@ -234,7 +233,7 @@ async fn execute_swagger_v2_spec(
             .send()
             .await
             .map_err(|e| Error::Execution {
-                message: format!("Request failed: {}", e),
+                message: format!("Request failed: {e}"),
             })?,
         "POST" => {
             let body = parameters
@@ -247,7 +246,7 @@ async fn execute_swagger_v2_spec(
                 .send()
                 .await
                 .map_err(|e| Error::Execution {
-                    message: format!("Request failed: {}", e),
+                    message: format!("Request failed: {e}"),
                 })?
         }
         "PUT" => {
@@ -261,7 +260,7 @@ async fn execute_swagger_v2_spec(
                 .send()
                 .await
                 .map_err(|e| Error::Execution {
-                    message: format!("Request failed: {}", e),
+                    message: format!("Request failed: {e}"),
                 })?
         }
         "DELETE" => client
@@ -269,11 +268,11 @@ async fn execute_swagger_v2_spec(
             .send()
             .await
             .map_err(|e| Error::Execution {
-                message: format!("Request failed: {}", e),
+                message: format!("Request failed: {e}"),
             })?,
         _ => {
             return Err(Error::Execution {
-                message: format!("Unsupported HTTP method: {}", method),
+                message: format!("Unsupported HTTP method: {method}"),
             });
         }
     };
@@ -281,7 +280,7 @@ async fn execute_swagger_v2_spec(
     let status = response.status();
     let headers = response.headers().clone();
 
-    println!("  Response status: {}", status);
+    println!("  Response status: {status}");
 
     if !status.is_success() {
         let error_obj = serde_json::json!({
@@ -293,14 +292,14 @@ async fn execute_swagger_v2_spec(
         });
         return Err(Error::Execution {
             message: serde_json::to_string(&error_obj).map_err(|e| Error::Execution {
-                message: format!("Failed to serialize error: {}", e),
+                message: format!("Failed to serialize error: {e}"),
             })?,
         });
     }
 
     // Get response body
     let body_text = response.text().await.map_err(|e| Error::Execution {
-        message: format!("Failed to read response body: {}", e),
+        message: format!("Failed to read response body: {e}"),
     })?;
 
     // Try to parse as JSON
@@ -351,22 +350,26 @@ async fn execute_openapi_v3_spec(
     // Find operation by operationId
     let (path_pattern, method, operation) =
         find_operation(spec, operation_id).ok_or(Error::Execution {
-            message: format!("Operation '{}' not found in OpenAPI spec", operation_id),
+            message: format!("Operation '{operation_id}' not found in OpenAPI spec"),
         })?;
 
     // Build base URL
-    let base_url = if !spec.servers.is_empty() {
-        spec.servers.first().map(|s| s.url.as_str()).unwrap_or("")
-    } else {
+    let base_url = if spec.servers.is_empty() {
         // Extract from doc endpoint
         let url = Url::parse(doc_endpoint).map_err(|e| Error::Execution {
-            message: format!("Failed to parse doc endpoint URL: {}", e),
+            message: format!("Failed to parse doc endpoint URL: {e}"),
         })?;
-        &format!("{}://{}", url.scheme(), url.host_str().unwrap_or(""))
+        &format!(
+            "{scheme}://{host}",
+            scheme = url.scheme(),
+            host = url.host_str().unwrap_or("")
+        )
+    } else {
+        spec.servers.first().map_or("", |s| s.url.as_str())
     };
 
     // Build URL with path and query parameters
-    let mut url = format!("{}{}", base_url, path_pattern);
+    let mut url = format!("{base_url}{path_pattern}");
     let mut query_params = Vec::new();
 
     // Process parameters
@@ -384,10 +387,10 @@ async fn execute_openapi_v3_spec(
 
                 match &param.kind {
                     ParameterKind::Path { .. } => {
-                        url = url.replace(&format!("{{{}}}", param_name), &value_str);
+                        url = url.replace(&format!("{{{param_name}}}"), &value_str);
                     }
                     ParameterKind::Query { .. } => {
-                        query_params.push(format!("{}={}", param_name, value_str));
+                        query_params.push(format!("{param_name}={value_str}"));
                     }
                     _ => {}
                 }
@@ -408,7 +411,7 @@ async fn execute_openapi_v3_spec(
             .send()
             .await
             .map_err(|e| Error::Execution {
-                message: format!("Request failed: {}", e),
+                message: format!("Request failed: {e}"),
             })?,
         "POST" => {
             let body = parameters
@@ -421,7 +424,7 @@ async fn execute_openapi_v3_spec(
                 .send()
                 .await
                 .map_err(|e| Error::Execution {
-                    message: format!("Request failed: {}", e),
+                    message: format!("Request failed: {e}"),
                 })?
         }
         "PUT" => {
@@ -435,7 +438,7 @@ async fn execute_openapi_v3_spec(
                 .send()
                 .await
                 .map_err(|e| Error::Execution {
-                    message: format!("Request failed: {}", e),
+                    message: format!("Request failed: {e}"),
                 })?
         }
         "DELETE" => client
@@ -443,11 +446,11 @@ async fn execute_openapi_v3_spec(
             .send()
             .await
             .map_err(|e| Error::Execution {
-                message: format!("Request failed: {}", e),
+                message: format!("Request failed: {e}"),
             })?,
         _ => {
             return Err(Error::Execution {
-                message: format!("Unsupported HTTP method: {}", method),
+                message: format!("Unsupported HTTP method: {method}"),
             });
         }
     };
@@ -455,7 +458,7 @@ async fn execute_openapi_v3_spec(
     let status = response.status();
     let headers = response.headers().clone();
 
-    println!("  Response status: {}", status);
+    println!("  Response status: {status}");
 
     if !status.is_success() {
         let error_obj = serde_json::json!({
@@ -467,14 +470,14 @@ async fn execute_openapi_v3_spec(
         });
         return Err(Error::Execution {
             message: serde_json::to_string(&error_obj).map_err(|e| Error::Execution {
-                message: format!("Failed to serialize error: {}", e),
+                message: format!("Failed to serialize error: {e}"),
             })?,
         });
     }
 
     // Get response body
     let body_text = response.text().await.map_err(|e| Error::Execution {
-        message: format!("Failed to read response body: {}", e),
+        message: format!("Failed to read response body: {e}"),
     })?;
 
     // Try to parse as JSON
@@ -519,30 +522,30 @@ fn find_operation<'a>(
 ) -> Option<(&'a str, &'a str, &'a openapiv3::Operation)> {
     for (path, path_item_ref) in &spec.paths.paths {
         if let ReferenceOr::Item(path_item) = path_item_ref {
-            if let Some(op) = &path_item.get {
-                if op.operation_id.as_deref() == Some(operation_id) {
-                    return Some((path.as_str(), "get", op));
-                }
+            if let Some(op) = &path_item.get
+                && op.operation_id.as_deref() == Some(operation_id)
+            {
+                return Some((path.as_str(), "get", op));
             }
-            if let Some(op) = &path_item.post {
-                if op.operation_id.as_deref() == Some(operation_id) {
-                    return Some((path.as_str(), "post", op));
-                }
+            if let Some(op) = &path_item.post
+                && op.operation_id.as_deref() == Some(operation_id)
+            {
+                return Some((path.as_str(), "post", op));
             }
-            if let Some(op) = &path_item.put {
-                if op.operation_id.as_deref() == Some(operation_id) {
-                    return Some((path.as_str(), "put", op));
-                }
+            if let Some(op) = &path_item.put
+                && op.operation_id.as_deref() == Some(operation_id)
+            {
+                return Some((path.as_str(), "put", op));
             }
-            if let Some(op) = &path_item.delete {
-                if op.operation_id.as_deref() == Some(operation_id) {
-                    return Some((path.as_str(), "delete", op));
-                }
+            if let Some(op) = &path_item.delete
+                && op.operation_id.as_deref() == Some(operation_id)
+            {
+                return Some((path.as_str(), "delete", op));
             }
-            if let Some(op) = &path_item.patch {
-                if op.operation_id.as_deref() == Some(operation_id) {
-                    return Some((path.as_str(), "patch", op));
-                }
+            if let Some(op) = &path_item.patch
+                && op.operation_id.as_deref() == Some(operation_id)
+            {
+                return Some((path.as_str(), "patch", op));
             }
         }
     }
@@ -564,7 +567,7 @@ async fn evaluate_parameters(
                 &ctx.initial_input,
             )
             .map_err(|e| Error::Execution {
-                message: format!("Failed to evaluate parameter '{}': {}", key, e),
+                message: format!("Failed to evaluate parameter '{key}': {e}"),
             })?;
             result.insert(key.clone(), evaluated);
         }

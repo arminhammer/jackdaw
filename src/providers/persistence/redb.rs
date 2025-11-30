@@ -15,27 +15,36 @@ pub const CHECKPOINTS_TABLE: redb::TableDefinition<&str, &[u8]> =
     redb::TableDefinition::new("checkpoints");
 
 impl RedbPersistence {
+    /// Creates a new `RedbPersistence` instance with the database at the specified path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The database cannot be created at the given path
+    /// - A write transaction cannot be started
+    /// - The events or checkpoints tables cannot be opened
+    /// - The transaction cannot be committed
     pub fn new(path: &str) -> Result<Self> {
         let db = redb::Database::create(path).map_err(|e| Error::Database {
-            message: format!("Failed to create database: {}", e),
+            message: format!("Failed to create database: {e}"),
         })?;
         let write_txn = db.begin_write().map_err(|e| Error::Database {
-            message: format!("Failed to begin write transaction: {}", e),
+            message: format!("Failed to begin write transaction: {e}"),
         })?;
         {
             write_txn
                 .open_table(EVENTS_TABLE)
                 .map_err(|e| Error::Database {
-                    message: format!("Failed to open events table: {}", e),
+                    message: format!("Failed to open events table: {e}"),
                 })?;
             write_txn
                 .open_table(CHECKPOINTS_TABLE)
                 .map_err(|e| Error::Database {
-                    message: format!("Failed to open checkpoints table: {}", e),
+                    message: format!("Failed to open checkpoints table: {e}"),
                 })?;
         }
         write_txn.commit().map_err(|e| Error::Database {
-            message: format!("Failed to commit transaction: {}", e),
+            message: format!("Failed to commit transaction: {e}"),
         })?;
         Ok(Self { db: Arc::new(db) })
     }
@@ -47,14 +56,14 @@ impl PersistenceProvider for RedbPersistence {
         let db = self.db.clone();
         tokio::task::spawn_blocking(move || -> Result<()> {
             let write_txn = db.begin_write().map_err(|e| Error::Database {
-                message: format!("Failed to begin write transaction: {}", e),
+                message: format!("Failed to begin write transaction: {e}"),
             })?;
             {
                 let mut table =
                     write_txn
                         .open_table(EVENTS_TABLE)
                         .map_err(|e| Error::Database {
-                            message: format!("Failed to open events table: {}", e),
+                            message: format!("Failed to open events table: {e}"),
                         })?;
                 let key = format!(
                     "{}:{}",
@@ -66,17 +75,17 @@ impl PersistenceProvider for RedbPersistence {
                 table
                     .insert(key.as_str(), value.as_slice())
                     .map_err(|e| Error::Database {
-                        message: format!("Failed to insert event: {}", e),
+                        message: format!("Failed to insert event: {e}"),
                     })?;
             }
             write_txn.commit().map_err(|e| Error::Database {
-                message: format!("Failed to commit transaction: {}", e),
+                message: format!("Failed to commit transaction: {e}"),
             })?;
             Ok(())
         })
         .await
         .map_err(|e| Error::Database {
-            message: format!("Task join error: {}", e),
+            message: format!("Task join error: {e}"),
         })?
     }
 
@@ -85,21 +94,21 @@ impl PersistenceProvider for RedbPersistence {
         let instance_id = instance_id.to_string();
         tokio::task::spawn_blocking(move || -> Result<Vec<WorkflowEvent>> {
             let read_txn = db.begin_read().map_err(|e| Error::Database {
-                message: format!("Failed to begin read transaction: {}", e),
+                message: format!("Failed to begin read transaction: {e}"),
             })?;
             let table = read_txn
                 .open_table(EVENTS_TABLE)
                 .map_err(|e| Error::Database {
-                    message: format!("Failed to open events table: {}", e),
+                    message: format!("Failed to open events table: {e}"),
                 })?;
             let mut events = Vec::new();
-            let prefix = format!("{}:", instance_id);
+            let prefix = format!("{instance_id}:");
             let range = table.range::<&str>(..).map_err(|e| Error::Database {
-                message: format!("Failed to create range: {}", e),
+                message: format!("Failed to create range: {e}"),
             })?;
             for item in range {
                 let (key, value) = item.map_err(|e| Error::Database {
-                    message: format!("Failed to read item: {}", e),
+                    message: format!("Failed to read item: {e}"),
                 })?;
                 if key.value().starts_with(&prefix) {
                     let event: WorkflowEvent = serde_json::from_slice(value.value())
@@ -111,7 +120,7 @@ impl PersistenceProvider for RedbPersistence {
         })
         .await
         .map_err(|e| Error::Database {
-            message: format!("Task join error: {}", e),
+            message: format!("Task join error: {e}"),
         })?
     }
 
@@ -119,31 +128,31 @@ impl PersistenceProvider for RedbPersistence {
         let db = self.db.clone();
         tokio::task::spawn_blocking(move || -> Result<()> {
             let write_txn = db.begin_write().map_err(|e| Error::Database {
-                message: format!("Failed to begin write transaction: {}", e),
+                message: format!("Failed to begin write transaction: {e}"),
             })?;
             {
                 let mut table =
                     write_txn
                         .open_table(CHECKPOINTS_TABLE)
                         .map_err(|e| Error::Database {
-                            message: format!("Failed to open checkpoints table: {}", e),
+                            message: format!("Failed to open checkpoints table: {e}"),
                         })?;
                 let value = serde_json::to_vec(&checkpoint)
                     .map_err(|e| Error::Serialization { source: e })?;
                 table
                     .insert(checkpoint.instance_id.as_str(), value.as_slice())
                     .map_err(|e| Error::Database {
-                        message: format!("Failed to insert checkpoint: {}", e),
+                        message: format!("Failed to insert checkpoint: {e}"),
                     })?;
             }
             write_txn.commit().map_err(|e| Error::Database {
-                message: format!("Failed to commit transaction: {}", e),
+                message: format!("Failed to commit transaction: {e}"),
             })?;
             Ok(())
         })
         .await
         .map_err(|e| Error::Database {
-            message: format!("Task join error: {}", e),
+            message: format!("Task join error: {e}"),
         })?
     }
 
@@ -152,17 +161,17 @@ impl PersistenceProvider for RedbPersistence {
         let instance_id = instance_id.to_string();
         tokio::task::spawn_blocking(move || -> Result<Option<WorkflowCheckpoint>> {
             let read_txn = db.begin_read().map_err(|e| Error::Database {
-                message: format!("Failed to begin read transaction: {}", e),
+                message: format!("Failed to begin read transaction: {e}"),
             })?;
             let table = read_txn
                 .open_table(CHECKPOINTS_TABLE)
                 .map_err(|e| Error::Database {
-                    message: format!("Failed to open checkpoints table: {}", e),
+                    message: format!("Failed to open checkpoints table: {e}"),
                 })?;
             if let Some(value) = table
                 .get(instance_id.as_str())
                 .map_err(|e| Error::Database {
-                    message: format!("Failed to get checkpoint: {}", e),
+                    message: format!("Failed to get checkpoint: {e}"),
                 })?
             {
                 let checkpoint: WorkflowCheckpoint = serde_json::from_slice(value.value())
@@ -174,7 +183,7 @@ impl PersistenceProvider for RedbPersistence {
         })
         .await
         .map_err(|e| Error::Database {
-            message: format!("Task join error: {}", e),
+            message: format!("Task join error: {e}"),
         })?
     }
 }

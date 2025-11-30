@@ -16,8 +16,8 @@ mod listeners;
 pub mod output;
 mod persistence;
 mod providers;
-mod workflow;
 pub mod task_output;
+mod workflow;
 
 use cmd::{RunArgs, ValidateArgs, VisualizeArgs, handle_run, handle_validate, handle_visualize};
 

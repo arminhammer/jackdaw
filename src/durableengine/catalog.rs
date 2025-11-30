@@ -34,25 +34,24 @@ impl DurableEngine {
             let parts: Vec<&str> = function_name.split(':').collect();
             if parts.len() != 2 {
                 return Err(Error::Configuration {
-                    message: format!("Invalid catalog function reference: {}", function_name),
+                    message: format!("Invalid catalog function reference: {function_name}"),
                 });
             }
             let (name, version) = (parts[0], parts[1]);
 
             // Look up in catalogs
-            let catalogs = match ctx
+            let Some(catalogs) = ctx
                 .workflow
                 .use_
                 .as_ref()
                 .and_then(|use_| use_.catalogs.as_ref())
-            {
-                Some(catalogs) => catalogs,
-                None => return Ok(None), // No catalogs defined
+            else {
+                return Ok(None); // No catalogs defined
             };
 
             // Try to find in any catalog
-            let mut function_url = None;
-            for (_catalog_name, catalog) in catalogs {
+            // Use first catalog for now
+            let function_url = if let Some(catalog) = catalogs.values().next() {
                 // Extract URI from the endpoint enum
                 use serverless_workflow_core::models::resource::OneOfEndpointDefinitionOrUri;
                 let catalog_uri = match &catalog.endpoint {
@@ -63,25 +62,24 @@ impl DurableEngine {
                 // Build function URL based on catalog structure
                 let url = if catalog_uri.starts_with("file://") {
                     let base_path = catalog_uri.strip_prefix("file://").unwrap();
-                    format!("file://{}/{}/{}/function.yaml", base_path, name, version)
+                    format!("file://{base_path}/{name}/{version}/function.yaml")
                 } else if catalog_uri.starts_with("http://") || catalog_uri.starts_with("https://")
                 {
                     // For HTTP catalogs, follow the structure: {catalog}/functions/{name}/{version}/function.yaml
                     format!(
-                        "{}/functions/{}/{}/function.yaml",
+                        "{}/functions/{name}/{version}/function.yaml",
                         catalog_uri.trim_end_matches('/'),
-                        name,
-                        version
                     )
                 } else {
                     return Err(Error::Configuration {
-                        message: format!("Unsupported catalog URI scheme: {}", catalog_uri),
+                        message: format!("Unsupported catalog URI scheme: {catalog_uri}"),
                     });
                 };
 
-                function_url = Some(url);
-                break; // Use first catalog for now
-            }
+                Some(url)
+            } else {
+                None
+            };
 
             match function_url {
                 Some(url) => url,
@@ -104,10 +102,7 @@ impl DurableEngine {
             let response = reqwest::get(&function_url)
                 .await
                 .map_err(|e| Error::TaskExecution {
-                    message: format!(
-                        "Failed to fetch catalog function from {}: {}",
-                        function_url, e
-                    ),
+                    message: format!("Failed to fetch catalog function from {function_url}: {e}"),
                 })?;
 
             if !response.status().is_success() {
@@ -122,8 +117,7 @@ impl DurableEngine {
 
             response.text().await.map_err(|e| Error::TaskExecution {
                 message: format!(
-                    "Failed to read catalog function response from {}: {}",
-                    function_url, e
+                    "Failed to read catalog function response from {function_url}: {e}"
                 ),
             })?
         };
@@ -131,7 +125,7 @@ impl DurableEngine {
         // Parse the workflow definition
         let function_workflow: WorkflowDefinition = serde_yaml::from_str(&function_content)
             .map_err(|e| Error::Configuration {
-                message: format!("Failed to parse catalog function {}: {}", function_name, e),
+                message: format!("Failed to parse catalog function {function_name}: {e}"),
             })?;
 
         // Execute the catalog function as a nested workflow with the provided inputs

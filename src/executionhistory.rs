@@ -8,9 +8,10 @@ pub struct ExecutionHistory {
 }
 
 impl ExecutionHistory {
-    pub fn new(events: Vec<WorkflowEvent>) -> Self {
+    #[must_use]
+    pub fn new(events: &[WorkflowEvent]) -> Self {
         let mut completed_tasks = HashMap::new();
-        for event in &events {
+        for event in events {
             if let WorkflowEvent::TaskCompleted {
                 task_name, result, ..
             } = event
@@ -21,6 +22,7 @@ impl ExecutionHistory {
         Self { completed_tasks }
     }
 
+    #[must_use]
     pub fn is_task_completed(&self, task_name: &str) -> Option<&serde_json::Value> {
         self.completed_tasks.get(task_name)
     }

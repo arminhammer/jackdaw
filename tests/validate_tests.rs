@@ -1,6 +1,6 @@
+use jackdaw::durableengine::DurableEngine;
 use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use std::path::PathBuf;
-use jackdaw::durableengine::DurableEngine;
 
 /// Helper function to validate a single workflow file
 fn validate_workflow_file(path: &PathBuf) -> Result<(), String> {
@@ -68,7 +68,11 @@ async fn test_validate_all_examples() {
         examples_dir.display()
     );
 
-    println!("Found {} workflow files to validate ({} skipped)", workflow_files.len(), skip_files.len());
+    println!(
+        "Found {} workflow files to validate ({} skipped)",
+        workflow_files.len(),
+        skip_files.len()
+    );
 
     // Validate each workflow
     let mut failed_workflows = Vec::new();

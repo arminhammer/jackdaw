@@ -1,6 +1,7 @@
 use serverless_workflow_core::models::task::TaskDefinition;
 use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use snafu::prelude::*;
+use std::fmt::Write;
 use std::path::Path;
 use std::process::Command;
 
@@ -11,7 +12,7 @@ use super::{
 
 const D2: &str = "d2";
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct D2Provider {
     /// Path to d2 executable (default: "d2" from PATH)
     d2_path: String,
@@ -20,6 +21,7 @@ pub struct D2Provider {
 }
 
 impl D2Provider {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             d2_path: D2.to_string(),
@@ -28,28 +30,32 @@ impl D2Provider {
     }
 
     #[allow(dead_code)]
+    #[must_use]
     pub fn with_d2_path(mut self, path: String) -> Self {
         self.d2_path = path;
         self
     }
 
+    #[must_use]
+    #[allow(dead_code)]
     pub fn with_theme(mut self, theme: String) -> Self {
         self.theme = Some(theme);
         self
     }
 
     /// Generate D2 source for a workflow with optional execution state
+    #[allow(clippy::unused_self)]
     fn workflow_to_d2(
         &self,
         workflow: &WorkflowDefinition,
         execution_state: Option<&ExecutionState>,
-    ) -> Result<String> {
+    ) -> String {
         let mut d2 = String::new();
 
         // Direction and metadata
         d2.push_str("direction: down\n\n");
-        d2.push_str(&format!("# Workflow: {}\n", workflow.document.name));
-        d2.push_str(&format!("# Version: {}\n\n", workflow.document.version));
+        writeln!(d2, "# Workflow: {}", workflow.document.name).unwrap();
+        writeln!(d2, "# Version: {}\n", workflow.document.version).unwrap();
 
         // Start node
         d2.push_str("Start: {\n");
@@ -60,7 +66,7 @@ impl D2Provider {
         // Collect all task names in order
         let mut task_names = Vec::new();
         for entry in &workflow.do_.entries {
-            for (name, _) in entry {
+            for name in entry.keys() {
                 task_names.push(name.clone());
             }
         }
@@ -68,33 +74,32 @@ impl D2Provider {
         // Task nodes
         for entry in &workflow.do_.entries {
             for (name, task) in entry {
-                let mut style = self.task_style_d2(task);
-                let label = self.task_label(name, task);
+                let mut style = Self::task_style_d2(task);
+                let label = Self::task_label(name, task);
 
                 // Override style based on execution state
-                if let Some(state) = execution_state {
-                    if let Some(task_state) = state.task_states.get(name) {
-                        let color = match task_state {
-                            TaskExecutionState::Success => "#90EE90", // Green
-                            TaskExecutionState::Failed => "#FF6B6B",  // Red
-                            TaskExecutionState::Running => "#FFD700", // Gold
-                            TaskExecutionState::NotExecuted => {
-                                // Keep default style
-                                ""
-                            }
-                        };
-
-                        if !color.is_empty() {
-                            style = format!(
-                                "  shape: rectangle\n  style.fill: \"{}\"\n  style.border-radius: 8\n",
-                                color
-                            );
+                if let Some(state) = execution_state
+                    && let Some(task_state) = state.task_states.get(name)
+                {
+                    let color = match task_state {
+                        TaskExecutionState::Success => "#90EE90", // Green
+                        TaskExecutionState::Failed => "#FF6B6B",  // Red
+                        TaskExecutionState::Running => "#FFD700", // Gold
+                        TaskExecutionState::NotExecuted => {
+                            // Keep default style
+                            ""
                         }
+                    };
+
+                    if !color.is_empty() {
+                        style = format!(
+                            "  shape: rectangle\n  style.fill: \"{color}\"\n  style.border-radius: 8\n"
+                        );
                     }
                 }
-
-                d2.push_str(&format!("\"{}\": {{\n", name));
-                d2.push_str(&format!("  label: \"{}\"\n", label));
+                writeln!(d2, "\"{name}\": {{").unwrap();
+                writeln!(d2, "  label: \"{label}\"").unwrap();
+                d2.push_str(&style);
                 d2.push_str(&style);
                 d2.push_str("}\n\n");
             }
@@ -108,34 +113,27 @@ impl D2Provider {
         d2.push_str("}\n\n");
 
         // Connections - build sequential flow
-        if !task_names.is_empty() {
+        if task_names.is_empty() {
+            // Empty workflow
+            d2.push_str("Start -> End\n");
+        } else {
             // Start to first task
-            d2.push_str(&format!("Start -> \"{}\"\n", task_names[0]));
+            writeln!(d2, "Start -> \"{}\"", task_names[0]).unwrap();
 
             // Sequential flow between tasks
             for i in 0..task_names.len() - 1 {
-                d2.push_str(&format!(
-                    "\"{}\" -> \"{}\"\n",
-                    task_names[i],
-                    task_names[i + 1]
-                ));
+                writeln!(d2, "\"{}\" -> \"{}\"", task_names[i], task_names[i + 1]).unwrap();
             }
 
             // Last task to end
-            d2.push_str(&format!(
-                "\"{}\" -> End\n",
-                task_names[task_names.len() - 1]
-            ));
-        } else {
-            // Empty workflow
-            d2.push_str("Start -> End\n");
+            writeln!(d2, "\"{}\" -> End", task_names[task_names.len() - 1]).unwrap();
         }
 
-        Ok(d2)
+        d2
     }
 
     /// Determine node style for D2 based on task type
-    fn task_style_d2(&self, task: &TaskDefinition) -> String {
+    fn task_style_d2(task: &TaskDefinition) -> String {
         let (shape, color) = match task {
             TaskDefinition::Call(_) => ("rectangle", "#87CEEB"),
             TaskDefinition::Run(_) => ("rectangle", "#DDA0DD"),
@@ -151,14 +149,11 @@ impl D2Provider {
             TaskDefinition::Do(_) => ("rectangle", "#B0C4DE"),
         };
 
-        format!(
-            "  shape: {}\n  style.fill: \"{}\"\n  style.border-radius: 8\n",
-            shape, color
-        )
+        format!("  shape: {shape}\n  style.fill: \"{color}\"\n  style.border-radius: 8\n")
     }
 
     /// Generate human-readable label for a task
-    fn task_label(&self, name: &str, task: &TaskDefinition) -> String {
+    fn task_label(name: &str, task: &TaskDefinition) -> String {
         let task_type = match task {
             TaskDefinition::Call(_) => "Call",
             TaskDefinition::Run(_) => "Run",
@@ -173,7 +168,7 @@ impl D2Provider {
             TaskDefinition::Raise(_) => "Raise",
             TaskDefinition::Do(_) => "Do",
         };
-        format!("{}\\n{}", task_type, name)
+        format!("{task_type}\\n{name}")
     }
 }
 
@@ -187,7 +182,7 @@ impl VisualizationProvider for D2Provider {
         workflow: &WorkflowDefinition,
         execution_state: Option<&ExecutionState>,
     ) -> Result<String> {
-        self.workflow_to_d2(workflow, execution_state)
+        Ok(self.workflow_to_d2(workflow, execution_state))
     }
 
     fn render(
@@ -217,58 +212,55 @@ impl VisualizationProvider for D2Provider {
         let temp_source = temp_dir.path().join("workflow.d2");
         std::fs::write(&temp_source, d2_source).context(super::IoSnafu)?;
 
-        match format {
-            DiagramFormat::ASCII => {
-                // D2's --sketch flag outputs ASCII to stdout
-                let output = Command::new(&self.d2_path)
-                    .arg("--sketch")
-                    .arg(&temp_source)
-                    .output()
-                    .context(ExecuteFailedSnafu {
-                        command: "d2 --sketch",
-                    })?;
+        if format == DiagramFormat::Ascii {
+            // D2's --sketch flag outputs ASCII to stdout
+            let output = Command::new(&self.d2_path)
+                .arg("--sketch")
+                .arg(&temp_source)
+                .output()
+                .context(ExecuteFailedSnafu {
+                    command: "d2 --sketch",
+                })?;
 
-                if !output.status.success() {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    return CommandFailedSnafu {
-                        command: "d2 --sketch".to_string(),
-                        stderr: stderr.to_string(),
-                    }
-                    .fail();
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return CommandFailedSnafu {
+                    command: "d2 --sketch".to_string(),
+                    stderr: stderr.to_string(),
                 }
-
-                let ascii_art = String::from_utf8_lossy(&output.stdout);
-
-                if let Some(path) = output_path {
-                    std::fs::write(path, ascii_art.as_bytes()).context(super::IoSnafu)?;
-                } else {
-                    print!("{}", ascii_art);
-                }
+                .fail();
             }
-            _ => {
-                // SVG, PNG, PDF
-                let output_path =
-                    output_path.ok_or_else(|| OutputPathRequiredSnafu { format }.build())?;
 
-                let mut cmd = Command::new(&self.d2_path);
+            let ascii_art = String::from_utf8_lossy(&output.stdout);
 
-                // Add theme if specified
-                if let Some(ref theme) = self.theme {
-                    cmd.arg("--theme").arg(theme);
+            if let Some(path) = output_path {
+                std::fs::write(path, ascii_art.as_bytes()).context(super::IoSnafu)?;
+            } else {
+                print!("{ascii_art}");
+            }
+        } else {
+            // SVG, PNG, PDF
+            let output_path =
+                output_path.ok_or_else(|| OutputPathRequiredSnafu { format }.build())?;
+
+            let mut cmd = Command::new(&self.d2_path);
+
+            // Add theme if specified
+            if let Some(ref theme) = self.theme {
+                cmd.arg("--theme").arg(theme);
+            }
+
+            cmd.arg(&temp_source).arg(output_path);
+
+            let output = cmd.output().context(ExecuteFailedSnafu { command: "d2" })?;
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return CommandFailedSnafu {
+                    command: "d2".to_string(),
+                    stderr: stderr.to_string(),
                 }
-
-                cmd.arg(&temp_source).arg(output_path);
-
-                let output = cmd.output().context(ExecuteFailedSnafu { command: "d2" })?;
-
-                if !output.status.success() {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    return CommandFailedSnafu {
-                        command: "d2".to_string(),
-                        stderr: stderr.to_string(),
-                    }
-                    .fail();
-                }
+                .fail();
             }
         }
 

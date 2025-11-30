@@ -31,6 +31,7 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct Context {
     pub instance_id: String,
     pub data: Data,
@@ -55,6 +56,14 @@ pub struct Context {
 }
 
 impl Context {
+    /// Creates a new context for workflow execution.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The workflow has no tasks defined
+    /// - There is a persistence error when retrieving events or checkpoints
+    /// - Serialization of workflow descriptors fails
     pub async fn new(
         workflow: &WorkflowDefinition,
         persistence: Arc<dyn PersistenceProvider>,
@@ -67,7 +76,7 @@ impl Context {
             .get_events(&instance_id)
             .await
             .context(PersistenceSnafu)?;
-        let history = Arc::new(ExecutionHistory::new(events));
+        let history = Arc::new(ExecutionHistory::new(&events));
 
         let (data, current_task) = if let Some(checkpoint) = persistence
             .get_checkpoint(&instance_id)
@@ -111,7 +120,7 @@ impl Context {
         );
 
         // Inject descriptors into data for expression evaluation
-        let mut data_with_descriptors = if let serde_json::Value::Object(mut obj) = data {
+        let data_with_descriptors = if let serde_json::Value::Object(mut obj) = data {
             obj.insert(
                 "__workflow".to_string(),
                 serde_json::to_value(&workflow_descriptor).context(SerializationSnafu)?,
@@ -163,6 +172,11 @@ impl Context {
         }
     }
 
+    /// Saves the current workflow execution state as a checkpoint.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if there is a persistence error when saving the checkpoint.
     pub async fn save_checkpoint(&self, task_name: &str) -> Result<()> {
         let data = self.data.read().await;
         self.persistence

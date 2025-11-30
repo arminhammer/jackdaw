@@ -15,6 +15,7 @@ pub struct RuntimeDescriptor {
 }
 
 impl RuntimeDescriptor {
+    #[must_use]
     pub fn new(name: String, version: String) -> Self {
         Self {
             name,
@@ -23,13 +24,15 @@ impl RuntimeDescriptor {
         }
     }
 
+    #[must_use]
+    #[allow(dead_code)]
     pub fn with_metadata(mut self, metadata: serde_json::Map<String, Value>) -> Self {
         self.metadata = Some(metadata);
         self
     }
 }
 
-/// DateTime descriptor as per Serverless Workflow spec
+/// ``DateTime`` descriptor as per Serverless Workflow spec
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DateTimeDescriptor {
     /// ISO 8601 formatted timestamp
@@ -74,6 +77,7 @@ pub struct WorkflowDescriptor {
 }
 
 impl WorkflowDescriptor {
+    #[must_use]
     pub fn new(id: String, definition: Value, input: Value, started_at: DateTime<Utc>) -> Self {
         Self {
             id,
@@ -86,6 +90,7 @@ impl WorkflowDescriptor {
 
 /// Task descriptor as per Serverless Workflow spec
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct TaskDescriptor {
     /// The task's name
     pub name: String,
@@ -104,6 +109,8 @@ pub struct TaskDescriptor {
 }
 
 impl TaskDescriptor {
+    #[must_use]
+    #[allow(dead_code)]
     pub fn new(
         name: String,
         reference: String,
@@ -121,6 +128,8 @@ impl TaskDescriptor {
         }
     }
 
+    #[must_use]
+    #[allow(dead_code)]
     pub fn with_output(mut self, output: Value) -> Self {
         self.output = Some(output);
         self

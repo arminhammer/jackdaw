@@ -8,12 +8,19 @@ pub struct InMemoryCache {
     store: Arc<Mutex<HashMap<String, CacheEntry>>>,
 }
 
-impl InMemoryCache {
-    #[allow(dead_code)]
-    pub fn new() -> Self {
+impl Default for InMemoryCache {
+    fn default() -> Self {
         Self {
             store: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+}
+
+impl InMemoryCache {
+    #[allow(dead_code)]
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 

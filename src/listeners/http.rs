@@ -1,8 +1,6 @@
 use super::{Listener, Result};
 use async_trait::async_trait;
 use axum::{Json, Router, http::StatusCode, response::IntoResponse, routing::post};
-use openapiv3::OpenAPI;
-use snafu::prelude::*;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -11,12 +9,9 @@ pub struct HttpListener {
     /// Bind address (e.g., "localhost:8080")
     bind_addr: String,
 
-    /// OpenAPI specification
-    openapi_spec: Arc<OpenAPI>,
-
     /// Route handlers: path -> handler function
     /// For multi-route servers, this contains all handlers
-    /// Using RwLock to allow adding routes dynamically
+    /// Using ``RwLock`` to allow adding routes dynamically
     route_handlers: Arc<
         RwLock<
             std::collections::HashMap<
@@ -34,58 +29,43 @@ pub struct HttpListener {
 }
 
 impl HttpListener {
-    /// Add a route handler to an existing listener
-    /// This allows adding new routes to an already-running server
-    pub async fn add_route(
-        &self,
-        path: String,
-        handler: Arc<dyn Fn(serde_json::Value) -> Result<serde_json::Value> + Send + Sync>,
-    ) -> Result<()> {
-        // Add to handlers map
-        let mut handlers = self.route_handlers.write().await;
-        handlers.insert(path.clone(), handler);
+    // /// Add a route handler to an existing listener
+    // /// This allows adding new routes to an already-running server
+    // pub async fn add_route(
+    //     &self,
+    //     path: String,
+    //     handler: Arc<dyn Fn(serde_json::Value) -> Result<serde_json::Value> + Send + Sync>,
+    // ) -> Result<()> {
+    //     // Add to handlers map
+    //     let mut handlers = self.route_handlers.write().await;
+    //     handlers.insert(path.clone(), handler);
 
-        tracing::info!(
-            "Added route {} to HTTP listener on {}",
-            path,
-            self.bind_addr
-        );
-        Ok(())
-    }
+    //     tracing::info!(
+    //         "Added route {} to HTTP listener on {}",
+    //         path,
+    //         self.bind_addr
+    //     );
+    //     Ok(())
+    // }
 
     /// Create a new HTTP listener with multiple route handlers
     /// This allows a single server to handle multiple paths on the same port
+    ///
+    /// # Errors
+    /// This function currently does not return an error and will always succeed; it returns `Ok(Self)`.
     pub fn new_multi_route(
         bind_addr: String,
-        openapi_path: &str,
         route_handlers: std::collections::HashMap<
             String,
             Arc<dyn Fn(serde_json::Value) -> Result<serde_json::Value> + Send + Sync>,
         >,
     ) -> Result<Self> {
-        // Load OpenAPI spec
-        let openapi_content = std::fs::read_to_string(openapi_path)?;
-        let openapi_spec: OpenAPI = serde_yaml::from_str(&openapi_content)?;
-
         Ok(Self {
             bind_addr,
-            openapi_spec: Arc::new(openapi_spec),
             route_handlers: Arc::new(RwLock::new(route_handlers)),
             shutdown_tx: Arc::new(RwLock::new(None)),
             server_handle: Arc::new(RwLock::new(None)),
         })
-    }
-
-    /// Validate request against OpenAPI schema
-    fn validate_request(&self, _body: &serde_json::Value) -> Result<()> {
-        // TODO: Implement OpenAPI schema validation
-        Ok(())
-    }
-
-    /// Validate response against OpenAPI schema
-    fn validate_response(&self, _body: &serde_json::Value) -> Result<()> {
-        // TODO: Implement OpenAPI schema validation
-        Ok(())
     }
 }
 
@@ -150,7 +130,7 @@ impl Listener for HttpListener {
 
         // Parse bind address
         let addr: std::net::SocketAddr = bind_addr.parse().map_err(|e| super::Error::Listener {
-            message: format!("Invalid bind address {}: {}", bind_addr, e),
+            message: format!("Invalid bind address {bind_addr}: {e}"),
         })?;
 
         // Spawn server in background
@@ -220,6 +200,8 @@ impl std::fmt::Debug for HttpListener {
             .field("bind_addr", &self.bind_addr)
             .field("openapi_spec", &"<OpenAPI spec>")
             .field("route_handlers", &"<function handlers>")
+            .field("shutdown_tx", &"<shutdown sender>")
+            .field("server_handle", &"<server task>")
             .finish()
     }
 }

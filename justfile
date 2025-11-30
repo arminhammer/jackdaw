@@ -24,11 +24,11 @@ setup-python:
 
 # Build the project
 build:
-    cargo build --release
+    cargo build
 
 # Build in development mode
-build-dev:
-    cargo build
+build-release:
+    RUSTFLAGS="-D warnings" cargo build --release
 
 # Run all unit tests
 test:
