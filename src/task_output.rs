@@ -115,19 +115,13 @@ impl TaskOutputStreamer {
         let exit_code = status.code().unwrap_or(0);
 
         // Collect output
-        let stdout_lines = stdout_handle.await.map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Stdout task failed: {}", e),
-            )
-        })??;
+        let stdout_lines = stdout_handle
+            .await
+            .map_err(|e| std::io::Error::other(format!("Stdout task failed: {e}")))??;
 
-        let stderr_lines = stderr_handle.await.map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Stderr task failed: {}", e),
-            )
-        })??;
+        let stderr_lines = stderr_handle
+            .await
+            .map_err(|e| std::io::Error::other(format!("Stderr task failed: {e}")))??;
 
         Ok((stdout_lines.join("\n"), stderr_lines.join("\n"), exit_code))
     }

@@ -12,7 +12,10 @@ impl PostgresPersistence {
     /// Create a new ``PostgreSQL`` persistence provider
     ///
     /// # Arguments
-    /// * `database_url` - ``PostgreSQL`` connection string (e.g., "postgresql://user:pass@localhost/db")
+    /// * `database_url` - ``PostgreSQL`` connection string (e.g., "<postgresql://user:pass@localhost/db>")
+    ///
+    /// # Errors
+    /// Returns an error if the database connection fails or if the schema initialization fails.
     ///
     /// # Example
     /// ```no_run
@@ -47,6 +50,9 @@ impl PostgresPersistence {
     }
 
     /// Create a new ``PostgreSQL`` persistence provider with custom pool options
+    ///
+    /// # Errors
+    /// Returns an error if the schema initialization fails or if there are database connectivity issues.
     pub async fn with_pool(pool: PgPool) -> Result<Self> {
         // Initialize schema - execute statements individually since PostgreSQL
         // prepared statements don't support multiple statements
@@ -133,20 +139,20 @@ impl PersistenceProvider for PostgresPersistence {
             .map_err(|e| Error::Serialization { source: e })?;
 
         sqlx::query(
-            r#"
+            r"
             INSERT INTO workflow_checkpoints (instance_id, current_task, data, timestamp)
             VALUES ($1, $2, $3, $4)
-            ON CONFLICT (instance_id)
+            ON CONFLICT (instance_id) 
             DO UPDATE SET
                 current_task = EXCLUDED.current_task,
                 data = EXCLUDED.data,
                 timestamp = EXCLUDED.timestamp
-            "#,
+            ",
         )
         .bind(&checkpoint.instance_id)
         .bind(&checkpoint.current_task)
         .bind(&data_json)
-        .bind(&checkpoint.timestamp)
+        .bind(checkpoint.timestamp)
         .execute(&self.pool)
         .await
         .map_err(|e| Error::Database {

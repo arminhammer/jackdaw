@@ -52,8 +52,8 @@ impl D2Provider {
 
         // Direction and metadata
         d2.push_str("direction: down\n\n");
-        d2.push_str(&format!("# Workflow: {}\n", workflow.document.name));
-        d2.push_str(&format!("# Version: {}\n\n", workflow.document.version));
+        writeln!(d2, "# Workflow: {}", workflow.document.name).unwrap();
+        writeln!(d2, "# Version: {}\n", workflow.document.version).unwrap();
 
         // Start node
         d2.push_str("Start: {\n");
@@ -64,7 +64,7 @@ impl D2Provider {
         // Collect all task names in order
         let mut task_names = Vec::new();
         for entry in &workflow.do_.entries {
-            for (name, _) in entry {
+            for name in entry.keys() {
                 task_names.push(name.clone());
             }
         }
@@ -76,27 +76,27 @@ impl D2Provider {
                 let label = self.task_label(name, task);
 
                 // Override style based on execution state
-                if let Some(state) = execution_state {
-                    if let Some(task_state) = state.task_states.get(name) {
-                        let color = match task_state {
-                            TaskExecutionState::Success => "#90EE90", // Green
-                            TaskExecutionState::Failed => "#FF6B6B",  // Red
-                            TaskExecutionState::Running => "#FFD700", // Gold
-                            TaskExecutionState::NotExecuted => {
-                                // Keep default style
-                                ""
-                            }
-                        };
-
-                        if !color.is_empty() {
-                            style = format!(
-                                "  shape: rectangle\n  style.fill: \"{color}\"\n  style.border-radius: 8\n"
-                            );
+                if let Some(state) = execution_state
+                    && let Some(task_state) = state.task_states.get(name)
+                {
+                    let color = match task_state {
+                        TaskExecutionState::Success => "#90EE90", // Green
+                        TaskExecutionState::Failed => "#FF6B6B",  // Red
+                        TaskExecutionState::Running => "#FFD700", // Gold
+                        TaskExecutionState::NotExecuted => {
+                            // Keep default style
+                            ""
                         }
+                    };
+
+                    if !color.is_empty() {
+                        style = format!(
+                            "  shape: rectangle\n  style.fill: \"{color}\"\n  style.border-radius: 8\n"
+                        );
                     }
                 }
-                d2.push_str(&format!("\"{}\": {{\n", name));
-                write!(d2, "  label: \"{label}\"\n").unwrap();
+                writeln!(d2, "\"{name}\": {{").unwrap();
+                writeln!(d2, "  label: \"{label}\"").unwrap();
                 d2.push_str(&style);
                 d2.push_str(&style);
                 d2.push_str("}\n\n");
@@ -113,22 +113,15 @@ impl D2Provider {
         // Connections - build sequential flow
         if !task_names.is_empty() {
             // Start to first task
-            d2.push_str(&format!("Start -> \"{}\"\n", task_names[0]));
+            writeln!(d2, "Start -> \"{}\"", task_names[0]).unwrap();
 
             // Sequential flow between tasks
             for i in 0..task_names.len() - 1 {
-                d2.push_str(&format!(
-                    "\"{}\" -> \"{}\"\n",
-                    task_names[i],
-                    task_names[i + 1]
-                ));
+                writeln!(d2, "\"{}\" -> \"{}\"", task_names[i], task_names[i + 1]).unwrap();
             }
 
             // Last task to end
-            d2.push_str(&format!(
-                "\"{}\" -> End\n",
-                task_names[task_names.len() - 1]
-            ));
+            writeln!(d2, "\"{}\" -> End", task_names[task_names.len() - 1]).unwrap();
         } else {
             // Empty workflow
             d2.push_str("Start -> End\n");
@@ -154,10 +147,7 @@ impl D2Provider {
             TaskDefinition::Do(_) => ("rectangle", "#B0C4DE"),
         };
 
-        format!(
-            "  shape: {}\n  style.fill: \"{}\"\n  style.border-radius: 8\n",
-            shape, color
-        )
+        format!("  shape: {shape}\n  style.fill: \"{color}\"\n  style.border-radius: 8\n")
     }
 
     /// Generate human-readable label for a task
@@ -176,7 +166,7 @@ impl D2Provider {
             TaskDefinition::Raise(_) => "Raise",
             TaskDefinition::Do(_) => "Do",
         };
-        format!("{}\\n{}", task_type, name)
+        format!("{task_type}\\n{name}")
     }
 }
 

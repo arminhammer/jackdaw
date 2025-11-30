@@ -337,7 +337,7 @@ impl DurableEngine {
                 .get(&current_task_name)
                 .copied()
                 .ok_or(Error::TaskExecution {
-                    message: format!("Task not found: {}", current_task_name),
+                    message: format!("Task not found: {current_task_name}"),
                 })?;
 
         loop {
@@ -348,15 +348,14 @@ impl DurableEngine {
                 if let Some(next) = graph.neighbors(current).next() {
                     current = next;
                     continue;
-                } else {
-                    break;
                 }
+                break;
             }
 
             ctx.persistence
                 .save_event(WorkflowEvent::TaskEntered {
                     instance_id: ctx.instance_id.clone(),
-                    task_name: task_name.to_string(),
+                    task_name: task_name.clone(),
                     timestamp: Utc::now(),
                 })
                 .await?;
@@ -370,7 +369,7 @@ impl DurableEngine {
             ctx.persistence
                 .save_event(WorkflowEvent::TaskCompleted {
                     instance_id: ctx.instance_id.clone(),
-                    task_name: task_name.to_string(),
+                    task_name: task_name.clone(),
                     result: result.clone(),
                     timestamp: Utc::now(),
                 })
@@ -399,14 +398,13 @@ impl DurableEngine {
             };
 
             if let Some(export_def) = export_config {
-                if let Some(export_expr) = &export_def.as_ {
-                    if let Some(expr_str) = export_expr.as_str() {
-                        // Evaluate export.as expression on the transformed task output
-                        // The result becomes the new context
-                        let new_context =
-                            crate::expressions::evaluate_expression(expr_str, &result)?;
-                        *ctx.data.write().await = new_context;
-                    }
+                if let Some(export_expr) = &export_def.as_
+                    && let Some(expr_str) = export_expr.as_str()
+                {
+                    // Evaluate export.as expression on the transformed task output
+                    // The result becomes the new context
+                    let new_context = crate::expressions::evaluate_expression(expr_str, &result)?;
+                    *ctx.data.write().await = new_context;
                 }
             } else {
                 // No explicit export.as - apply default behavior
@@ -418,7 +416,6 @@ impl DurableEngine {
                         for (key, value) in result_obj {
                             context_obj.insert(key.clone(), value.clone());
                         }
-                    } else {
                     }
                 } else {
                     // If result is not an object, we cannot merge - replace the context entirely
@@ -446,7 +443,7 @@ impl DurableEngine {
                 }
 
                 current = *task_names.get(&next_name).ok_or(Error::TaskExecution {
-                    message: format!("Next task not found: {}", next_name),
+                    message: format!("Next task not found: {next_name}"),
                 })?;
             } else if has_next_edge {
                 current = graph.neighbors(current).next().unwrap();
@@ -462,10 +459,10 @@ impl DurableEngine {
 
         // Apply workflow output filter if specified
         if let Some(output_config) = &workflow.output {
-            if let Some(as_expr) = &output_config.as_ {
-                if let Some(expr_str) = as_expr.as_str() {
-                    final_data = crate::expressions::evaluate_expression(expr_str, &final_data)?;
-                }
+            if let Some(as_expr) = &output_config.as_
+                && let Some(expr_str) = as_expr.as_str()
+            {
+                final_data = crate::expressions::evaluate_expression(expr_str, &final_data)?;
             }
         }
 
@@ -519,7 +516,7 @@ impl DurableEngine {
             "d2" => Box::new(D2Provider::new()),
             _ => {
                 return Err(Error::Configuration {
-                    message: format!("Unknown visualization tool: {}", tool),
+                    message: format!("Unknown visualization tool: {tool}"),
                 });
             }
         };

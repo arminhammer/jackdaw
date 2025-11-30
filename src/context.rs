@@ -67,7 +67,7 @@ impl Context {
             .get_events(&instance_id)
             .await
             .context(PersistenceSnafu)?;
-        let history = Arc::new(ExecutionHistory::new(events));
+        let history = Arc::new(ExecutionHistory::new(&events));
 
         let (data, current_task) = if let Some(checkpoint) = persistence
             .get_checkpoint(&instance_id)
@@ -111,7 +111,7 @@ impl Context {
         );
 
         // Inject descriptors into data for expression evaluation
-        let mut data_with_descriptors = if let serde_json::Value::Object(mut obj) = data {
+        let data_with_descriptors = if let serde_json::Value::Object(mut obj) = data {
             obj.insert(
                 "__workflow".to_string(),
                 serde_json::to_value(&workflow_descriptor).context(SerializationSnafu)?,
