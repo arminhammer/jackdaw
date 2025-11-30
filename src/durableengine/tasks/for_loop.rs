@@ -1,4 +1,5 @@
 use crate::context::Context;
+use serverless_workflow_core::models::task::TaskDefinition;
 
 use super::super::{DurableEngine, Error, Result};
 
@@ -18,10 +19,7 @@ pub async fn exec_for_task(
 
     // Get the collection as an array
     let items = collection.as_array().ok_or(Error::TaskExecution {
-        message: format!(
-            "For loop 'in' expression must evaluate to an array, got: {:?}",
-            collection
-        ),
+        message: format!("For loop 'in' expression must evaluate to an array, got: {collection:?}"),
     })?;
 
     // Get the iteration variable name (e.g., "color")
@@ -58,9 +56,7 @@ pub async fn exec_for_task(
 
                 // Update task_input for the next subtask
                 *ctx.task_input.write().await = result.clone();
-
                 // Handle export.as for subtasks (same logic as main execution loop)
-                use serverless_workflow_core::models::task::TaskDefinition;
                 let export_config = match subtask {
                     TaskDefinition::Call(t) => t.common.export.as_ref(),
                     TaskDefinition::Do(t) => t.common.export.as_ref(),
@@ -77,21 +73,21 @@ pub async fn exec_for_task(
                 };
 
                 if let Some(export_def) = export_config {
-                    if let Some(export_expr) = &export_def.as_ {
-                        if let Some(expr_str) = export_expr.as_str() {
-                            let new_context =
-                                crate::expressions::evaluate_expression(expr_str, &result)?;
-                            *ctx.data.write().await = new_context;
-                        }
+                    if let Some(export_expr) = &export_def.as_
+                        && let Some(expr_str) = export_expr.as_str()
+                    {
+                        let new_context =
+                            crate::expressions::evaluate_expression(expr_str, &result)?;
+                        *ctx.data.write().await = new_context;
                     }
                 } else {
                     // No explicit export.as - apply default behavior (merge into context)
                     let mut current_context = ctx.data.write().await;
-                    if let serde_json::Value::Object(result_obj) = &result {
-                        if let Some(context_obj) = (*current_context).as_object_mut() {
-                            for (key, value) in result_obj {
-                                context_obj.insert(key.clone(), value.clone());
-                            }
+                    if let serde_json::Value::Object(result_obj) = &result
+                        && let Some(context_obj) = (*current_context).as_object_mut()
+                    {
+                        for (key, value) in result_obj {
+                            context_obj.insert(key.clone(), value.clone());
                         }
                     }
                 }

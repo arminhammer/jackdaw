@@ -173,10 +173,9 @@ pub async fn exec_try_task(
 
                         // Try task returns the last catch handler result
                         return Ok(last_result);
-                    } else {
-                        // Error doesn't match the filter, propagate it
-                        return Err(e);
                     }
+                    // Error doesn't match the filter, propagate it
+                    return Err(e);
                 }
             }
         }

@@ -4,7 +4,7 @@ use crate::context::Context;
 
 use super::super::{DurableEngine, Result};
 
-/// Execute an Emit task - emits CloudEvents to the workflow context
+/// Execute an Emit task - emits ``CloudEvents`` to the workflow context
 pub async fn exec_emit_task(
     _engine: &DurableEngine,
     _task_name: &str,

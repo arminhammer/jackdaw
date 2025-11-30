@@ -109,19 +109,18 @@ pub async fn exec_call_task(
     let mut result = function_result;
 
     // Apply output filtering if specified
-    if let Some(output_config) = &call_task.common.output {
-        if let Some(as_expr) = &output_config.as_
-            && let Some(expr_str) = as_expr.as_str()
-        {
-            // Evaluate the jq expression on the result with access to $input
-            // $input represents the task input (previous task's output for sequential tasks)
-            let task_input = ctx.task_input.read().await.clone();
-            result = crate::expressions::evaluate_jq_expression_with_context(
-                expr_str,
-                &result,
-                &task_input,
-            )?;
-        }
+    if let Some(output_config) = &call_task.common.output
+        && let Some(as_expr) = &output_config.as_
+        && let Some(expr_str) = as_expr.as_str()
+    {
+        // Evaluate the jq expression on the result with access to $input
+        // $input represents the task input (previous task's output for sequential tasks)
+        let task_input = ctx.task_input.read().await.clone();
+        result = crate::expressions::evaluate_jq_expression_with_context(
+            expr_str,
+            &result,
+            &task_input,
+        )?;
     }
 
     let cache_entry = CacheEntry {
