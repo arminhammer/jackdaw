@@ -62,20 +62,20 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// Output format for diagram rendering
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiagramFormat {
-    SVG,
-    PNG,
-    PDF,
-    ASCII,
+    Svg,
+    Png,
+    Pdf,
+    Ascii,
 }
 
 impl DiagramFormat {
     #[must_use]
     pub fn from_extension(ext: &str) -> Option<Self> {
         match ext.to_lowercase().as_str() {
-            "svg" => Some(DiagramFormat::SVG),
-            "png" => Some(DiagramFormat::PNG),
-            "pdf" => Some(DiagramFormat::PDF),
-            "txt" | "ascii" => Some(DiagramFormat::ASCII),
+            "svg" => Some(DiagramFormat::Svg),
+            "png" => Some(DiagramFormat::Png),
+            "pdf" => Some(DiagramFormat::Pdf),
+            "txt" | "ascii" => Some(DiagramFormat::Ascii),
             _ => None,
         }
     }
@@ -83,16 +83,16 @@ impl DiagramFormat {
     #[must_use]
     pub fn extension(&self) -> &'static str {
         match self {
-            DiagramFormat::SVG => "svg",
-            DiagramFormat::PNG => "png",
-            DiagramFormat::PDF => "pdf",
-            DiagramFormat::ASCII => "txt",
+            DiagramFormat::Svg => "svg",
+            DiagramFormat::Png => "png",
+            DiagramFormat::Pdf => "pdf",
+            DiagramFormat::Ascii => "txt",
         }
     }
 
     #[must_use]
     pub fn is_terminal_output(&self) -> bool {
-        matches!(self, DiagramFormat::ASCII)
+        matches!(self, DiagramFormat::Ascii)
     }
 }
 

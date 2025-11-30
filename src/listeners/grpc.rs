@@ -47,11 +47,10 @@ impl GrpcListener {
         handler: Arc<dyn Fn(DynamicMessage) -> Result<DynamicMessage> + Send + Sync>,
     ) -> Result<()> {
         // Validate that the method exists in the service
-        if self
+        if !self
             .service_descriptor
             .methods()
-            .find(|m| m.name() == method_name)
-            .is_none()
+            .any(|m| m.name() == method_name)
         {
             return Err(super::Error::Listener {
                 message: format!(
@@ -107,10 +106,9 @@ impl GrpcListener {
 
         // Validate that all methods exist in the service
         for method_name in method_handlers.keys() {
-            if service_descriptor
+            if !service_descriptor
                 .methods()
-                .find(|m| m.name() == method_name)
-                .is_none()
+                .any(|m| m.name() == method_name)
             {
                 return Err(super::Error::Listener {
                     message: format!("Method {method_name} not found in service {service_name}"),

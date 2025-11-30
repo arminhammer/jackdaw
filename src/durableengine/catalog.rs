@@ -50,9 +50,8 @@ impl DurableEngine {
             };
 
             // Try to find in any catalog
-            let mut function_url = None;
-            #[deny(clippy::never_loop)]
-            for (_catalog_name, catalog) in catalogs {
+            // Use first catalog for now
+            let function_url = if let Some(catalog) = catalogs.values().next() {
                 // Extract URI from the endpoint enum
                 use serverless_workflow_core::models::resource::OneOfEndpointDefinitionOrUri;
                 let catalog_uri = match &catalog.endpoint {
@@ -63,7 +62,7 @@ impl DurableEngine {
                 // Build function URL based on catalog structure
                 let url = if catalog_uri.starts_with("file://") {
                     let base_path = catalog_uri.strip_prefix("file://").unwrap();
-                    format!("file://{}/{}/{}/function.yaml", base_path, name, version)
+                    format!("file://{base_path}/{name}/{version}/function.yaml")
                 } else if catalog_uri.starts_with("http://") || catalog_uri.starts_with("https://")
                 {
                     // For HTTP catalogs, follow the structure: {catalog}/functions/{name}/{version}/function.yaml
@@ -77,9 +76,10 @@ impl DurableEngine {
                     });
                 };
 
-                function_url = Some(url);
-                break; // Use first catalog for now
-            }
+                Some(url)
+            } else {
+                None
+            };
 
             match function_url {
                 Some(url) => url,

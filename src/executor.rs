@@ -1,6 +1,5 @@
 use crate::context::Context;
 use async_trait::async_trait;
-use serde_json;
 use snafu::prelude::*;
 
 #[derive(Debug, Snafu)]

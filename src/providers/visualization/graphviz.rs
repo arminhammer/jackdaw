@@ -34,6 +34,7 @@ impl GraphvizProvider {
     }
 
     /// Generate DOT source for a workflow with optional execution state
+    #[allow(clippy::unused_self)]
     fn workflow_to_dot(
         &self,
         workflow: &WorkflowDefinition,
@@ -61,8 +62,8 @@ impl GraphvizProvider {
         // Task nodes
         for entry in &workflow.do_.entries {
             for (name, task) in entry {
-                let (shape, mut color) = self.task_style(task);
-                let label = self.task_label(name, task);
+                let (shape, mut color) = Self::task_style(task);
+                let label = Self::task_label(name, task);
 
                 // Override color based on execution state
                 if let Some(state) = execution_state
@@ -87,27 +88,29 @@ impl GraphvizProvider {
         dot.push_str("  end [shape=doublecircle, label=\"End\", fillcolor=\"#FFB6C1\"];\n\n");
 
         // Edges - build sequential flow
-        if !task_names.is_empty() {
+        if task_names.is_empty() {
+            // Empty workflow
+            dot.push_str("  start -> end;\n");
+        } else {
             // Start to first task
-            dot.push_str(&format!("  start -> \"{}\";\n", task_names[0]));
+            writeln!(dot, "  start -> \"{}\";", task_names[0]).unwrap();
 
             // Sequential flow between tasks
             for i in 0..task_names.len() - 1 {
-                dot.push_str(&format!(
-                    "  \"{}\" -> \"{}\";\n",
+                writeln!(
+                    dot,
+                    "  \"{}\" -> \"{}\";",
                     task_names[i],
                     task_names[i + 1]
-                ));
+                ).unwrap();
             }
 
             // Last task to end
-            dot.push_str(&format!(
-                "  \"{}\" -> end;\n",
+            writeln!(
+                dot,
+                "  \"{}\" -> end;",
                 task_names[task_names.len() - 1]
-            ));
-        } else {
-            // Empty workflow
-            dot.push_str("  start -> end;\n");
+            ).unwrap();
         }
 
         dot.push_str("}\n");
@@ -115,7 +118,7 @@ impl GraphvizProvider {
     }
 
     /// Determine node style based on task type
-    fn task_style(&self, task: &TaskDefinition) -> (&str, &str) {
+    fn task_style(task: &TaskDefinition) -> (&str, &str) {
         match task {
             TaskDefinition::Call(_) => ("box", "#87CEEB"), // Sky blue
             TaskDefinition::Run(_) => ("box", "#DDA0DD"),  // Plum
@@ -133,7 +136,7 @@ impl GraphvizProvider {
     }
 
     /// Generate human-readable label for a task
-    fn task_label(&self, name: &str, task: &TaskDefinition) -> String {
+    fn task_label(name: &str, task: &TaskDefinition) -> String {
         let task_type = match task {
             TaskDefinition::Call(_) => "Call",
             TaskDefinition::Run(_) => "Run",
@@ -148,7 +151,7 @@ impl GraphvizProvider {
             TaskDefinition::Raise(_) => "Raise",
             TaskDefinition::Do(_) => "Do",
         };
-        format!("{}: {}", task_type, name)
+        format!("{task_type}: {name}")
     }
 }
 
@@ -188,106 +191,103 @@ impl VisualizationProvider for GraphvizProvider {
         // Generate DOT source
         let dot_source = self.generate_source(workflow, execution_state)?;
 
-        match format {
-            DiagramFormat::ASCII => {
-                // Check for graph-easy
-                let graph_easy_available = Command::new("graph-easy")
-                    .arg("--version")
-                    .output()
-                    .map(|o| o.status.success())
-                    .unwrap_or(false);
+        if format == DiagramFormat::Ascii {
+            // Check for graph-easy
+            let graph_easy_available = Command::new("graph-easy")
+                .arg("--version")
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
 
-                if !graph_easy_available {
-                    return ToolNotInstalledSnafu {
-                        tool: "graph-easy".to_string(),
-                        install_instructions: "Install with:\n\
-                           - Ubuntu/Debian: sudo apt-get install libgraph-easy-perl\n\
-                           - macOS: brew install graph-easy\n\
-                           - CPAN: cpan Graph::Easy"
-                            .to_string(),
-                    }
-                    .fail();
+            if !graph_easy_available {
+                return ToolNotInstalledSnafu {
+                    tool: "graph-easy".to_string(),
+                    install_instructions: "Install with:\n\
+                       - Ubuntu/Debian: sudo apt-get install libgraph-easy-perl\n\
+                       - macOS: brew install graph-easy\n\
+                       - CPAN: cpan Graph::Easy"
+                        .to_string(),
                 }
+                .fail();
+            }
 
-                let mut cmd = Command::new("graph-easy")
-                    .arg("--from=dot")
-                    .arg("--as=boxart")
-                    .stdin(Stdio::piped())
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped())
-                    .spawn()
-                    .context(SpawnFailedSnafu {
-                        command: "graph-easy",
-                    })?;
-
-                cmd.stdin
-                    .as_mut()
-                    .ok_or(StdinFailedSnafu.build())?
-                    .write_all(dot_source.as_bytes())
-                    .context(WriteStdinFailedSnafu)?;
-
-                let output = cmd.wait_with_output().context(WaitFailedSnafu {
+            let mut cmd = Command::new("graph-easy")
+                .arg("--from=dot")
+                .arg("--as=boxart")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .context(SpawnFailedSnafu {
                     command: "graph-easy",
                 })?;
 
-                if !output.status.success() {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    return CommandFailedSnafu {
-                        command: "graph-easy".to_string(),
-                        stderr: stderr.to_string(),
-                    }
-                    .fail();
-                }
+            cmd.stdin
+                .as_mut()
+                .ok_or(StdinFailedSnafu.build())?
+                .write_all(dot_source.as_bytes())
+                .context(WriteStdinFailedSnafu)?;
 
-                let ascii_art = String::from_utf8_lossy(&output.stdout);
+            let output = cmd.wait_with_output().context(WaitFailedSnafu {
+                command: "graph-easy",
+            })?;
 
-                if let Some(path) = output_path {
-                    std::fs::write(path, ascii_art.as_bytes()).context(super::IoSnafu)?;
-                } else {
-                    // Print to stdout
-                    print!("{}", ascii_art);
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return CommandFailedSnafu {
+                    command: "graph-easy".to_string(),
+                    stderr: stderr.to_string(),
                 }
+                .fail();
             }
-            _ => {
-                // SVG, PNG, PDF
-                let output_path =
-                    output_path.ok_or_else(|| OutputPathRequiredSnafu { format }.build())?;
 
-                let format_flag = match format {
-                    DiagramFormat::SVG => "svg",
-                    DiagramFormat::PNG => "png",
-                    DiagramFormat::PDF => "pdf",
-                    _ => unreachable!(),
-                };
+            let ascii_art = String::from_utf8_lossy(&output.stdout);
 
-                let mut cmd = Command::new(&self.dot_path)
-                    .arg(format!("-T{}", format_flag))
-                    .arg("-o")
-                    .arg(output_path)
-                    .stdin(Stdio::piped())
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped())
-                    .spawn()
-                    .context(SpawnFailedSnafu { command: "dot" })?;
+            if let Some(path) = output_path {
+                std::fs::write(path, ascii_art.as_bytes()).context(super::IoSnafu)?;
+            } else {
+                // Print to stdout
+                print!("{ascii_art}");
+            }
+        } else {
+            // SVG, PNG, PDF
+            let output_path =
+                output_path.ok_or_else(|| OutputPathRequiredSnafu { format }.build())?;
 
-                cmd.stdin
-                    .as_mut()
-                    .ok_or(StdinFailedSnafu.build())?
-                    .write_all(dot_source.as_bytes())
-                    .context(WriteStdinFailedSnafu)?;
+            let format_flag = match format {
+                DiagramFormat::Svg => "svg",
+                DiagramFormat::Png => "png",
+                DiagramFormat::Pdf => "pdf",
+                DiagramFormat::Ascii => unreachable!(),
+            };
 
-                let output = cmd
-                    .wait_with_output()
-                    .context(WaitFailedSnafu { command: "dot" })?;
+            let mut cmd = Command::new(&self.dot_path)
+                .arg(format!("-T{format_flag}"))
+                .arg("-o")
+                .arg(output_path)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .context(SpawnFailedSnafu { command: "dot" })?;
 
-                if !output.status.success() {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    return CommandFailedSnafu {
-                        command: "dot".to_string(),
-                        stderr: stderr.to_string(),
-                    }
-                    .fail();
+            cmd.stdin
+                .as_mut()
+                .ok_or(StdinFailedSnafu.build())?
+                .write_all(dot_source.as_bytes())
+                .context(WriteStdinFailedSnafu)?;
+
+            let output = cmd
+                .wait_with_output()
+                .context(WaitFailedSnafu { command: "dot" })?;
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return CommandFailedSnafu {
+                    command: "dot".to_string(),
+                    stderr: stderr.to_string(),
                 }
+                .fail();
             }
         }
 
