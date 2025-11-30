@@ -1,6 +1,7 @@
 use serverless_workflow_core::models::task::TaskDefinition;
 use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use snafu::prelude::*;
+use std::fmt::Write;
 use std::path::Path;
 use std::process::Command;
 
@@ -11,7 +12,7 @@ use super::{
 
 const D2: &str = "d2";
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct D2Provider {
     /// Path to d2 executable (default: "d2" from PATH)
     d2_path: String,
@@ -20,6 +21,7 @@ pub struct D2Provider {
 }
 
 impl D2Provider {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             d2_path: D2.to_string(),
@@ -28,11 +30,13 @@ impl D2Provider {
     }
 
     #[allow(dead_code)]
+    #[must_use]
     pub fn with_d2_path(mut self, path: String) -> Self {
         self.d2_path = path;
         self
     }
 
+    #[must_use]
     pub fn with_theme(mut self, theme: String) -> Self {
         self.theme = Some(theme);
         self
@@ -86,15 +90,14 @@ impl D2Provider {
 
                         if !color.is_empty() {
                             style = format!(
-                                "  shape: rectangle\n  style.fill: \"{}\"\n  style.border-radius: 8\n",
-                                color
+                                "  shape: rectangle\n  style.fill: \"{color}\"\n  style.border-radius: 8\n"
                             );
                         }
                     }
                 }
-
                 d2.push_str(&format!("\"{}\": {{\n", name));
-                d2.push_str(&format!("  label: \"{}\"\n", label));
+                write!(d2, "  label: \"{label}\"\n").unwrap();
+                d2.push_str(&style);
                 d2.push_str(&style);
                 d2.push_str("}\n\n");
             }
