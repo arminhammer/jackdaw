@@ -6,6 +6,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 mod cache;
 mod cmd;
+mod config;
 mod context;
 mod descriptors;
 mod durableengine;
@@ -20,6 +21,7 @@ pub mod task_output;
 mod workflow;
 
 use cmd::{RunArgs, ValidateArgs, VisualizeArgs, handle_run, handle_validate, handle_visualize};
+use config::JackdawConfig;
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -75,15 +77,24 @@ fn init_tracing(verbose: bool) {
 async fn main() -> Result<(), Error> {
     let cli = Cli::parse();
 
+    // Load configuration from file, env vars, and defaults
+    let global_config = JackdawConfig::load().unwrap_or_default();
+
     match cli.command {
         Commands::Run(args) => {
+            // Extract workflows before merging
+            let workflows = args.workflows.clone();
+
+            // Merge CLI args with config (CLI takes precedence)
+            let config = args.merge_with_config(global_config.run);
+
             // Initialize tracing/logging with indicatif bridge
-            init_tracing(args.verbose);
+            init_tracing(config.verbose);
 
             // Initialize MultiProgress for coordinating progress bars and logs/traces
             let multi_progress = MultiProgress::new();
 
-            handle_run(args, multi_progress).await.context(RunSnafu)
+            handle_run(workflows, config, multi_progress).await.context(RunSnafu)
         }
         Commands::Validate(args) => {
             // Initialize tracing/logging with indicatif bridge
