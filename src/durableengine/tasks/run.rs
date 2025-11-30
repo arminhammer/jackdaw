@@ -18,10 +18,10 @@ pub async fn exec_run_task(
 ) -> Result<serde_json::Value> {
     // Evaluate expressions in the run task definition before computing cache key
     // This ensures that expressions like $workflow.id are evaluated to their actual values
-    let current_data = ctx.data.read().await.clone();
+    let current_data = ctx.state.data.read().await.clone();
     let params = serde_json::to_value(&run_task.run)?;
     let evaluated_params =
-        crate::expressions::evaluate_value_with_input(&params, &current_data, &ctx.initial_input)?;
+        crate::expressions::evaluate_value_with_input(&params, &current_data, &ctx.metadata.initial_input)?;
 
     // Combine task definition with current context data for cache key
     // This ensures that input.from filters affect caching
@@ -32,7 +32,7 @@ pub async fn exec_run_task(
 
     let cache_key = compute_cache_key(task_name, &cache_params);
 
-    if let Some(cached) = ctx.cache.get(&cache_key).await? {
+    if let Some(cached) = ctx.services.cache.get(&cache_key).await? {
         output::format_cache_hit(
             task_name,
             &cache_key,
@@ -43,9 +43,9 @@ pub async fn exec_run_task(
 
     output::format_cache_miss(task_name, &cache_key);
 
-    ctx.persistence
+    ctx.services.persistence
         .save_event(WorkflowEvent::TaskStarted {
-            instance_id: ctx.instance_id.clone(),
+            instance_id: ctx.metadata.instance_id.clone(),
             task_name: task_name.to_string(),
             timestamp: Utc::now(),
         })
@@ -73,11 +73,11 @@ pub async fn exec_run_task(
         let input_data = workflow_def.input.clone().unwrap_or(serde_json::json!({}));
 
         // Evaluate input data against current context
-        let current_data = ctx.data.read().await.clone();
+        let current_data = ctx.state.data.read().await.clone();
         let evaluated_input = crate::expressions::evaluate_value_with_input(
             &input_data,
             &current_data,
-            &ctx.initial_input,
+            &ctx.metadata.initial_input,
         )?;
 
         // Execute the nested workflow
@@ -148,12 +148,12 @@ pub async fn exec_run_task(
         };
 
         // Get script arguments if provided and evaluate them against context
-        let current_data = ctx.data.read().await.clone();
+        let current_data = ctx.state.data.read().await.clone();
         let arguments = if let Some(args) = script.arguments.as_ref() {
             crate::expressions::evaluate_value_with_input(
                 &serde_json::to_value(args)?,
                 &current_data,
-                &ctx.initial_input,
+                &ctx.metadata.initial_input,
             )?
         } else {
             // No arguments specified
@@ -173,7 +173,7 @@ pub async fn exec_run_task(
         let args = shell.arguments.as_deref().unwrap_or(&[]);
 
         // Evaluate arguments against current context
-        let current_data = ctx.data.read().await.clone();
+        let current_data = ctx.state.data.read().await.clone();
         let evaluated_args: Vec<String> = args
             .iter()
             .map(|arg| {
@@ -181,7 +181,7 @@ pub async fn exec_run_task(
                 match crate::expressions::evaluate_value_with_input(
                     &serde_json::Value::String(arg.clone()),
                     &current_data,
-                    &ctx.initial_input,
+                    &ctx.metadata.initial_input,
                 ) {
                     Ok(serde_json::Value::String(s)) => s,
                     _ => arg.clone(),
@@ -190,7 +190,7 @@ pub async fn exec_run_task(
             .collect();
 
         // Create streamer for color-coded output
-        let task_index = ctx.task_index.unwrap_or(0);
+        let task_index = ctx.state.task_index.unwrap_or(0);
         let streamer = TaskOutputStreamer::new(task_name.to_string(), task_index);
 
         // Execute shell command with piped stdout/stderr for streaming
@@ -238,7 +238,7 @@ pub async fn exec_run_task(
         output: result.clone(),
         timestamp: Utc::now(),
     };
-    ctx.cache.set(cache_entry).await?;
+    ctx.services.cache.set(cache_entry).await?;
 
     Ok(result)
 }

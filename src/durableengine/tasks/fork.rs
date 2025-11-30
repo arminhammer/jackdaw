@@ -22,7 +22,7 @@ pub async fn exec_fork_task(
                 let branch_name = branch_name.clone();
                 let branch_task = branch_task.clone();
                 let mut ctx = ctx.clone();
-                ctx.task_index = Some(branch_index);
+                ctx.state.task_index = Some(branch_index);
                 let engine = engine as *const DurableEngine;
 
                 let future = Box::pin(async move {
@@ -57,7 +57,7 @@ pub async fn exec_fork_task(
                 let branch_name = branch_name.clone();
                 let branch_task = branch_task.clone();
                 let mut ctx = ctx.clone();
-                ctx.task_index = Some(branch_index);
+                ctx.state.task_index = Some(branch_index);
                 let engine = engine as *const DurableEngine;
 
                 let future = async move {

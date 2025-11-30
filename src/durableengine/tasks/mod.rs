@@ -53,14 +53,14 @@ impl DurableEngine {
         output::format_task_start(task_name, task_type);
 
         // Show current context
-        let current_context = ctx.data.read().await.clone();
+        let current_context = ctx.state.data.read().await.clone();
         output::format_task_context(&current_context);
 
         // Apply input filtering if specified
         let _has_input_filter = self.apply_input_filter(task, ctx).await?;
 
         // Show input after filtering
-        let input_data = ctx.data.read().await.clone();
+        let input_data = ctx.state.data.read().await.clone();
         output::format_task_input(&input_data);
 
         // Execute the task
@@ -122,10 +122,10 @@ impl DurableEngine {
             && let Some(from_expr) = &input.from
             && let Some(expr_str) = from_expr.as_str()
         {
-            let current_data = ctx.data.read().await.clone();
+            let current_data = ctx.state.data.read().await.clone();
             // Input filtering uses jq expressions directly (not wrapped in ${ })
             let filtered = crate::expressions::evaluate_jq(expr_str, &current_data)?;
-            *ctx.data.write().await = filtered;
+            *ctx.state.data.write().await = filtered;
             return Ok(true);
         }
 
@@ -143,9 +143,9 @@ async fn exec_set_task(
     use serverless_workflow_core::models::task::SetValue;
 
     // Get current context data for expression evaluation
-    let current_data = ctx.data.read().await.clone();
+    let current_data = ctx.state.data.read().await.clone();
 
-    let task_input = ctx.task_input.read().await.clone();
+    let task_input = ctx.state.task_input.read().await.clone();
 
     match &set_task.set {
         SetValue::Map(map) => {
@@ -189,7 +189,7 @@ async fn exec_do_task(
             let result = Box::pin(engine.exec_task(subtask_name, subtask, ctx)).await?;
 
             // Update task_input for the next subtask
-            *ctx.task_input.write().await = result.clone();
+            *ctx.state.task_input.write().await = result.clone();
 
             // Handle export.as for subtasks (same logic as main execution loop)
             let export_config = match subtask {
@@ -212,11 +212,11 @@ async fn exec_do_task(
                     && let Some(expr_str) = export_expr.as_str()
                 {
                     let new_context = crate::expressions::evaluate_expression(expr_str, &result)?;
-                    *ctx.data.write().await = new_context;
+                    *ctx.state.data.write().await = new_context;
                 }
             } else {
                 // No explicit export.as - apply default behavior (merge into context)
-                let mut current_context = ctx.data.write().await;
+                let mut current_context = ctx.state.data.write().await;
                 if let serde_json::Value::Object(result_obj) = &result
                     && let Some(context_obj) = (*current_context).as_object_mut()
                 {

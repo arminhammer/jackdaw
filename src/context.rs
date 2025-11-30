@@ -30,29 +30,52 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// Execution state that changes during workflow execution
+#[derive(Clone)]
+pub struct ExecutionState {
+    pub data: Data,
+    pub task_input: Arc<RwLock<serde_json::Value>>,
+    pub current_task: Arc<RwLock<String>>,
+    pub next_task: Arc<RwLock<Option<String>>>,
+    pub task_index: Option<usize>,
+}
+
+/// Static workflow metadata (immutable during execution)
 #[derive(Clone)]
 #[allow(dead_code)]
-pub struct Context {
+pub struct WorkflowMetadata {
     pub instance_id: String,
-    pub data: Data,
+    pub workflow: Arc<WorkflowDefinition>,
+    pub initial_input: Arc<serde_json::Value>,
+    pub runtime_descriptor: Arc<RuntimeDescriptor>,
+    pub workflow_descriptor: Arc<WorkflowDescriptor>,
+}
+
+/// External services for I/O operations
+#[derive(Clone)]
+pub struct ExecutionServices {
     pub persistence: Arc<dyn PersistenceProvider>,
     pub cache: Arc<dyn CacheProvider>,
     pub history: Arc<ExecutionHistory>,
-    pub current_task: Arc<RwLock<String>>,
-    pub workflow: Arc<WorkflowDefinition>,
-    pub next_task: Arc<RwLock<Option<String>>>,
-    pub initial_input: Arc<serde_json::Value>,
+}
+
+/// Tracking metadata (could potentially be eliminated or simplified)
+#[derive(Clone)]
+#[allow(dead_code)]
+pub struct ExecutionTracking {
     pub data_modified: Arc<RwLock<bool>>,
     pub task_output_keys: Arc<RwLock<HashSet<String>>>,
     pub scalar_output_tasks: Arc<RwLock<HashSet<String>>>,
-    // Current task input (used for $input in expressions)
-    // Tracks the previous task's output for sequential task execution
-    pub task_input: Arc<RwLock<serde_json::Value>>,
-    // Descriptors for expression evaluation
-    pub runtime_descriptor: Arc<RuntimeDescriptor>,
-    pub workflow_descriptor: Arc<WorkflowDescriptor>,
-    // Task index for color-coding streaming output in concurrent scenarios
-    pub task_index: Option<usize>,
+}
+
+/// Main context - composition of focused structures
+#[derive(Clone)]
+#[allow(dead_code)]
+pub struct Context {
+    pub state: ExecutionState,
+    pub metadata: WorkflowMetadata,
+    pub services: ExecutionServices,
+    pub tracking: ExecutionTracking,
 }
 
 impl Context {
@@ -135,40 +158,48 @@ impl Context {
         };
 
         Ok(Self {
-            instance_id,
-            data: Arc::new(RwLock::new(data_with_descriptors.clone())),
-            persistence,
-            cache,
-            history,
-            current_task: Arc::new(RwLock::new(current_task)),
-            workflow: Arc::new(workflow.clone()),
-            next_task: Arc::new(RwLock::new(None)),
-            initial_input: Arc::new(initial_data.clone()),
-            data_modified: Arc::new(RwLock::new(false)),
-            task_output_keys: Arc::new(RwLock::new(HashSet::new())),
-            scalar_output_tasks: Arc::new(RwLock::new(HashSet::new())),
-            task_input: Arc::new(RwLock::new(data_with_descriptors)),
-            runtime_descriptor: Arc::new(runtime_descriptor),
-            workflow_descriptor: Arc::new(workflow_descriptor),
-            task_index: None,
+            state: ExecutionState {
+                data: Arc::new(RwLock::new(data_with_descriptors.clone())),
+                task_input: Arc::new(RwLock::new(data_with_descriptors)),
+                current_task: Arc::new(RwLock::new(current_task)),
+                next_task: Arc::new(RwLock::new(None)),
+                task_index: None,
+            },
+            metadata: WorkflowMetadata {
+                instance_id,
+                workflow: Arc::new(workflow.clone()),
+                initial_input: Arc::new(initial_data.clone()),
+                runtime_descriptor: Arc::new(runtime_descriptor),
+                workflow_descriptor: Arc::new(workflow_descriptor),
+            },
+            services: ExecutionServices {
+                persistence,
+                cache,
+                history,
+            },
+            tracking: ExecutionTracking {
+                data_modified: Arc::new(RwLock::new(false)),
+                task_output_keys: Arc::new(RwLock::new(HashSet::new())),
+                scalar_output_tasks: Arc::new(RwLock::new(HashSet::new())),
+            },
         })
     }
 
     pub async fn merge(&self, key: &str, value: serde_json::Value) {
-        let mut data = self.data.write().await;
+        let mut data = self.state.data.write().await;
         if let Some(obj) = data.as_object_mut() {
             obj.insert(key.to_string(), value);
-            *self.data_modified.write().await = true;
+            *self.tracking.data_modified.write().await = true;
             // Track that this key was set by a task
-            self.task_output_keys.write().await.insert(key.to_string());
+            self.tracking.task_output_keys.write().await.insert(key.to_string());
         } else {
             // If data is not an object (e.g., after input filtering to a scalar),
             // replace it with a new object containing the key-value pair
             let mut new_obj = serde_json::Map::new();
             new_obj.insert(key.to_string(), value);
             *data = serde_json::Value::Object(new_obj);
-            *self.data_modified.write().await = true;
-            self.task_output_keys.write().await.insert(key.to_string());
+            *self.tracking.data_modified.write().await = true;
+            self.tracking.task_output_keys.write().await.insert(key.to_string());
         }
     }
 
@@ -178,10 +209,10 @@ impl Context {
     ///
     /// Returns an error if there is a persistence error when saving the checkpoint.
     pub async fn save_checkpoint(&self, task_name: &str) -> Result<()> {
-        let data = self.data.read().await;
-        self.persistence
+        let data = self.state.data.read().await;
+        self.services.persistence
             .save_checkpoint(WorkflowCheckpoint {
-                instance_id: self.instance_id.clone(),
+                instance_id: self.metadata.instance_id.clone(),
                 current_task: task_name.to_string(),
                 data: data.clone(),
                 timestamp: Utc::now(),

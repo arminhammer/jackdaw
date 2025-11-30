@@ -18,11 +18,11 @@ pub async fn exec_call_task(
     let with_params = call_task.with.clone().unwrap_or_default();
 
     // Evaluate expressions in with parameters
-    let current_data = ctx.data.read().await.clone();
+    let current_data = ctx.state.data.read().await.clone();
     let evaluated_with_params_value = crate::expressions::evaluate_value_with_input(
         &serde_json::to_value(&with_params)?,
         &current_data,
-        &ctx.initial_input,
+        &ctx.metadata.initial_input,
     )?;
 
     // Convert back to HashMap
@@ -32,7 +32,7 @@ pub async fn exec_call_task(
     let params = evaluated_with_params_value.clone();
     let cache_key = compute_cache_key(task_name, &params);
 
-    if let Some(cached) = ctx.cache.get(&cache_key).await? {
+    if let Some(cached) = ctx.services.cache.get(&cache_key).await? {
         output::format_cache_hit(
             task_name,
             &cache_key,
@@ -43,9 +43,9 @@ pub async fn exec_call_task(
 
     output::format_cache_miss(task_name, &cache_key);
 
-    ctx.persistence
+    ctx.services.persistence
         .save_event(WorkflowEvent::TaskStarted {
-            instance_id: ctx.instance_id.clone(),
+            instance_id: ctx.metadata.instance_id.clone(),
             task_name: task_name.to_string(),
             timestamp: Utc::now(),
         })
@@ -59,7 +59,7 @@ pub async fn exec_call_task(
     // First check user-defined functions
     let function_result =
         if let Some(function_def) = ctx
-            .workflow
+            .metadata.workflow
             .use_
             .as_ref()
             .and_then(|use_| use_.functions.as_ref())
@@ -115,7 +115,7 @@ pub async fn exec_call_task(
     {
         // Evaluate the jq expression on the result with access to $input
         // $input represents the task input (previous task's output for sequential tasks)
-        let task_input = ctx.task_input.read().await.clone();
+        let task_input = ctx.state.task_input.read().await.clone();
         result = crate::expressions::evaluate_jq_expression_with_context(
             expr_str,
             &result,
@@ -129,7 +129,7 @@ pub async fn exec_call_task(
         output: result.clone(),
         timestamp: Utc::now(),
     };
-    ctx.cache.set(cache_entry).await?;
+    ctx.services.cache.set(cache_entry).await?;
 
     Ok(result)
 }

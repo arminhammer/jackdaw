@@ -24,7 +24,7 @@ pub async fn exec_try_task(
             match Box::pin(exec_future).await {
                 Ok(result) => {
                     // Update task_input for the next subtask
-                    *ctx.task_input.write().await = result.clone();
+                    *ctx.state.task_input.write().await = result.clone();
 
                     // Handle export.as for subtasks (same logic as main execution loop)
                     let export_config = match subtask {
@@ -48,11 +48,11 @@ pub async fn exec_try_task(
                         {
                             let new_context =
                                 crate::expressions::evaluate_expression(expr_str, &result)?;
-                            *ctx.data.write().await = new_context;
+                            *ctx.state.data.write().await = new_context;
                         }
                     } else {
                         // No explicit export.as - apply default behavior (merge into context)
-                        let mut current_context = ctx.data.write().await;
+                        let mut current_context = ctx.state.data.write().await;
                         if let (serde_json::Value::Object(result_obj), Some(context_obj)) =
                             (&result, (*current_context).as_object_mut())
                         {
@@ -123,7 +123,7 @@ pub async fn exec_try_task(
                                     let catch_result = Box::pin(exec_future).await?;
 
                                     // Update task_input for the next subtask
-                                    *ctx.task_input.write().await = catch_result.clone();
+                                    *ctx.state.task_input.write().await = catch_result.clone();
 
                                     // Handle export.as for catch handler subtasks
 
@@ -151,11 +151,11 @@ pub async fn exec_try_task(
                                                     expr_str,
                                                     &catch_result,
                                                 )?;
-                                            *ctx.data.write().await = new_context;
+                                            *ctx.state.data.write().await = new_context;
                                         }
                                     } else {
                                         // No explicit export.as - apply default behavior (merge into context)
-                                        let mut current_context = ctx.data.write().await;
+                                        let mut current_context = ctx.state.data.write().await;
                                         if let (
                                             serde_json::Value::Object(result_obj),
                                             Some(context_obj),

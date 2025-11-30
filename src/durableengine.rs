@@ -355,7 +355,7 @@ impl DurableEngine {
         // Initialize all listeners BEFORE starting task execution
         self.initialize_listeners(&workflow).await?;
 
-        let current_task_name = ctx.current_task.read().await.clone();
+        let current_task_name = ctx.state.current_task.read().await.clone();
         let mut current =
             task_names
                 .get(&current_task_name)
@@ -367,7 +367,7 @@ impl DurableEngine {
         loop {
             let (task_name, task) = &graph[current];
 
-            if let Some(_replayed_result) = ctx.history.is_task_completed(task_name) {
+            if let Some(_replayed_result) = ctx.services.history.is_task_completed(task_name) {
                 output::format_task_skipped(task_name);
                 if let Some(next) = graph.neighbors(current).next() {
                     current = next;
@@ -376,9 +376,9 @@ impl DurableEngine {
                 break;
             }
 
-            ctx.persistence
+            ctx.services.persistence
                 .save_event(WorkflowEvent::TaskEntered {
-                    instance_id: ctx.instance_id.clone(),
+                    instance_id: ctx.metadata.instance_id.clone(),
                     task_name: task_name.clone(),
                     timestamp: Utc::now(),
                 })
@@ -390,9 +390,9 @@ impl DurableEngine {
             output::format_task_output(&result);
             output::format_task_complete(task_name);
 
-            ctx.persistence
+            ctx.services.persistence
                 .save_event(WorkflowEvent::TaskCompleted {
-                    instance_id: ctx.instance_id.clone(),
+                    instance_id: ctx.metadata.instance_id.clone(),
                     task_name: task_name.clone(),
                     result: result.clone(),
                     timestamp: Utc::now(),
@@ -401,7 +401,7 @@ impl DurableEngine {
 
             // Update task_input for the next task before result gets moved
             // According to the spec, each task's transformed output becomes the next task's input
-            *ctx.task_input.write().await = result.clone();
+            *ctx.state.task_input.write().await = result.clone();
 
             // Handle export.as to update context
             // According to spec: "defaults to the expression that returns the existing context"
@@ -428,13 +428,13 @@ impl DurableEngine {
                     // Evaluate export.as expression on the transformed task output
                     // The result becomes the new context
                     let new_context = crate::expressions::evaluate_expression(expr_str, &result)?;
-                    *ctx.data.write().await = new_context;
+                    *ctx.state.data.write().await = new_context;
                 }
             } else {
                 // No explicit export.as - apply default behavior
                 // Default: merge the transformed task output into the existing context
                 // This respects the task's output - every task produces output that should be used
-                let mut current_context = ctx.data.write().await;
+                let mut current_context = ctx.state.data.write().await;
                 if let serde_json::Value::Object(result_obj) = &result {
                     if let Some(context_obj) = (*current_context).as_object_mut() {
                         for (key, value) in result_obj {
@@ -454,7 +454,7 @@ impl DurableEngine {
 
             // Check if the task set a specific next task (e.g., for Switch tasks)
             let next_task_name = {
-                let mut next = ctx.next_task.write().await;
+                let mut next = ctx.state.next_task.write().await;
                 next.take() // Take the value and reset to None
             };
 
@@ -479,7 +479,7 @@ impl DurableEngine {
         // Workflow completed - according to the spec, the workflow output is the last task's transformed output
         // "If no more tasks are defined, the transformed output is passed to the workflow output transformation step."
         // "Workflow `output.as` | Last task's transformed output | Transformed workflow output"
-        let mut final_data = ctx.task_input.read().await.clone();
+        let mut final_data = ctx.state.task_input.read().await.clone();
 
         // Apply workflow output filter if specified
         if let Some(output_config) = &workflow.output
@@ -495,9 +495,9 @@ impl DurableEngine {
             obj.remove("__runtime");
         }
 
-        ctx.persistence
+        ctx.services.persistence
             .save_event(WorkflowEvent::WorkflowCompleted {
-                instance_id: ctx.instance_id.clone(),
+                instance_id: ctx.metadata.instance_id.clone(),
                 final_data: final_data.clone(),
                 timestamp: Utc::now(),
             })

@@ -41,7 +41,7 @@ impl DurableEngine {
 
             // Look up in catalogs
             let Some(catalogs) = ctx
-                .workflow
+                .metadata.workflow
                 .use_
                 .as_ref()
                 .and_then(|use_| use_.catalogs.as_ref())

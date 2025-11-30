@@ -11,7 +11,7 @@ pub async fn exec_for_task(
     ctx: &Context,
 ) -> Result<serde_json::Value> {
     // Get current context data
-    let current_data = ctx.data.read().await.clone();
+    let current_data = ctx.state.data.read().await.clone();
 
     // Evaluate the 'in' expression to get the collection to iterate over
     let collection_expr = &for_task.for_.in_;
@@ -33,7 +33,7 @@ pub async fn exec_for_task(
     // Iterate over the collection
     for (index, item) in items.iter().enumerate() {
         // Get current accumulated state (includes updates from previous iterations)
-        let accumulated_data = ctx.data.read().await.clone();
+        let accumulated_data = ctx.state.data.read().await.clone();
 
         // Inject iteration variables into the current state
         let mut iteration_data = accumulated_data;
@@ -45,7 +45,7 @@ pub async fn exec_for_task(
 
         // Update context with iteration variables
         {
-            let mut data_guard = ctx.data.write().await;
+            let mut data_guard = ctx.state.data.write().await;
             *data_guard = iteration_data;
         }
 
@@ -55,7 +55,7 @@ pub async fn exec_for_task(
                 let result = Box::pin(engine.exec_task(subtask_name, subtask, ctx)).await?;
 
                 // Update task_input for the next subtask
-                *ctx.task_input.write().await = result.clone();
+                *ctx.state.task_input.write().await = result.clone();
                 // Handle export.as for subtasks (same logic as main execution loop)
                 let export_config = match subtask {
                     TaskDefinition::Call(t) => t.common.export.as_ref(),
@@ -78,11 +78,11 @@ pub async fn exec_for_task(
                     {
                         let new_context =
                             crate::expressions::evaluate_expression(expr_str, &result)?;
-                        *ctx.data.write().await = new_context;
+                        *ctx.state.data.write().await = new_context;
                     }
                 } else {
                     // No explicit export.as - apply default behavior (merge into context)
-                    let mut current_context = ctx.data.write().await;
+                    let mut current_context = ctx.state.data.write().await;
                     if let serde_json::Value::Object(result_obj) = &result
                         && let Some(context_obj) = (*current_context).as_object_mut()
                     {
@@ -98,7 +98,7 @@ pub async fn exec_for_task(
 
         // Remove iteration variables but keep accumulated changes
         {
-            let mut data_guard = ctx.data.write().await;
+            let mut data_guard = ctx.state.data.write().await;
             if let Some(obj) = data_guard.as_object_mut() {
                 obj.remove(item_var);
                 obj.remove(index_var);
