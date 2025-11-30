@@ -92,7 +92,18 @@ impl TaskOutputStreamer {
 
     /// Stream stdout and stderr from a child process
     ///
-    /// Returns (stdout, stderr, exit_code)
+    /// Returns (`stdout`, `stderr`, `exit_code`)
+    ///
+    /// # Panics
+    ///
+    /// Panics if the child process stdout or stderr were not captured (i.e., not piped).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Reading from stdout or stderr fails
+    /// - Waiting for the child process fails
+    /// - A spawned task fails to complete
     pub async fn stream_process_output(
         &self,
         mut child: Child,

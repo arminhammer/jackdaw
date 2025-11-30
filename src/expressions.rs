@@ -22,17 +22,31 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// Evaluates an expression with the given context.
+///
+/// # Errors
+///
+/// Returns an error if expression evaluation fails or if jq compilation/execution encounters an error.
 pub fn evaluate_expression(expression: &str, context: &Value) -> Result<Value> {
     evaluate_expression_with_input(expression, context, &Value::Null)
 }
 
+/// Evaluates an expression with access to both context and input values.
+///
+/// # Errors
+///
+/// Returns an error if expression evaluation fails or if jq compilation/execution encounters an error.
+///
+/// # Panics
+///
+/// Panics if regex compilation fails (should not happen with hardcoded valid regex patterns).
 pub fn evaluate_expression_with_input(
     expression: &str,
     context: &Value,
     input: &Value,
 ) -> Result<Value> {
     let expr = expression.trim();
-    if !expr.starts_with("${") || !expr.ends_with("}") {
+    if !expr.starts_with("${") || !expr.ends_with('}') {
         return Ok(Value::String(expression.to_string()));
     }
 
@@ -115,8 +129,7 @@ pub fn evaluate_expression_with_input(
 
     debug!("  Evaluating jq expression: {}", jq_expr);
 
-    let result = evaluate_jq(&jq_expr, &eval_context);
-    result
+    evaluate_jq(&jq_expr, &eval_context)
 }
 
 /// Evaluates a jq expression on a value (used for output filtering)
@@ -160,6 +173,10 @@ pub fn evaluate_jq_expression_with_context(
 }
 
 /// Evaluates a jq expression directly without requiring ${ } wrapper
+///
+/// # Errors
+///
+/// Returns an error if jq compilation/execution encounters an error.
 pub fn evaluate_jq(jq_expr: &str, context: &Value) -> Result<Value> {
     use jaq_core::{
         compile::Compiler,
@@ -208,6 +225,7 @@ pub fn evaluate_jq(jq_expr: &str, context: &Value) -> Result<Value> {
 }
 
 /// Remove internal descriptor fields from a value (used for $input in output.as expressions)
+#[must_use]
 pub fn strip_descriptors(value: &Value) -> Value {
     if let Value::Object(obj) = value {
         let mut cleaned = obj.clone();

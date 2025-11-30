@@ -88,7 +88,7 @@ pub(super) fn get_task_transitions(task: &TaskDefinition) -> Vec<String> {
         TaskDefinition::Switch(t) => {
             let mut transitions = Vec::new();
             for entry in &t.switch.entries {
-                for (_, case) in entry {
+                for case in entry.values() {
                     if let Some(then) = &case.then {
                         transitions.push(then.clone());
                     }

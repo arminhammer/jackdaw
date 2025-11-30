@@ -120,6 +120,7 @@ pub fn format_cache_miss(_task_name: &str, key: &str) {
 }
 
 /// Filter out internal descriptor fields from display
+#[must_use]
 pub fn filter_internal_fields(value: &Value) -> Value {
     if let Some(obj) = value.as_object() {
         let filtered: serde_json::Map<String, Value> = obj
@@ -192,21 +193,17 @@ pub fn format_task_output(output: &Value) {
 
 /// Format task stdout/stderr
 pub fn format_task_logs(stdout: Option<&str>, stderr: Option<&str>) {
-    if let Some(out) = stdout {
-        if !out.trim().is_empty() {
-            println!("  {}", style("Stdout").dim());
-            for line in out.lines() {
-                println!("    {}", style(line).dim());
-            }
+    if let Some(out) = stdout.filter(|s| !s.trim().is_empty()) {
+        println!("  {}", style("Stdout").dim());
+        for line in out.lines() {
+            println!("    {}", style(line).dim());
         }
     }
 
-    if let Some(err) = stderr {
-        if !err.trim().is_empty() {
-            println!("  {}", style("Stderr").yellow());
-            for line in err.lines() {
-                println!("    {}", style(line).yellow());
-            }
+    if let Some(err) = stderr.filter(|e| !e.trim().is_empty()) {
+        println!("  {}", style("Stderr").yellow());
+        for line in err.lines() {
+            println!("    {}", style(line).yellow());
         }
     }
 }
@@ -237,7 +234,7 @@ pub fn format_fork_start(fork_name: &str, branch_count: usize) {
         style("⋔").cyan(),
         style("Fork:").bold(),
         style(fork_name).cyan(),
-        style(format!("[{} branches]", branch_count)).dim()
+        style(format!("[{branch_count} branches]")).dim()
     );
 }
 
