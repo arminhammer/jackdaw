@@ -8,10 +8,10 @@ pub struct SqliteCache {
 }
 
 impl SqliteCache {
-    /// Create a new SQLite cache provider
+    /// Create a new ``SQLite`` cache provider
     ///
     /// # Arguments
-    /// * `database_url` - SQLite connection string (e.g., "sqlite:cache.db" or "sqlite::memory:")
+    /// * `database_url` - ``SQLite`` connection string (e.g., "sqlite:cache.db" or "sqlite::memory:")
     ///
     /// # Example
     /// ```no_run
@@ -27,7 +27,7 @@ impl SqliteCache {
             .connect(database_url)
             .await
             .map_err(|e| Error::Database {
-                message: format!("Failed to connect to SQLite: {}", e),
+                message: format!("Failed to connect to SQLite: {e}"),
             })?;
 
         // Initialize schema
@@ -35,7 +35,7 @@ impl SqliteCache {
             .execute(&pool)
             .await
             .map_err(|e| Error::Database {
-                message: format!("Failed to execute schema: {}", e),
+                message: format!("Failed to execute schema: {e}"),
             })?;
 
         Ok(Self { pool })
@@ -48,7 +48,7 @@ impl SqliteCache {
             .execute(&pool)
             .await
             .map_err(|e| Error::Database {
-                message: format!("Failed to execute schema: {}", e),
+                message: format!("Failed to execute schema: {e}"),
             })?;
 
         Ok(Self { pool })
@@ -65,7 +65,7 @@ impl CacheProvider for SqliteCache {
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| Error::Database {
-            message: format!("Failed to get cache entry: {}", e),
+            message: format!("Failed to get cache entry: {e}"),
         })?;
 
         match result {
@@ -76,7 +76,7 @@ impl CacheProvider for SqliteCache {
                     .map_err(|e| Error::Serialization { source: e })?;
                 let timestamp = chrono::DateTime::parse_from_rfc3339(&timestamp_str)
                     .map_err(|e| Error::Database {
-                        message: format!("Failed to parse timestamp: {}", e),
+                        message: format!("Failed to parse timestamp: {e}"),
                     })?
                     .with_timezone(&chrono::Utc);
 
@@ -107,7 +107,7 @@ impl CacheProvider for SqliteCache {
         .bind(&timestamp_str)
         .execute(&self.pool)
         .await
-        .map_err(|e| Error::Database { message: format!("Failed to set cache entry: {}", e) })?;
+        .map_err(|e| Error::Database { message: format!("Failed to set cache entry: {e}") })?;
 
         Ok(())
     }
@@ -118,7 +118,7 @@ impl CacheProvider for SqliteCache {
             .execute(&self.pool)
             .await
             .map_err(|e| Error::Database {
-                message: format!("Failed to invalidate cache entry: {}", e),
+                message: format!("Failed to invalidate cache entry: {e}"),
             })?;
 
         Ok(())
