@@ -1,5 +1,4 @@
 use serverless_workflow_core::models::task::TaskDefinition;
-use std::collections::HashMap;
 
 use crate::context::Context;
 use crate::output;
@@ -65,7 +64,9 @@ impl DurableEngine {
         output::format_task_input(&input_data);
 
         // Execute the task
-        let result = match task {
+        // Note: We don't restore the original context after input filtering
+        // because task outputs (via ctx.merge) should be preserved
+        match task {
             TaskDefinition::Call(call_task) => {
                 exec_call_task(self, task_name, call_task, ctx).await
             }
@@ -87,17 +88,13 @@ impl DurableEngine {
                 exec_emit_task(self, task_name, emit_task, ctx).await
             }
             TaskDefinition::Listen(listen_task) => {
-                exec_listen_task(self, task_name, listen_task, ctx).await
+                exec_listen_task(self, task_name, listen_task, ctx)
             }
-            _ => {
+            TaskDefinition::Wait(_wait_task) => {
                 println!("  Task type not yet implemented, returning empty result");
                 Ok(serde_json::json!({}))
             }
-        };
-
-        // Note: We don't restore the original context after input filtering
-        // because task outputs (via ctx.merge) should be preserved
-        result
+        }
     }
 
     /// Apply input filter to task
@@ -121,19 +118,15 @@ impl DurableEngine {
             _ => None,
         };
 
-        if let Some(input) = input_config {
-            if let Some(from_expr) = &input.from {
-                if let Some(expr_str) = from_expr.as_str() {
-                    let current_data = ctx.data.read().await.clone();
-                    // Input filtering uses jq expressions directly (not wrapped in ${ })
-                    let filtered = crate::expressions::evaluate_jq(
-                        expr_str,
-                        &current_data,
-                    )?;
-                    *ctx.data.write().await = filtered;
-                    return Ok(true);
-                }
-            }
+        if let Some(input) = input_config
+            && let Some(from_expr) = &input.from
+            && let Some(expr_str) = from_expr.as_str()
+        {
+            let current_data = ctx.data.read().await.clone();
+            // Input filtering uses jq expressions directly (not wrapped in ${ })
+            let filtered = crate::expressions::evaluate_jq(expr_str, &current_data)?;
+            *ctx.data.write().await = filtered;
+            return Ok(true);
         }
 
         Ok(false)
@@ -158,7 +151,7 @@ async fn exec_set_task(
         SetValue::Map(map) => {
             // Handle map of key-value pairs - evaluate each value
             let mut result_map = serde_json::Map::new();
-            for (key, value) in map.iter() {
+            for (key, value) in map {
                 let evaluated_value = crate::expressions::evaluate_value_with_input(
                     value,
                     &current_data,
@@ -215,20 +208,20 @@ async fn exec_do_task(
             };
 
             if let Some(export_def) = export_config {
-                if let Some(export_expr) = &export_def.as_ {
-                    if let Some(expr_str) = export_expr.as_str() {
-                        let new_context = crate::expressions::evaluate_expression(expr_str, &result)?;
-                        *ctx.data.write().await = new_context;
-                    }
+                if let Some(export_expr) = &export_def.as_
+                    && let Some(expr_str) = export_expr.as_str()
+                {
+                    let new_context = crate::expressions::evaluate_expression(expr_str, &result)?;
+                    *ctx.data.write().await = new_context;
                 }
             } else {
                 // No explicit export.as - apply default behavior (merge into context)
                 let mut current_context = ctx.data.write().await;
-                if let serde_json::Value::Object(result_obj) = &result {
-                    if let Some(context_obj) = (*current_context).as_object_mut() {
-                        for (key, value) in result_obj {
-                            context_obj.insert(key.clone(), value.clone());
-                        }
+                if let serde_json::Value::Object(result_obj) = &result
+                    && let Some(context_obj) = (*current_context).as_object_mut()
+                {
+                    for (key, value) in result_obj {
+                        context_obj.insert(key.clone(), value.clone());
                     }
                 }
             }
@@ -242,7 +235,8 @@ async fn exec_do_task(
 }
 
 /// Execute a Listen task - listeners are initialized at workflow startup
-async fn exec_listen_task(
+#[allow(clippy::unnecessary_wraps)]
+fn exec_listen_task(
     _engine: &DurableEngine,
     _task_name: &str,
     _listen_task: &serverless_workflow_core::models::task::ListenTaskDefinition,

@@ -7,11 +7,15 @@ pub struct PostgresCache {
     pool: PgPool,
 }
 
+#[allow(dead_code)]
 impl PostgresCache {
-    /// Create a new PostgreSQL cache provider
+    /// Create a new ``PostgreSQL`` cache provider
     ///
     /// # Arguments
-    /// * `database_url` - PostgreSQL connection string (e.g., "postgresql://user:pass@localhost/db")
+    /// * `database_url` - ``PostgreSQL`` connection string (e.g., "<postgresql://user:pass@localhost/db>")
+    ///
+    /// # Errors
+    /// Returns an error if the database connection fails or if the schema initialization fails.
     ///
     /// # Example
     /// ```no_run
@@ -27,7 +31,7 @@ impl PostgresCache {
             .connect(database_url)
             .await
             .map_err(|e| Error::Database {
-                message: format!("Failed to connect to PostgreSQL: {}", e),
+                message: format!("Failed to connect to PostgreSQL: {e}"),
             })?;
 
         // Initialize schema - execute statements individually since PostgreSQL
@@ -38,14 +42,17 @@ impl PostgresCache {
                 .execute(&pool)
                 .await
                 .map_err(|e| Error::Database {
-                    message: format!("Failed to execute schema statement: {}", e),
+                    message: format!("Failed to execute schema statement: {e}"),
                 })?;
         }
 
         Ok(Self { pool })
     }
 
-    /// Create a new PostgreSQL cache with custom pool options
+    /// Create a new ``PostgreSQL`` cache with custom pool options
+    ///
+    /// # Errors
+    /// Returns an error if the schema initialization fails.
     pub async fn with_pool(pool: PgPool) -> Result<Self> {
         // Initialize schema - execute statements individually since PostgreSQL
         // prepared statements don't support multiple statements
@@ -55,7 +62,7 @@ impl PostgresCache {
                 .execute(&pool)
                 .await
                 .map_err(|e| Error::Database {
-                    message: format!("Failed to execute schema statement: {}", e),
+                    message: format!("Failed to execute schema statement: {e}"),
                 })?;
         }
 
@@ -80,7 +87,7 @@ impl CacheProvider for PostgresCache {
             .fetch_optional(&self.pool)
             .await
             .map_err(|e| Error::Database {
-                message: format!("Failed to get cache entry: {}", e),
+                message: format!("Failed to get cache entry: {e}"),
             })?;
 
         match result {
@@ -96,7 +103,7 @@ impl CacheProvider for PostgresCache {
 
     async fn set(&self, entry: CacheEntry) -> Result<()> {
         sqlx::query(
-            r#"
+            r"
             INSERT INTO cache_entries (key, inputs, output, timestamp)
             VALUES ($1, $2, $3, $4)
             ON CONFLICT (key)
@@ -104,16 +111,16 @@ impl CacheProvider for PostgresCache {
                 inputs = EXCLUDED.inputs,
                 output = EXCLUDED.output,
                 timestamp = EXCLUDED.timestamp
-            "#,
+            ",
         )
         .bind(&entry.key)
         .bind(&entry.inputs)
         .bind(&entry.output)
-        .bind(&entry.timestamp)
+        .bind(entry.timestamp)
         .execute(&self.pool)
         .await
         .map_err(|e| Error::Database {
-            message: format!("Failed to set cache entry: {}", e),
+            message: format!("Failed to set cache entry: {e}"),
         })?;
 
         Ok(())
@@ -125,7 +132,7 @@ impl CacheProvider for PostgresCache {
             .execute(&self.pool)
             .await
             .map_err(|e| Error::Database {
-                message: format!("Failed to invalidate cache entry: {}", e),
+                message: format!("Failed to invalidate cache entry: {e}"),
             })?;
 
         Ok(())

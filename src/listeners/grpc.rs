@@ -3,8 +3,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 use prost::Message;
-use prost_reflect::{DescriptorPool, DynamicMessage, MessageDescriptor, ServiceDescriptor};
-use snafu::prelude::*;
+use prost_reflect::{DescriptorPool, DynamicMessage, ServiceDescriptor};
 use std::sync::Arc;
 use std::task::{Context as TaskContext, Poll};
 use tokio::sync::RwLock;
@@ -16,15 +15,12 @@ pub struct GrpcListener {
     /// Bind address (e.g., "localhost:50051")
     bind_addr: String,
 
-    /// Proto descriptor pool for dynamic message handling
-    descriptor_pool: Arc<DescriptorPool>,
-
     /// Service descriptor
     service_descriptor: ServiceDescriptor,
 
-    /// Method handlers: method_name -> handler function
+    /// Method handlers: ``method_name`` -> handler function
     /// For multi-method servers, this contains all handlers
-    /// Using RwLock to allow adding methods dynamically
+    /// Using ``RwLock`` to allow adding methods dynamically
     method_handlers: Arc<
         RwLock<
             std::collections::HashMap<
@@ -38,20 +34,23 @@ pub struct GrpcListener {
     shutdown_tx: Arc<RwLock<Option<tokio::sync::oneshot::Sender<()>>>>,
 }
 
+#[allow(dead_code)]
 impl GrpcListener {
     /// Add a method handler to an existing listener
     /// This allows adding new methods to an already-running server
+    ///
+    /// # Errors
+    /// Returns an error if the provided `method_name` does not exist in the service descriptor.
     pub async fn add_method(
         &self,
         method_name: String,
         handler: Arc<dyn Fn(DynamicMessage) -> Result<DynamicMessage> + Send + Sync>,
     ) -> Result<()> {
         // Validate that the method exists in the service
-        if self
+        if !self
             .service_descriptor
             .methods()
-            .find(|m| m.name() == method_name)
-            .is_none()
+            .any(|m| m.name() == method_name)
         {
             return Err(super::Error::Listener {
                 message: format!(
@@ -76,6 +75,13 @@ impl GrpcListener {
 
     /// Create a new gRPC listener with multiple method handlers
     /// This allows a single server to handle multiple methods on the same port
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// - The provided proto file cannot be compiled or encoded.
+    /// - The compiled descriptors cannot be decoded into a `DescriptorPool`.
+    /// - The requested `service_name` is not found in the proto descriptors.
+    /// - Any of the provided `method_handlers` refer to a method name not present in the service.
     pub fn new_multi_method(
         bind_addr: String,
         proto_path: &str,
@@ -95,140 +101,27 @@ impl GrpcListener {
         let service_descriptor = descriptor_pool
             .get_service_by_name(service_name)
             .ok_or_else(|| super::Error::Listener {
-                message: format!("Service {} not found in proto", service_name),
+                message: format!("Service {service_name} not found in proto"),
             })?;
 
         // Validate that all methods exist in the service
         for method_name in method_handlers.keys() {
-            if service_descriptor
+            if !service_descriptor
                 .methods()
-                .find(|m| m.name() == method_name)
-                .is_none()
+                .any(|m| m.name() == method_name)
             {
                 return Err(super::Error::Listener {
-                    message: format!(
-                        "Method {} not found in service {}",
-                        method_name, service_name
-                    ),
+                    message: format!("Method {method_name} not found in service {service_name}"),
                 });
             }
         }
 
         Ok(Self {
             bind_addr,
-            descriptor_pool: Arc::new(descriptor_pool),
+            // descriptor_pool: Arc::new(descriptor_pool),
             service_descriptor,
             method_handlers: Arc::new(RwLock::new(method_handlers)),
             shutdown_tx: Arc::new(RwLock::new(None)),
-        })
-    }
-
-    /// Convert DynamicMessage to JSON
-    /// This uses prost-reflect's reflection capabilities to walk the message structure
-    fn dynamic_message_to_json(msg: &DynamicMessage) -> Result<serde_json::Value> {
-        use prost_reflect::ReflectMessage;
-
-        let mut json_map = serde_json::Map::new();
-
-        for field in msg.descriptor().fields() {
-            let value = msg.get_field(&field);
-            let json_value = Self::reflect_value_to_json(&value)?;
-            json_map.insert(field.name().to_string(), json_value);
-        }
-
-        Ok(serde_json::Value::Object(json_map))
-    }
-
-    /// Convert a prost_reflect Value to JSON
-    fn reflect_value_to_json(value: &prost_reflect::Value) -> Result<serde_json::Value> {
-        use prost_reflect::Value;
-
-        Ok(match value {
-            Value::Bool(b) => serde_json::Value::Bool(*b),
-            Value::I32(i) => serde_json::json!(i),
-            Value::I64(i) => serde_json::json!(i),
-            Value::U32(u) => serde_json::json!(u),
-            Value::U64(u) => serde_json::json!(u),
-            Value::F32(f) => serde_json::json!(f),
-            Value::F64(f) => serde_json::json!(f),
-            Value::String(s) => serde_json::Value::String(s.clone()),
-            Value::Bytes(b) => serde_json::Value::String(base64::encode(b)),
-            Value::EnumNumber(n) => serde_json::json!(n),
-            Value::Message(m) => Self::dynamic_message_to_json(m)?,
-            Value::List(list) => {
-                let items: Result<Vec<_>> = list
-                    .iter()
-                    .map(|v| Self::reflect_value_to_json(v))
-                    .collect();
-                serde_json::Value::Array(items?)
-            }
-            Value::Map(map) => {
-                let mut json_map = serde_json::Map::new();
-                for (k, v) in map.iter() {
-                    let key_str = match k {
-                        prost_reflect::MapKey::Bool(b) => b.to_string(),
-                        prost_reflect::MapKey::I32(i) => i.to_string(),
-                        prost_reflect::MapKey::I64(i) => i.to_string(),
-                        prost_reflect::MapKey::U32(u) => u.to_string(),
-                        prost_reflect::MapKey::U64(u) => u.to_string(),
-                        prost_reflect::MapKey::String(s) => s.clone(),
-                    };
-                    json_map.insert(key_str, Self::reflect_value_to_json(v)?);
-                }
-                serde_json::Value::Object(json_map)
-            }
-        })
-    }
-
-    /// Convert JSON to DynamicMessage
-    fn json_to_dynamic_message(
-        json: &serde_json::Value,
-        descriptor: &MessageDescriptor,
-    ) -> Result<DynamicMessage> {
-        let mut msg = DynamicMessage::new(descriptor.clone());
-
-        if let serde_json::Value::Object(map) = json {
-            for (key, value) in map {
-                if let Some(field) = descriptor.get_field_by_name(key) {
-                    let reflect_value = Self::json_to_reflect_value(value, &field)?;
-                    msg.set_field(&field, reflect_value);
-                }
-            }
-        }
-
-        Ok(msg)
-    }
-
-    /// Convert JSON value to prost_reflect Value
-    fn json_to_reflect_value(
-        json: &serde_json::Value,
-        field: &prost_reflect::FieldDescriptor,
-    ) -> Result<prost_reflect::Value> {
-        use prost_reflect::{Kind, Value};
-
-        Ok(match field.kind() {
-            Kind::Bool => Value::Bool(json.as_bool().unwrap_or(false)),
-            Kind::Int32 | Kind::Sint32 | Kind::Sfixed32 => {
-                Value::I32(json.as_i64().unwrap_or(0) as i32)
-            }
-            Kind::Int64 | Kind::Sint64 | Kind::Sfixed64 => Value::I64(json.as_i64().unwrap_or(0)),
-            Kind::Uint32 | Kind::Fixed32 => Value::U32(json.as_u64().unwrap_or(0) as u32),
-            Kind::Uint64 | Kind::Fixed64 => Value::U64(json.as_u64().unwrap_or(0)),
-            Kind::Float => Value::F32(json.as_f64().unwrap_or(0.0) as f32),
-            Kind::Double => Value::F64(json.as_f64().unwrap_or(0.0)),
-            Kind::String => Value::String(json.as_str().unwrap_or("").to_string()),
-            Kind::Bytes => {
-                let bytes = if let Some(s) = json.as_str() {
-                    base64::decode(s).unwrap_or_default()
-                } else {
-                    vec![]
-                };
-                Value::Bytes(bytes.into())
-            }
-            Kind::Message(msg_desc) => {
-                Value::Message(Self::json_to_dynamic_message(json, &msg_desc)?)
-            }
-            Kind::Enum(_) => Value::EnumNumber(json.as_i64().unwrap_or(0) as i32),
         })
     }
 }
@@ -251,7 +144,6 @@ impl Listener for GrpcListener {
         let bind_addr = self.bind_addr.clone();
         let method_handlers = self.method_handlers.clone();
         let service_descriptor = self.service_descriptor.clone();
-        let service_name = self.service_descriptor.full_name().to_string();
 
         // Create shutdown channel
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
@@ -264,7 +156,7 @@ impl Listener for GrpcListener {
 
         // Spawn gRPC server in background
         tokio::spawn(async move {
-            println!("  Spawning gRPC server task for {}", bind_addr);
+            println!("  Spawning gRPC server task for {bind_addr}");
 
             // Create a multi-method dynamic gRPC service handler
             let service = MultiMethodGrpcService {
@@ -276,24 +168,17 @@ impl Listener for GrpcListener {
             let addr: std::net::SocketAddr = match bind_addr.parse() {
                 Ok(a) => a,
                 Err(e) => {
-                    eprintln!("  Failed to parse bind address {}: {}", bind_addr, e);
+                    eprintln!("  Failed to parse bind address {bind_addr}: {e}");
                     return;
                 }
             };
 
-            println!("  gRPC server about to listen on {}", addr);
+            println!("  gRPC server about to listen on {addr}");
             tracing::info!("gRPC server listening on {}", addr);
 
-            // Build and run the server
-            // Use a router to handle all gRPC paths dynamically
-            use tower::ServiceBuilder;
             let service_wrapper = service.into_service();
 
-            println!("  Starting tonic server on {}", addr);
-
-            // Use tonic's layer system to add a fallback that catches all requests
-            use tower::Layer;
-            use tower::util::MapRequestLayer;
+            println!("  Starting tonic server on {addr}");
 
             let result = Server::builder()
                 // Add our service - tonic will route all requests here since we're the only service
@@ -304,10 +189,9 @@ impl Listener for GrpcListener {
                 .await;
 
             match result {
-                Ok(_) => println!("  gRPC server on {} exited cleanly", addr),
+                Ok(()) => println!("  gRPC server on {addr} exited cleanly"),
                 Err(e) => {
-                    eprintln!("  gRPC server error: {}", e);
-                    tracing::error!("gRPC server error: {}", e);
+                    tracing::error!("gRPC server error: {e}");
                 }
             }
         });
@@ -378,7 +262,7 @@ impl MultiMethodGrpcService {
             .service_descriptor
             .methods()
             .find(|m| m.name() == method_name)
-            .ok_or_else(|| Status::not_found(format!("Method {} not found", method_name)))?;
+            .ok_or_else(|| Status::not_found(format!("Method {method_name} not found")))?;
 
         let input_descriptor = method.input();
         let _output_descriptor = method.output();
@@ -401,13 +285,13 @@ impl MultiMethodGrpcService {
         // Get the handler for this method
         let handler = {
             let handlers = self.method_handlers.read().await;
-            println!("  Looking up handler for method: {}", method_name);
+            println!("  Looking up handler for method: {method_name}");
             println!(
                 "  Available handlers: {:?}",
                 handlers.keys().collect::<Vec<_>>()
             );
             handlers.get(method_name).cloned().ok_or_else(|| {
-                Status::unimplemented(format!("No handler for method {}", method_name))
+                Status::unimplemented(format!("No handler for method {method_name}"))
             })?
         };
 
@@ -419,26 +303,26 @@ impl MultiMethodGrpcService {
         // Decode request bytes into DynamicMessage
         let request_msg =
             DynamicMessage::decode(input_descriptor.clone(), request_bytes).map_err(|e| {
-                eprintln!("  Decode error: {}", e);
-                Status::invalid_argument(format!("Failed to decode request: {}", e))
+                eprintln!("  Decode error: {e}");
+                Status::invalid_argument(format!("Failed to decode request: {e}"))
             })?;
         println!("  Successfully decoded request");
 
         // Call the handler
-        let response_msg = (handler)(request_msg)
-            .map_err(|e| Status::internal(format!("Handler error: {}", e)))?;
+        let response_msg =
+            (handler)(request_msg).map_err(|e| Status::internal(format!("Handler error: {e}")))?;
 
         // Encode response
         let mut response_bytes = Vec::new();
         response_msg
             .encode(&mut response_bytes)
-            .map_err(|e| Status::internal(format!("Failed to encode response: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Failed to encode response: {e}")))?;
 
         Ok(Bytes::from(response_bytes))
     }
 }
 
-/// Wrapper to make MultiMethodGrpcService compatible with tonic's service infrastructure
+/// Wrapper to make ``MultiMethodGrpcService`` compatible with tonic's service infrastructure
 #[derive(Clone)]
 struct MultiMethodServiceWrapper {
     inner: Arc<MultiMethodGrpcService>,
@@ -471,7 +355,7 @@ impl Service<http::Request<BoxBody>> for MultiMethodServiceWrapper {
             // Parse path to extract service and method name: /{service}/{method}
             let path = req.uri().path().to_string();
 
-            println!("  gRPC request path: {}", path);
+            println!("  gRPC request path: {path}");
 
             // Extract method name from path (format: /package.Service/Method)
             let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
@@ -487,11 +371,8 @@ impl Service<http::Request<BoxBody>> for MultiMethodServiceWrapper {
             let request_service_name = parts[0];
             let method_name = parts[1];
 
-            println!(
-                "  Request service: {}, method: {}",
-                request_service_name, method_name
-            );
-            println!("  Our service descriptor: {}", service_name);
+            println!("  Request service: {request_service_name}, method: {method_name}");
+            println!("  Our service descriptor: {service_name}");
 
             // Check if this request is for our service
             if request_service_name != service_name {
@@ -527,7 +408,7 @@ impl Service<http::Request<BoxBody>> for MultiMethodServiceWrapper {
                     "  After skipping frame header, message length: {}",
                     request_bytes.len()
                 );
-                if request_bytes.len() > 0 {
+                if !request_bytes.is_empty() {
                     println!("  Message bytes: {:?}", &request_bytes[..]);
                 }
             }
@@ -568,128 +449,4 @@ impl NamedService for MultiMethodServiceWrapper {
     // TEMPORARY: Hardcoded name to test if tonic routing works at all
     // TODO: This needs to be dynamic or we need a different approach
     const NAME: &'static str = "calculator.Calculator";
-}
-
-/// Dynamic gRPC service implementation (single method - legacy)
-/// This allows handling proto messages without compile-time generated code
-struct DynamicGrpcService {
-    handler: Arc<dyn Fn(DynamicMessage) -> Result<DynamicMessage> + Send + Sync>,
-    input_descriptor: MessageDescriptor,
-    output_descriptor: MessageDescriptor,
-}
-
-impl DynamicGrpcService {
-    /// Convert into a tonic service
-    fn into_service(self, service_name: &str, method_name: &str) -> DynamicServiceWrapper {
-        DynamicServiceWrapper {
-            inner: Arc::new(self),
-            service_name: service_name.to_string(),
-            method_name: method_name.to_string(),
-        }
-    }
-
-    /// Handle a gRPC request
-    async fn handle_request(&self, request_bytes: Bytes) -> std::result::Result<Bytes, Status> {
-        // Decode request bytes into DynamicMessage
-        let request_msg = DynamicMessage::decode(self.input_descriptor.clone(), request_bytes)
-            .map_err(|e| Status::invalid_argument(format!("Failed to decode request: {}", e)))?;
-
-        // Call the handler
-        let response_msg = (self.handler)(request_msg)
-            .map_err(|e| Status::internal(format!("Handler error: {}", e)))?;
-
-        // Encode response
-        let mut response_bytes = Vec::new();
-        response_msg
-            .encode(&mut response_bytes)
-            .map_err(|e| Status::internal(format!("Failed to encode response: {}", e)))?;
-
-        Ok(Bytes::from(response_bytes))
-    }
-}
-
-/// Wrapper to make DynamicGrpcService compatible with tonic's service infrastructure
-#[derive(Clone)]
-struct DynamicServiceWrapper {
-    inner: Arc<DynamicGrpcService>,
-    service_name: String,
-    method_name: String,
-}
-
-impl Service<http::Request<BoxBody>> for DynamicServiceWrapper {
-    type Response = http::Response<BoxBody>;
-    type Error = std::convert::Infallible;
-    type Future = std::pin::Pin<
-        Box<
-            dyn std::future::Future<Output = std::result::Result<Self::Response, Self::Error>>
-                + Send,
-        >,
-    >;
-
-    fn poll_ready(
-        &mut self,
-        _cx: &mut TaskContext<'_>,
-    ) -> Poll<std::result::Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
-    }
-
-    fn call(&mut self, req: http::Request<BoxBody>) -> Self::Future {
-        let inner = self.inner.clone();
-        let path = format!("/{}/{}", self.service_name, self.method_name);
-
-        Box::pin(async move {
-            // Check if this is our method
-            if req.uri().path() != path {
-                let body = Full::new(Bytes::new())
-                    .map_err(|_: std::convert::Infallible| Status::internal("unreachable"));
-                let boxed = BoxBody::new(body);
-                let response = http::Response::builder().status(404).body(boxed).unwrap();
-                return Ok(response);
-            }
-
-            // Extract request body
-            let (parts, body) = req.into_parts();
-
-            // Read the body bytes
-            let body_bytes = body
-                .collect()
-                .await
-                .map_err(|_| Status::internal("Failed to read request body"))
-                .unwrap();
-            let request_bytes = body_bytes.to_bytes();
-
-            // Handle the request
-            match inner.handle_request(request_bytes).await {
-                Ok(response_bytes) => {
-                    let body = Full::new(response_bytes)
-                        .map_err(|_: std::convert::Infallible| Status::internal("unreachable"));
-                    let boxed = BoxBody::new(body);
-                    let response = http::Response::builder()
-                        .status(200)
-                        .header("content-type", "application/grpc")
-                        .header("grpc-status", "0")
-                        .body(boxed)
-                        .unwrap();
-                    Ok(response)
-                }
-                Err(status) => {
-                    let body = Full::new(Bytes::new())
-                        .map_err(|_: std::convert::Infallible| Status::internal("unreachable"));
-                    let boxed = BoxBody::new(body);
-                    let response = http::Response::builder()
-                        .status(200)
-                        .header("content-type", "application/grpc")
-                        .header("grpc-status", status.code() as i32)
-                        .header("grpc-message", status.message())
-                        .body(boxed)
-                        .unwrap();
-                    Ok(response)
-                }
-            }
-        })
-    }
-}
-
-impl NamedService for DynamicServiceWrapper {
-    const NAME: &'static str = "dynamic.grpc.Service";
 }

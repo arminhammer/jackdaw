@@ -1,8 +1,11 @@
 use crate::context::Context;
 
+use serverless_workflow_core::models::task::TaskDefinition;
+
 use super::super::{DurableEngine, Result};
 
 /// Execute a Try task - error handling with catch blocks
+// If it's about too many arguments:
 pub async fn exec_try_task(
     engine: &DurableEngine,
     task_name: &str,
@@ -14,7 +17,7 @@ pub async fn exec_try_task(
 
     for entry in &try_task.try_.entries {
         for (subtask_name, subtask) in entry {
-            println!("    Executing try subtask: {}", subtask_name);
+            println!("    Executing try subtask: {subtask_name}");
 
             // Box the async call to avoid infinite recursion
             let exec_future = engine.exec_task(subtask_name, subtask, ctx);
@@ -24,7 +27,6 @@ pub async fn exec_try_task(
                     *ctx.task_input.write().await = result.clone();
 
                     // Handle export.as for subtasks (same logic as main execution loop)
-                    use serverless_workflow_core::models::task::TaskDefinition;
                     let export_config = match subtask {
                         TaskDefinition::Call(t) => t.common.export.as_ref(),
                         TaskDefinition::Do(t) => t.common.export.as_ref(),
@@ -41,20 +43,21 @@ pub async fn exec_try_task(
                     };
 
                     if let Some(export_def) = export_config {
-                        if let Some(export_expr) = &export_def.as_ {
-                            if let Some(expr_str) = export_expr.as_str() {
-                                let new_context = crate::expressions::evaluate_expression(expr_str, &result)?;
-                                *ctx.data.write().await = new_context;
-                            }
+                        if let Some(export_expr) = &export_def.as_
+                            && let Some(expr_str) = export_expr.as_str()
+                        {
+                            let new_context =
+                                crate::expressions::evaluate_expression(expr_str, &result)?;
+                            *ctx.data.write().await = new_context;
                         }
                     } else {
                         // No explicit export.as - apply default behavior (merge into context)
                         let mut current_context = ctx.data.write().await;
-                        if let serde_json::Value::Object(result_obj) = &result {
-                            if let Some(context_obj) = (*current_context).as_object_mut() {
-                                for (key, value) in result_obj {
-                                    context_obj.insert(key.clone(), value.clone());
-                                }
+                        if let (serde_json::Value::Object(result_obj), Some(context_obj)) =
+                            (&result, (*current_context).as_object_mut())
+                        {
+                            for (key, value) in result_obj {
+                                context_obj.insert(key.clone(), value.clone());
                             }
                         }
                     }
@@ -123,7 +126,7 @@ pub async fn exec_try_task(
                                     *ctx.task_input.write().await = catch_result.clone();
 
                                     // Handle export.as for catch handler subtasks
-                                    use serverless_workflow_core::models::task::TaskDefinition;
+
                                     let export_config = match catch_task {
                                         TaskDefinition::Call(t) => t.common.export.as_ref(),
                                         TaskDefinition::Do(t) => t.common.export.as_ref(),
@@ -140,20 +143,26 @@ pub async fn exec_try_task(
                                     };
 
                                     if let Some(export_def) = export_config {
-                                        if let Some(export_expr) = &export_def.as_ {
-                                            if let Some(expr_str) = export_expr.as_str() {
-                                                let new_context = crate::expressions::evaluate_expression(expr_str, &catch_result)?;
-                                                *ctx.data.write().await = new_context;
-                                            }
+                                        if let Some(export_expr) = &export_def.as_
+                                            && let Some(expr_str) = export_expr.as_str()
+                                        {
+                                            let new_context =
+                                                crate::expressions::evaluate_expression(
+                                                    expr_str,
+                                                    &catch_result,
+                                                )?;
+                                            *ctx.data.write().await = new_context;
                                         }
                                     } else {
                                         // No explicit export.as - apply default behavior (merge into context)
                                         let mut current_context = ctx.data.write().await;
-                                        if let serde_json::Value::Object(result_obj) = &catch_result {
-                                            if let Some(context_obj) = (*current_context).as_object_mut() {
-                                                for (key, value) in result_obj {
-                                                    context_obj.insert(key.clone(), value.clone());
-                                                }
+                                        if let (
+                                            serde_json::Value::Object(result_obj),
+                                            Some(context_obj),
+                                        ) = (&catch_result, (*current_context).as_object_mut())
+                                        {
+                                            for (key, value) in result_obj {
+                                                context_obj.insert(key.clone(), value.clone());
                                             }
                                         }
                                     }
@@ -165,10 +174,9 @@ pub async fn exec_try_task(
 
                         // Try task returns the last catch handler result
                         return Ok(last_result);
-                    } else {
-                        // Error doesn't match the filter, propagate it
-                        return Err(e);
                     }
+                    // Error doesn't match the filter, propagate it
+                    return Err(e);
                 }
             }
         }

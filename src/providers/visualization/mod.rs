@@ -62,39 +62,43 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// Output format for diagram rendering
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiagramFormat {
-    SVG,
-    PNG,
-    PDF,
-    ASCII,
+    Svg,
+    Png,
+    Pdf,
+    Ascii,
 }
 
 impl DiagramFormat {
+    #[must_use]
     pub fn from_extension(ext: &str) -> Option<Self> {
         match ext.to_lowercase().as_str() {
-            "svg" => Some(DiagramFormat::SVG),
-            "png" => Some(DiagramFormat::PNG),
-            "pdf" => Some(DiagramFormat::PDF),
-            "txt" | "ascii" => Some(DiagramFormat::ASCII),
+            "svg" => Some(DiagramFormat::Svg),
+            "png" => Some(DiagramFormat::Png),
+            "pdf" => Some(DiagramFormat::Pdf),
+            "txt" | "ascii" => Some(DiagramFormat::Ascii),
             _ => None,
         }
     }
 
+    #[must_use]
     pub fn extension(&self) -> &'static str {
         match self {
-            DiagramFormat::SVG => "svg",
-            DiagramFormat::PNG => "png",
-            DiagramFormat::PDF => "pdf",
-            DiagramFormat::ASCII => "txt",
+            DiagramFormat::Svg => "svg",
+            DiagramFormat::Png => "png",
+            DiagramFormat::Pdf => "pdf",
+            DiagramFormat::Ascii => "txt",
         }
     }
 
+    #[must_use]
     pub fn is_terminal_output(&self) -> bool {
-        matches!(self, DiagramFormat::ASCII)
+        matches!(self, DiagramFormat::Ascii)
     }
 }
 
 /// Execution state for a task in the workflow
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum TaskExecutionState {
     /// Task has not been executed
     NotExecuted,
@@ -114,54 +118,28 @@ pub struct ExecutionState {
 }
 
 impl ExecutionState {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
+    #[allow(dead_code)]
     pub fn mark_success(&mut self, task_name: &str) {
         self.task_states
             .insert(task_name.to_string(), TaskExecutionState::Success);
     }
 
+    #[allow(dead_code)]
     pub fn mark_failed(&mut self, task_name: &str) {
         self.task_states
             .insert(task_name.to_string(), TaskExecutionState::Failed);
     }
 
+    #[allow(dead_code)]
     pub fn mark_running(&mut self, task_name: &str) {
         self.task_states
             .insert(task_name.to_string(), TaskExecutionState::Running);
     }
-
-    // /// Build execution state from workflow events
-    // pub fn from_events(events: &[WorkflowEvent]) -> Self {
-    //     let mut state = Self::new();
-    //     let mut last_task: Option<String> = None;
-
-    //     for event in events {
-    //         match event {
-    //             WorkflowEvent::TaskEntered { task_name, .. } => {
-    //                 last_task = Some(task_name.clone());
-    //             }
-    //             WorkflowEvent::TaskStarted { task_name, .. } => {
-    //                 state.mark_running(task_name);
-    //                 last_task = Some(task_name.clone());
-    //             }
-    //             WorkflowEvent::TaskCompleted { task_name, .. } => {
-    //                 state.mark_success(task_name);
-    //             }
-    //             WorkflowEvent::WorkflowFailed { .. } => {
-    //                 // Mark the last task as failed
-    //                 if let Some(task) = last_task.as_ref() {
-    //                     state.mark_failed(task);
-    //                 }
-    //             }
-    //             _ => {}
-    //         }
-    //     }
-
-    //     state
-    // }
 }
 
 /// Common trait for workflow visualization providers
@@ -174,6 +152,10 @@ pub trait VisualizationProvider: Send + Sync + std::fmt::Debug {
     /// # Arguments
     /// * `workflow` - The workflow to visualize
     /// * `execution_state` - Optional execution state to highlight completed/failed tasks
+    ///
+    /// # Errors
+    /// Returns an error if source generation fails due to invalid workflow data,
+    /// unsupported features, or internal provider errors.
     fn generate_source(
         &self,
         workflow: &WorkflowDefinition,
@@ -187,6 +169,10 @@ pub trait VisualizationProvider: Send + Sync + std::fmt::Debug {
     /// * `output_path` - Path where the output file should be written (None for stdout/ASCII)
     /// * `format` - Output format (SVG, PNG, PDF, ASCII)
     /// * `execution_state` - Optional execution state to highlight completed/failed tasks
+    ///
+    /// # Errors
+    /// Returns an error if rendering fails, the output path is invalid or missing for file formats,
+    /// or if required external tools cannot be executed.
     fn render(
         &self,
         workflow: &WorkflowDefinition,
@@ -196,8 +182,15 @@ pub trait VisualizationProvider: Send + Sync + std::fmt::Debug {
     ) -> Result<()>;
 
     /// Check if the visualization tool is installed and available
+    ///
+    /// # Errors
+    /// Returns an error if probing the tool’s availability fails (e.g., I/O or spawn errors).
     fn is_available(&self) -> Result<bool>;
 
     /// Get the version of the installed visualization tool
+    ///
+    /// # Errors
+    /// Returns an error if the version cannot be determined (e.g., tool not found or command failure).
+    #[allow(dead_code)]
     fn version(&self) -> Result<String>;
 }

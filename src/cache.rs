@@ -29,6 +29,7 @@ pub struct CacheEntry {
 
 /// Pluggable cache provider for idempotent task execution
 #[async_trait]
+#[allow(dead_code)]
 pub trait CacheProvider: Send + Sync + std::fmt::Debug {
     async fn get(&self, key: &str) -> Result<Option<CacheEntry>>;
     async fn set(&self, entry: CacheEntry) -> Result<()>;
@@ -52,11 +53,12 @@ fn filter_internal_fields(value: &serde_json::Value) -> serde_json::Value {
 // Helper to generate deterministic cache keys
 // Note: Filters out internal descriptor fields (__workflow, __runtime, __task)
 // so they don't affect caching
+#[must_use]
 pub fn compute_cache_key(task_name: &str, inputs: &serde_json::Value) -> String {
     let filtered_inputs = filter_internal_fields(inputs);
     let inputs_json = serde_json::to_string(&filtered_inputs).unwrap_or_default();
     let mut hasher = DefaultHasher::new();
-    format!("{}:{}", task_name, inputs_json).hash(&mut hasher);
+    format!("{task_name}:{inputs_json}").hash(&mut hasher);
     format!("{}:{:x}", task_name, hasher.finish())
 }
 

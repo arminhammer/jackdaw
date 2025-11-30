@@ -1,22 +1,20 @@
 use async_recursion::async_recursion;
 use chrono::Utc;
 use petgraph::{graph::DiGraph, stable_graph::NodeIndex};
-use serverless_workflow_core::models::task::{ListenTaskDefinition, TaskDefinition};
+use serverless_workflow_core::models::task::TaskDefinition;
 use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use snafu::prelude::*;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
 
 use crate::{
-    cache::CacheEntry,
-    cache::compute_cache_key,
     context::Context,
     executor::Executor,
-    listeners::{EventSource, Listener, grpc::GrpcListener, http::HttpListener},
+    listeners::grpc::GrpcListener,
     output,
     persistence::PersistenceProvider,
     providers::{
-        executors::{OpenApiExecutor, PythonExecutor, RestExecutor, TypeScriptExecutor},
+        executors::{OpenApiExecutor, PythonExecutor, RestExecutor},
         visualization::{D2Provider, ExecutionState, GraphvizProvider, VisualizationProvider},
     },
     workflow::WorkflowEvent,
@@ -168,6 +166,10 @@ impl std::fmt::Debug for DurableEngine {
 }
 
 impl DurableEngine {
+    /// Create a new ``DurableEngine`` instance
+    ///
+    /// # Errors
+    /// Currently, this function does not return errors, but returns `Result` for future extensibility
     pub fn new(
         persistence: Arc<dyn PersistenceProvider>,
         cache: Arc<dyn CacheProvider>,
@@ -200,12 +202,22 @@ impl DurableEngine {
     ///
     /// This is a static method that can be used for validation without creating an engine instance.
     /// Returns the workflow graph and task name mappings if validation succeeds.
+    /// # Errors
+    /// Returns an error if the workflow graph cannot be built due to structural issues.
     pub fn validate_workflow_graph(
         workflow: &WorkflowDefinition,
-    ) -> Result<(DiGraph<(String, TaskDefinition), ()>, HashMap<String, NodeIndex>)> {
+    ) -> Result<(
+        DiGraph<(String, TaskDefinition), ()>,
+        HashMap<String, NodeIndex>,
+    )> {
         graph::build_graph(workflow)
     }
 
+    #[allow(dead_code)]
+    /// Start a workflow execution with empty initial data
+    ///
+    /// # Errors
+    /// Returns an error if the workflow execution fails or if there are issues with persistence
     pub async fn start(&self, workflow: WorkflowDefinition) -> Result<String> {
         let (instance_id, _) = self
             .start_with_input(workflow, serde_json::json!({}))
@@ -249,6 +261,11 @@ impl DurableEngine {
         }
     }
 
+    #[allow(dead_code)]
+    /// Register a workflow for nested execution
+    ///
+    /// # Errors
+    /// This function currently does not return errors, but returns `Result` for future extensibility
     pub async fn register_workflow(&self, workflow: WorkflowDefinition) -> Result<()> {
         let key = format!(
             "{}/{}/{}",
@@ -260,6 +277,11 @@ impl DurableEngine {
         Ok(())
     }
 
+    #[allow(dead_code)]
+    /// Wait for a workflow instance to complete
+    ///
+    /// # Errors
+    /// Returns an error if the workflow execution fails, times out, or if there are issues retrieving events
     pub async fn wait_for_completion(
         &self,
         instance_id: &str,
@@ -278,7 +300,7 @@ impl DurableEngine {
                     }
                     WorkflowEvent::WorkflowFailed { error, .. } => {
                         return Err(Error::WorkflowExecution {
-                            message: format!("Workflow failed: {}", error),
+                            message: format!("Workflow failed: {error}"),
                         });
                     }
                     _ => {}
@@ -288,7 +310,7 @@ impl DurableEngine {
             // Check timeout
             if start.elapsed() > timeout {
                 return Err(Error::WorkflowExecution {
-                    message: format!("Workflow execution timed out after {:?}", timeout),
+                    message: format!("Workflow execution timed out after {timeout:?}"),
                 });
             }
 
@@ -297,6 +319,11 @@ impl DurableEngine {
         }
     }
 
+    #[allow(dead_code)]
+    /// Resume a workflow execution from a previously saved checkpoint
+    ///
+    /// # Errors
+    /// Returns an error if the workflow execution fails or if the instance cannot be resumed
     pub async fn resume(
         &self,
         workflow: WorkflowDefinition,
@@ -334,7 +361,7 @@ impl DurableEngine {
                 .get(&current_task_name)
                 .copied()
                 .ok_or(Error::TaskExecution {
-                    message: format!("Task not found: {}", current_task_name),
+                    message: format!("Task not found: {current_task_name}"),
                 })?;
 
         loop {
@@ -345,15 +372,14 @@ impl DurableEngine {
                 if let Some(next) = graph.neighbors(current).next() {
                     current = next;
                     continue;
-                } else {
-                    break;
                 }
+                break;
             }
 
             ctx.persistence
                 .save_event(WorkflowEvent::TaskEntered {
                     instance_id: ctx.instance_id.clone(),
-                    task_name: task_name.to_string(),
+                    task_name: task_name.clone(),
                     timestamp: Utc::now(),
                 })
                 .await?;
@@ -367,7 +393,7 @@ impl DurableEngine {
             ctx.persistence
                 .save_event(WorkflowEvent::TaskCompleted {
                     instance_id: ctx.instance_id.clone(),
-                    task_name: task_name.to_string(),
+                    task_name: task_name.clone(),
                     result: result.clone(),
                     timestamp: Utc::now(),
                 })
@@ -396,13 +422,13 @@ impl DurableEngine {
             };
 
             if let Some(export_def) = export_config {
-                if let Some(export_expr) = &export_def.as_ {
-                    if let Some(expr_str) = export_expr.as_str() {
-                        // Evaluate export.as expression on the transformed task output
-                        // The result becomes the new context
-                        let new_context = crate::expressions::evaluate_expression(expr_str, &result)?;
-                        *ctx.data.write().await = new_context;
-                    }
+                if let Some(export_expr) = &export_def.as_
+                    && let Some(expr_str) = export_expr.as_str()
+                {
+                    // Evaluate export.as expression on the transformed task output
+                    // The result becomes the new context
+                    let new_context = crate::expressions::evaluate_expression(expr_str, &result)?;
+                    *ctx.data.write().await = new_context;
                 }
             } else {
                 // No explicit export.as - apply default behavior
@@ -414,7 +440,6 @@ impl DurableEngine {
                         for (key, value) in result_obj {
                             context_obj.insert(key.clone(), value.clone());
                         }
-                    } else {
                     }
                 } else {
                     // If result is not an object, we cannot merge - replace the context entirely
@@ -442,7 +467,7 @@ impl DurableEngine {
                 }
 
                 current = *task_names.get(&next_name).ok_or(Error::TaskExecution {
-                    message: format!("Next task not found: {}", next_name),
+                    message: format!("Next task not found: {next_name}"),
                 })?;
             } else if has_next_edge {
                 current = graph.neighbors(current).next().unwrap();
@@ -457,12 +482,11 @@ impl DurableEngine {
         let mut final_data = ctx.task_input.read().await.clone();
 
         // Apply workflow output filter if specified
-        if let Some(output_config) = &workflow.output {
-            if let Some(as_expr) = &output_config.as_ {
-                if let Some(expr_str) = as_expr.as_str() {
-                    final_data = crate::expressions::evaluate_expression(expr_str, &final_data)?;
-                }
-            }
+        if let Some(output_config) = &workflow.output
+            && let Some(as_expr) = &output_config.as_
+            && let Some(expr_str) = as_expr.as_str()
+        {
+            final_data = crate::expressions::evaluate_expression(expr_str, &final_data)?;
         }
 
         // Remove internal metadata fields from final output
@@ -495,6 +519,9 @@ impl DurableEngine {
     /// * `output_path` - Optional output path (None for stdout/ASCII)
     /// * `format` - Output format
     /// * `tool` - Visualization tool to use ("graphviz" or "d2")
+    ///
+    /// # Errors
+    /// Returns an error if the visualization tool is not available, not installed, or if rendering fails
     pub async fn visualize_execution(
         &self,
         workflow: &WorkflowDefinition,
@@ -515,7 +542,7 @@ impl DurableEngine {
             "d2" => Box::new(D2Provider::new()),
             _ => {
                 return Err(Error::Configuration {
-                    message: format!("Unknown visualization tool: {}", tool),
+                    message: format!("Unknown visualization tool: {tool}"),
                 });
             }
         };

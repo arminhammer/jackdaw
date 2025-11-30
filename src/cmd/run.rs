@@ -3,7 +3,7 @@ use console::style;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use snafu::prelude::*;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::durableengine::DurableEngine;
@@ -18,7 +18,7 @@ pub enum Error {
     InvalidWorkflowFile { message: String },
 
     #[snafu(display("Path error: {message}"))]
-    PathError { message: String },
+    Path { message: String },
 
     #[snafu(display("I/O error: {source}"))]
     Io { source: std::io::Error },
@@ -152,14 +152,14 @@ fn discover_workflow_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
                 }
             }
         } else {
-            return Err(Error::PathError {
+            return Err(Error::Path {
                 message: format!("Path {:?} does not exist", path),
             });
         }
     }
 
     if workflow_files.is_empty() {
-        return Err(Error::PathError {
+        return Err(Error::Path {
             message: "No workflow files found in the provided paths".to_string(),
         });
     }
@@ -168,7 +168,7 @@ fn discover_workflow_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
 }
 
 /// Check if a file is a workflow file based on extension
-fn is_workflow_file(path: &PathBuf) -> bool {
+fn is_workflow_file(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
         .map(|ext| ext == "yaml" || ext == "yml")
@@ -219,10 +219,10 @@ async fn execute_workflow(
 /// Parse diagram format from string
 fn parse_diagram_format(format_str: &str) -> Result<DiagramFormat> {
     match format_str.to_lowercase().as_str() {
-        "svg" => Ok(DiagramFormat::SVG),
-        "png" => Ok(DiagramFormat::PNG),
-        "pdf" => Ok(DiagramFormat::PDF),
-        "ascii" => Ok(DiagramFormat::ASCII),
+        "svg" => Ok(DiagramFormat::Svg),
+        "png" => Ok(DiagramFormat::Png),
+        "pdf" => Ok(DiagramFormat::Pdf),
+        "ascii" => Ok(DiagramFormat::Ascii),
         _ => Err(Error::InvalidWorkflowFile {
             message: format!(
                 "Invalid format '{}'. Valid formats: svg, png, pdf, ascii",

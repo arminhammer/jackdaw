@@ -19,9 +19,7 @@ pub enum Error {
     TestSetup { message: String },
 
     #[snafu(display("Persistence error: {source}"))]
-    Persistence {
-        source: jackdaw::persistence::Error,
-    },
+    Persistence { source: jackdaw::persistence::Error },
 
     #[snafu(display("Cache error: {source}"))]
     Cache { source: jackdaw::cache::Error },

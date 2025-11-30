@@ -153,10 +153,7 @@ async fn given_grpc_multiply_typescript_request(
 }
 
 // Helper to execute workflow and make actual gRPC call
-async fn execute_workflow_and_call_grpc(
-    world: &mut ListenerWorld,
-    method: String,
-) -> Result<()> {
+async fn execute_workflow_and_call_grpc(world: &mut ListenerWorld, method: String) -> Result<()> {
     // Parse workflow
     let workflow_yaml = world
         .workflow_definition
@@ -167,12 +164,9 @@ async fn execute_workflow_and_call_grpc(
     let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml)?;
 
     // Get engine
-    let engine = world
-        .engine
-        .as_ref()
-        .ok_or_else(|| Error::GrpcTest {
-            message: "No engine".to_string(),
-        })?;
+    let engine = world.engine.as_ref().ok_or_else(|| Error::GrpcTest {
+        message: "No engine".to_string(),
+    })?;
 
     // Start workflow - this will start the listeners
     let instance_id = engine.start(workflow).await?;

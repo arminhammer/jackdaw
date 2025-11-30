@@ -1,6 +1,5 @@
 use crate::context::Context;
 use async_trait::async_trait;
-use serde_json;
 use snafu::prelude::*;
 
 #[derive(Debug, Snafu)]
@@ -24,5 +23,6 @@ pub trait Executor: Send + Sync {
     ) -> Result<serde_json::Value>;
 
     /// Downcast to concrete type for special handling
+    #[allow(dead_code)]
     fn as_any(&self) -> &dyn std::any::Any;
 }

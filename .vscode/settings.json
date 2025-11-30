@@ -1,5 +1,13 @@
 {
   "rust-analyzer.check.command": "clippy",
-  "rust-analyzer.check.extraArgs": ["-- -D warnings"],
-  "rust-analyzer.checkOnSave": true
+  "rust-analyzer.check.extraArgs": [
+    "--",
+    "-W",
+    "clippy::pedantic"
+  ],
+  "rust-analyzer.checkOnSave": true,
+  "[rust]": {
+    "editor.formatOnSave": true
+  },
+  "rust-analyzer.cfg.setTest": false
 }
