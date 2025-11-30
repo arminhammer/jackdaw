@@ -564,7 +564,7 @@ async fn evaluate_parameters(
                 &ctx.initial_input,
             )
             .map_err(|e| Error::Execution {
-                message: format!("Failed to evaluate parameter '{}': {}", key, e),
+                message: format!("Failed to evaluate parameter '{key}': {e}"),
             })?;
             result.insert(key.clone(), evaluated);
         }

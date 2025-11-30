@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyModule};
 use std::collections::HashMap;
+use std::fmt::Write;
 use std::sync::{Arc, Mutex};
 
 use crate::{
@@ -12,7 +13,7 @@ use crate::{
 /// Python executor using pyo3 free-threaded mode for in-process execution with hot module caching
 pub struct PythonExecutor {
     /// Cache of loaded Python functions
-    /// Key: "module_name.function_name"
+    /// Key: `"module_name.function_name"`
     /// Value: Cached Python function object (unbound, can be used across threads)
     function_cache: Arc<Mutex<HashMap<String, Py<PyAny>>>>,
 }
@@ -25,6 +26,7 @@ impl Default for PythonExecutor {
 
 impl PythonExecutor {
     /// Create a new Python executor with empty cache
+    #[must_use]
     pub fn new() -> Self {
         // Initialize Python interpreter if not already initialized
         // Since we're not using auto-initialize, we need to manually prepare the interpreter
@@ -38,8 +40,19 @@ impl PythonExecutor {
     /// Load a Python function and cache it
     /// Returns a cached reference to the function
     /// Uses free-threaded mode without GIL
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The Python module cannot be imported
+    /// - The function is not found in the module
+    /// - The function is not callable
+    ///
+    /// # Panics
+    ///
+    /// Panics if the function cache mutex is poisoned
     pub fn load_function(&self, module_path: &str, function_name: &str) -> Result<Py<PyAny>> {
-        let cache_key = format!("{}.{}", module_path, function_name);
+        let cache_key = format!("{module_path}.{function_name}");
 
         // Check cache first - need to acquire GIL for clone_ref
         Python::with_gil(|py| {
@@ -52,26 +65,21 @@ impl PythonExecutor {
 
             // Load the module and function
             let module = PyModule::import_bound(py, module_path).map_err(|e| Error::Execution {
-                message: format!("Failed to import module '{}': {}", module_path, e),
+                message: format!("Failed to import module '{module_path}': {e}"),
             })?;
-
             // Get the function from the module
             let function = module
                 .getattr(function_name)
                 .map_err(|e| Error::Execution {
                     message: format!(
-                        "Function '{}' not found in module '{}': {}",
-                        function_name, module_path, e
+                        "Function '{function_name}' not found in module '{module_path}': {e}"
                     ),
                 })?;
 
             // Check if it's callable
             if !function.is_callable() {
                 return Err(Error::Execution {
-                    message: format!(
-                        "'{}' in module '{}' is not callable",
-                        function_name, module_path
-                    ),
+                    message: format!("'{function_name}' in module '{module_path}' is not callable"),
                 });
             }
 
@@ -86,24 +94,38 @@ impl PythonExecutor {
 
     /// Add a directory to Python's sys.path for module resolution
     /// This is useful for adding custom module paths at runtime
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Importing the sys module fails
+    /// - Getting sys.path attribute fails
+    /// - Inserting the path into sys.path fails
     pub fn add_python_path(&self, path: &str) -> Result<()> {
         Python::with_gil(|py| {
             let sys = PyModule::import_bound(py, "sys").map_err(|e| Error::Execution {
-                message: format!("Failed to import sys module: {}", e),
+                message: format!("Failed to import sys module: {e}"),
             })?;
             let sys_path: Bound<PyAny> = sys.getattr("path").map_err(|e| Error::Execution {
-                message: format!("Failed to get sys.path: {}", e),
+                message: format!("Failed to get sys.path: {e}"),
             })?;
             sys_path
                 .call_method1("insert", (0, path))
                 .map_err(|e| Error::Execution {
-                    message: format!("Failed to add path to sys.path: {}", e),
+                    message: format!("Failed to add path to sys.path: {e}"),
                 })?;
             Ok(())
         })
     }
 
     /// Execute a Python function with given arguments
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Converting JSON arguments to Python objects fails
+    /// - The Python function call fails
+    /// - Converting the Python result back to JSON fails
     pub fn execute_function(
         &self,
         func: &Py<PyAny>,
@@ -120,7 +142,7 @@ impl PythonExecutor {
             let result = func
                 .call1(py, pyo3::types::PyTuple::new_bound(py, &py_args))
                 .map_err(|e| Error::Execution {
-                    message: format!("Python function call failed: {}", e),
+                    message: format!("Python function call failed: {e}"),
                 })?;
 
             // Convert result back to JSON
@@ -147,17 +169,19 @@ impl PythonExecutor {
                 for (key, value) in args_obj {
                     let value_json =
                         serde_json::to_string(value).map_err(|e| Error::Execution {
-                            message: format!("Failed to serialize argument: {}", e),
+                            message: format!("Failed to serialize argument: {e}"),
                         })?;
-                    script_with_args.push_str(&format!(
-                        "{} = json.loads('{}')\n",
+                    writeln!(
+                        script_with_args,
+                        "{} = json.loads('{}')",
                         key,
                         value_json.replace('\'', "\\'")
-                    ));
+                    )
+                    .unwrap();
                 }
             }
 
-            script_with_args.push_str("\n");
+            script_with_args.push('\n');
             script_with_args.push_str(script);
             script_with_args
         } else {
@@ -165,15 +189,15 @@ impl PythonExecutor {
         };
 
         let mut temp_file = tempfile::NamedTempFile::new().map_err(|e| Error::Execution {
-            message: format!("Failed to create temp file: {}", e),
+            message: format!("Failed to create temp file: {e}"),
         })?;
         temp_file
             .write_all(full_script.as_bytes())
             .map_err(|e| Error::Execution {
-                message: format!("Failed to write to temp file: {}", e),
+                message: format!("Failed to write to temp file: {e}"),
             })?;
         temp_file.flush().map_err(|e| Error::Execution {
-            message: format!("Failed to flush temp file: {}", e),
+            message: format!("Failed to flush temp file: {e}"),
         })?;
 
         let output = Command::new("python3")
@@ -181,13 +205,13 @@ impl PythonExecutor {
             .output()
             .await
             .map_err(|e| Error::Execution {
-                message: format!("Failed to execute python3: {}", e),
+                message: format!("Failed to execute python3: {e}"),
             })?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(Error::Execution {
-                message: format!("Python script failed: {}", stderr),
+                message: format!("Python script failed: {stderr}"),
             });
         }
 
@@ -271,7 +295,7 @@ fn json_to_python(py: Python, value: &serde_json::Value) -> Result<PyObject> {
             for (key, value) in obj {
                 let py_value = json_to_python(py, value)?;
                 dict.set_item(key, py_value).map_err(|e| Error::Execution {
-                    message: format!("Failed to set dict item: {}", e),
+                    message: format!("Failed to set dict item: {e}"),
                 })?;
             }
             Ok(dict.into_py(py))
@@ -331,7 +355,7 @@ fn python_to_json(py: Python, obj: &Bound<PyAny>) -> Result<serde_json::Value> {
         message: format!(
             "Unsupported Python type: {}",
             obj.get_type().name().map_err(|e| Error::Execution {
-                message: format!("Failed to get type name: {}", e)
+                message: format!("Failed to get type name: {e}")
             })?
         ),
     })
