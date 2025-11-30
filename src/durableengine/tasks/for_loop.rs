@@ -79,7 +79,8 @@ pub async fn exec_for_task(
                 if let Some(export_def) = export_config {
                     if let Some(export_expr) = &export_def.as_ {
                         if let Some(expr_str) = export_expr.as_str() {
-                            let new_context = crate::expressions::evaluate_expression(expr_str, &result)?;
+                            let new_context =
+                                crate::expressions::evaluate_expression(expr_str, &result)?;
                             *ctx.data.write().await = new_context;
                         }
                     }

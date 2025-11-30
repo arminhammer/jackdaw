@@ -43,7 +43,7 @@ pub fn evaluate_expression_with_input(
     }
 
     let mut jq_expr = expr[2..expr.len() - 1].trim().to_string();
-    
+
     // Null-safe array operations: wrap field accesses before + with // []
     // This handles cases like: (.processed.colors + [x]) -> (((.processed // {}).colors // []) + [x])
     // Do this BEFORE variable binding to avoid interfering with the binding syntax
@@ -100,7 +100,7 @@ pub fn evaluate_expression_with_input(
             // Only bind if the variable exists in context and we haven't already added it
             if combined.contains_key(var_name) && !var_bindings.contains(&var_name.to_string()) {
                 var_bindings.push(var_name.to_string());
-             }
+            }
         }
 
         // Build the variable bindings at the start of the expression
@@ -121,7 +121,7 @@ pub fn evaluate_expression_with_input(
     };
 
     debug!("  Evaluating jq expression: {}", jq_expr);
- 
+
     let result = evaluate_jq(&jq_expr, &eval_context);
     result
 }
@@ -132,7 +132,11 @@ pub fn evaluate_jq_expression(jq_expr: &str, value: &Value) -> Result<Value> {
 }
 
 /// Evaluates a jq expression with access to $input variable (used for output.as expressions)
-pub fn evaluate_jq_expression_with_context(jq_expr: &str, value: &Value, context: &Value) -> Result<Value> {
+pub fn evaluate_jq_expression_with_context(
+    jq_expr: &str,
+    value: &Value,
+    context: &Value,
+) -> Result<Value> {
     // If the expression uses $input, we need to bind it
     if jq_expr.contains("$input") {
         // Strip descriptors from context when used as $input

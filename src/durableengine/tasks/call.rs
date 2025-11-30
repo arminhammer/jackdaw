@@ -115,7 +115,11 @@ pub async fn exec_call_task(
                 // Evaluate the jq expression on the result with access to $input
                 // $input represents the task input (previous task's output for sequential tasks)
                 let task_input = ctx.task_input.read().await.clone();
-                result = crate::expressions::evaluate_jq_expression_with_context(expr_str, &result, &task_input)?;
+                result = crate::expressions::evaluate_jq_expression_with_context(
+                    expr_str,
+                    &result,
+                    &task_input,
+                )?;
                 true
             } else {
                 false

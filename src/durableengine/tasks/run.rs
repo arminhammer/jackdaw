@@ -208,12 +208,13 @@ pub async fn exec_run_task(
             })?;
 
         // Stream output in real-time
-        let (stdout, stderr, exit_code) = streamer
-            .stream_process_output(child)
-            .await
-            .map_err(|e| Error::TaskExecution {
-                message: format!("Failed to stream command output: {}", e),
-            })?;
+        let (stdout, stderr, exit_code) =
+            streamer
+                .stream_process_output(child)
+                .await
+                .map_err(|e| Error::TaskExecution {
+                    message: format!("Failed to stream command output: {}", e),
+                })?;
 
         // Check exit status
         if exit_code != 0 {

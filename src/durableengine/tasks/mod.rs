@@ -126,10 +126,7 @@ impl DurableEngine {
                 if let Some(expr_str) = from_expr.as_str() {
                     let current_data = ctx.data.read().await.clone();
                     // Input filtering uses jq expressions directly (not wrapped in ${ })
-                    let filtered = crate::expressions::evaluate_jq(
-                        expr_str,
-                        &current_data,
-                    )?;
+                    let filtered = crate::expressions::evaluate_jq(expr_str, &current_data)?;
                     *ctx.data.write().await = filtered;
                     return Ok(true);
                 }
@@ -217,7 +214,8 @@ async fn exec_do_task(
             if let Some(export_def) = export_config {
                 if let Some(export_expr) = &export_def.as_ {
                     if let Some(expr_str) = export_expr.as_str() {
-                        let new_context = crate::expressions::evaluate_expression(expr_str, &result)?;
+                        let new_context =
+                            crate::expressions::evaluate_expression(expr_str, &result)?;
                         *ctx.data.write().await = new_context;
                     }
                 }

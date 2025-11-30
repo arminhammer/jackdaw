@@ -202,7 +202,10 @@ impl DurableEngine {
     /// Returns the workflow graph and task name mappings if validation succeeds.
     pub fn validate_workflow_graph(
         workflow: &WorkflowDefinition,
-    ) -> Result<(DiGraph<(String, TaskDefinition), ()>, HashMap<String, NodeIndex>)> {
+    ) -> Result<(
+        DiGraph<(String, TaskDefinition), ()>,
+        HashMap<String, NodeIndex>,
+    )> {
         graph::build_graph(workflow)
     }
 
@@ -400,7 +403,8 @@ impl DurableEngine {
                     if let Some(expr_str) = export_expr.as_str() {
                         // Evaluate export.as expression on the transformed task output
                         // The result becomes the new context
-                        let new_context = crate::expressions::evaluate_expression(expr_str, &result)?;
+                        let new_context =
+                            crate::expressions::evaluate_expression(expr_str, &result)?;
                         *ctx.data.write().await = new_context;
                     }
                 }

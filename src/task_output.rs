@@ -1,4 +1,4 @@
-use console::{style, Color};
+use console::{Color, style};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader as AsyncBufReader};
 use tokio::process::Child;
@@ -117,18 +117,20 @@ impl TaskOutputStreamer {
 
         // Collect output
         let stdout_lines = stdout_handle.await.map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::Other, format!("Stdout task failed: {}", e))
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Stdout task failed: {}", e),
+            )
         })??;
 
         let stderr_lines = stderr_handle.await.map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::Other, format!("Stderr task failed: {}", e))
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Stderr task failed: {}", e),
+            )
         })??;
 
-        Ok((
-            stdout_lines.join("\n"),
-            stderr_lines.join("\n"),
-            exit_code,
-        ))
+        Ok((stdout_lines.join("\n"), stderr_lines.join("\n"), exit_code))
     }
 }
 

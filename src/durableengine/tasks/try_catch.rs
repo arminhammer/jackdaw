@@ -43,7 +43,8 @@ pub async fn exec_try_task(
                     if let Some(export_def) = export_config {
                         if let Some(export_expr) = &export_def.as_ {
                             if let Some(expr_str) = export_expr.as_str() {
-                                let new_context = crate::expressions::evaluate_expression(expr_str, &result)?;
+                                let new_context =
+                                    crate::expressions::evaluate_expression(expr_str, &result)?;
                                 *ctx.data.write().await = new_context;
                             }
                         }
@@ -142,15 +143,22 @@ pub async fn exec_try_task(
                                     if let Some(export_def) = export_config {
                                         if let Some(export_expr) = &export_def.as_ {
                                             if let Some(expr_str) = export_expr.as_str() {
-                                                let new_context = crate::expressions::evaluate_expression(expr_str, &catch_result)?;
+                                                let new_context =
+                                                    crate::expressions::evaluate_expression(
+                                                        expr_str,
+                                                        &catch_result,
+                                                    )?;
                                                 *ctx.data.write().await = new_context;
                                             }
                                         }
                                     } else {
                                         // No explicit export.as - apply default behavior (merge into context)
                                         let mut current_context = ctx.data.write().await;
-                                        if let serde_json::Value::Object(result_obj) = &catch_result {
-                                            if let Some(context_obj) = (*current_context).as_object_mut() {
+                                        if let serde_json::Value::Object(result_obj) = &catch_result
+                                        {
+                                            if let Some(context_obj) =
+                                                (*current_context).as_object_mut()
+                                            {
                                                 for (key, value) in result_obj {
                                                     context_obj.insert(key.clone(), value.clone());
                                                 }
