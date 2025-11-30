@@ -1,3 +1,5 @@
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use serverless_workflow_core::models::task::{ListenTaskDefinition, TaskDefinition};
 use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use std::collections::HashMap;
@@ -90,7 +92,7 @@ impl DurableEngine {
                         // Group by (bind_addr, openapi_path) - different specs can coexist on same port
                         http_routes
                             .entry((bind_addr.clone(), openapi_path.clone()))
-                            .or_insert_with(Vec::new)
+                            .or_default()
                             .push((path, task_name.clone(), handler));
                     }
                     // Handle gRPC listeners
@@ -139,7 +141,7 @@ impl DurableEngine {
                         // Group by (bind_addr, proto_path, service_name)
                         grpc_methods
                             .entry((bind_addr.clone(), proto_path.clone(), service_name.clone()))
-                            .or_insert_with(Vec::new)
+                            .or_default()
                             .push((method_name, task_name.clone(), handler));
                     }
                 }
@@ -154,10 +156,7 @@ impl DurableEngine {
             let mut route_handlers = std::collections::HashMap::new();
             for (path, task_name, handler) in routes {
                 route_handlers.insert(path.clone(), handler);
-                println!(
-                    "  Registering route {} for task {} on {}",
-                    path, task_name, bind_addr
-                );
+                println!("  Registering route {path} for task {task_name} on {bind_addr}");
             }
 
             // Create and start the listener with all routes
@@ -170,7 +169,7 @@ impl DurableEngine {
             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
             http_listeners.insert(bind_addr.clone(), listener_arc);
-            println!("  HTTP listener started on {}", bind_addr);
+            println!("  HTTP listener started on {bind_addr}");
         }
 
         // Now create all gRPC listeners with their complete method tables
@@ -188,7 +187,7 @@ impl DurableEngine {
             let service_descriptor =
                 pool.get_service_by_name(&service_name)
                     .ok_or_else(|| Error::Listener {
-                        message: format!("Service {} not found in proto file", service_name),
+                        message: format!("Service {service_name} not found in proto file"),
                     })?;
 
             // Build method handlers map - convert JSON handlers to DynamicMessage handlers
@@ -203,8 +202,7 @@ impl DurableEngine {
 
             for (method_name, task_name, json_handler) in methods {
                 println!(
-                    "  Registering gRPC method {}/{} for task {} on {}",
-                    service_name, method_name, task_name, bind_addr
+                    "  Registering gRPC method {service_name}/{method_name} for task {task_name} on {bind_addr}"
                 );
 
                 // Get method descriptor for this method
@@ -213,8 +211,7 @@ impl DurableEngine {
                     .find(|m| m.name() == method_name)
                     .ok_or_else(|| Error::Listener {
                         message: format!(
-                            "Method {} not found in service {}",
-                            method_name, service_name
+                            "Method {method_name} not found in service {service_name}"
                         ),
                     })?;
 
@@ -231,24 +228,14 @@ impl DurableEngine {
                 > = Arc::new(
                     move |request_msg: DynamicMessage| -> crate::listeners::Result<DynamicMessage> {
                         // Convert DynamicMessage to JSON
-                        let request_json = dynamic_message_to_json(&request_msg).map_err(|e| {
-                            crate::listeners::Error::Execution {
-                                message: format!("Failed to convert DynamicMessage to JSON: {}", e),
-                            }
-                        })?;
+                        let request_json = dynamic_message_to_json(&request_msg);
 
                         // Call the JSON handler
                         let response_json = json_handler_clone(request_json)?;
 
                         // Convert JSON response back to DynamicMessage using the output descriptor
                         let response_msg =
-                            json_to_dynamic_message(&response_json, output_descriptor.clone())
-                                .map_err(|e| crate::listeners::Error::Execution {
-                                    message: format!(
-                                        "Failed to convert JSON to DynamicMessage: {}",
-                                        e
-                                    ),
-                                })?;
+                            json_to_dynamic_message(&response_json, &output_descriptor);
                         Ok(response_msg)
                     },
                 );
@@ -270,13 +257,13 @@ impl DurableEngine {
             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
             grpc_listeners.insert(bind_addr.clone(), listener_arc);
-            println!("  gRPC listener started on {}", bind_addr);
+            println!("  gRPC listener started on {bind_addr}");
         }
 
         Ok(())
     }
 
-    /// Extract event source and OpenAPI path from a Listen task
+    /// Extract event source and ``OpenAPI`` path from a Listen task
     fn extract_listen_source(
         &self,
         listen_task: &ListenTaskDefinition,
@@ -408,9 +395,9 @@ impl DurableEngine {
                         // Loading happens at request time, not initialization time,
                         // so PYTHONPATH can be set by the test environment
                         let func = python_executor.load_function(&module_owned, &function_owned)
-                            .map_err(|e| crate::listeners::Error::Execution { message: format!("Failed to load Python function: {}", e) })?;
+                            .map_err(|e| crate::listeners::Error::Execution { message: format!("Failed to load Python function: {e}") })?;
                         let result = python_executor.execute_function(&func, &[payload])
-                            .map_err(|e| crate::listeners::Error::Execution { message: format!("Failed to execute Python function: {}", e) })?;
+                            .map_err(|e| crate::listeners::Error::Execution { message: format!("Failed to execute Python function: {e}") })?;
                         Ok(result)
                     },
                 );
@@ -437,7 +424,7 @@ impl DurableEngine {
                                 &function_clone,
                                 &[payload],
                             )
-                        }).map_err(|e| crate::listeners::Error::Execution { message: format!("Failed to execute TypeScript function: {}", e) })?;
+                        }).map_err(|e| crate::listeners::Error::Execution { message: format!("Failed to execute TypeScript function: {e}") })?;
 
                         Ok(result)
                     },
@@ -447,8 +434,7 @@ impl DurableEngine {
             } else {
                 Err(Error::Configuration {
                     message: format!(
-                        "Unsupported call type: {}. Only 'python' and 'typescript' are currently supported",
-                        call_type
+                        "Unsupported call type: {call_type}. Only 'python' and 'typescript' are currently supported"
                     ),
                 })
             }
@@ -460,8 +446,8 @@ impl DurableEngine {
     }
 }
 
-/// Convert a prost-reflect DynamicMessage to JSON
-fn dynamic_message_to_json(msg: &prost_reflect::DynamicMessage) -> Result<serde_json::Value> {
+/// Convert a prost-reflect ``DynamicMessage`` to JSON
+fn dynamic_message_to_json(msg: &prost_reflect::DynamicMessage) -> serde_json::Value {
     use prost_reflect::{ReflectMessage, Value};
 
     let mut json_map = serde_json::Map::new();
@@ -474,25 +460,24 @@ fn dynamic_message_to_json(msg: &prost_reflect::DynamicMessage) -> Result<serde_
             Value::I64(i) => serde_json::json!(i),
             Value::U32(u) => serde_json::json!(u),
             Value::U64(u) => serde_json::json!(u),
-            Value::F32(f) => serde_json::json!(f),
-            Value::F64(f) => serde_json::json!(f),
             Value::Bool(b) => serde_json::json!(b),
             Value::String(s) => serde_json::json!(s),
-            Value::Bytes(b) => serde_json::json!(base64::encode(b)),
+            Value::Bytes(b) => serde_json::json!(BASE64_STANDARD.encode(b)),
             _ => serde_json::Value::Null,
         };
         json_map.insert(field.name().to_string(), json_value);
     }
 
-    Ok(serde_json::Value::Object(json_map))
+    serde_json::Value::Object(json_map)
 }
 
-/// Convert JSON to a prost-reflect DynamicMessage using a message descriptor
+/// Convert JSON to a prost-reflect ``DynamicMessage`` using a message descriptor
+#[allow(clippy::cast_possible_truncation)]
 fn json_to_dynamic_message(
     json: &serde_json::Value,
-    descriptor: prost_reflect::MessageDescriptor,
-) -> Result<prost_reflect::DynamicMessage> {
-    use prost_reflect::{DynamicMessage, ReflectMessage, Value};
+    descriptor: &prost_reflect::MessageDescriptor,
+) -> prost_reflect::DynamicMessage {
+    use prost_reflect::{DynamicMessage, Value};
 
     let mut msg = DynamicMessage::new(descriptor.clone());
 
@@ -518,5 +503,5 @@ fn json_to_dynamic_message(
         }
     }
 
-    Ok(msg)
+    msg
 }
