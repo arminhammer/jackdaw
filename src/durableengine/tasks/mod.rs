@@ -64,7 +64,9 @@ impl DurableEngine {
         output::format_task_input(&input_data);
 
         // Execute the task
-        let result = match task {
+        // Note: We don't restore the original context after input filtering
+        // because task outputs (via ctx.merge) should be preserved
+        match task {
             TaskDefinition::Call(call_task) => {
                 exec_call_task(self, task_name, call_task, ctx).await
             }
@@ -88,15 +90,11 @@ impl DurableEngine {
             TaskDefinition::Listen(listen_task) => {
                 exec_listen_task(self, task_name, listen_task, ctx)
             }
-            _ => {
+            TaskDefinition::Wait(_wait_task) => {
                 println!("  Task type not yet implemented, returning empty result");
                 Ok(serde_json::json!({}))
             }
-        };
-
-        // Note: We don't restore the original context after input filtering
-        // because task outputs (via ctx.merge) should be preserved
-        result
+        }
     }
 
     /// Apply input filter to task
@@ -237,6 +235,7 @@ async fn exec_do_task(
 }
 
 /// Execute a Listen task - listeners are initialized at workflow startup
+#[allow(clippy::unnecessary_wraps)]
 fn exec_listen_task(
     _engine: &DurableEngine,
     _task_name: &str,

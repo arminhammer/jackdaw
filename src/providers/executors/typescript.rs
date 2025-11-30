@@ -18,6 +18,14 @@ impl TypeScriptExecutor {
     /// args: Arguments to pass to the function
     ///
     /// Note: This is a synchronous function that internally uses blocking operations
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The Deno runtime fails to initialize
+    /// - The TypeScript module file cannot be read
+    /// - The module fails to load
+    /// - The function call fails or the function does not exist
     pub fn execute_function(
         &self,
         module_path: &str,

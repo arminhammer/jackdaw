@@ -64,7 +64,7 @@ pub async fn exec_run_task(
         let workflow = registry
             .get(&workflow_key)
             .ok_or_else(|| Error::Configuration {
-                message: format!("Workflow not found in registry: {}", workflow_key),
+                message: format!("Workflow not found in registry: {workflow_key}"),
             })?
             .clone();
         drop(registry);
@@ -117,7 +117,7 @@ pub async fn exec_run_task(
                     reqwest::get(source_uri)
                         .await
                         .map_err(|e| Error::TaskExecution {
-                            message: format!("Failed to fetch script from {}: {}", source_uri, e),
+                            message: format!("Failed to fetch script from {source_uri}: {e}"),
                         })?;
 
                 if !response.status().is_success() {
@@ -131,11 +131,11 @@ pub async fn exec_run_task(
                 }
 
                 response.text().await.map_err(|e| Error::TaskExecution {
-                    message: format!("Failed to read script response from {}: {}", source_uri, e),
+                    message: format!("Failed to read script response from {source_uri}: {e}"),
                 })?
             } else {
                 return Err(Error::Configuration {
-                    message: format!("Unsupported source URI scheme: {}", source_uri),
+                    message: format!("Unsupported source URI scheme: {source_uri}"),
                 });
             }
         } else if let Some(inline_code) = script.code.as_ref() {
@@ -170,11 +170,7 @@ pub async fn exec_run_task(
     } else if let Some(shell) = run_task.run.shell.as_ref() {
         // Shell command execution
         let command = &shell.command;
-        let args = shell
-            .arguments
-            .as_ref()
-            .map(|a| a.as_slice())
-            .unwrap_or(&[]);
+        let args = shell.arguments.as_deref().unwrap_or(&[]);
 
         // Evaluate arguments against current context
         let current_data = ctx.data.read().await.clone();
@@ -204,7 +200,7 @@ pub async fn exec_run_task(
             .stderr(Stdio::piped())
             .spawn()
             .map_err(|e| Error::TaskExecution {
-                message: format!("Failed to execute command '{}': {}", command, e),
+                message: format!("Failed to execute command '{command}': {e}"),
             })?;
 
         // Stream output in real-time
@@ -213,15 +209,14 @@ pub async fn exec_run_task(
                 .stream_process_output(child)
                 .await
                 .map_err(|e| Error::TaskExecution {
-                    message: format!("Failed to stream command output: {}", e),
+                    message: format!("Failed to stream command output: {e}"),
                 })?;
 
         // Check exit status
         if exit_code != 0 {
             return Err(Error::TaskExecution {
                 message: format!(
-                    "Command '{}' failed with exit code {}\nstdout: {}\nstderr: {}",
-                    command, exit_code, stdout, stderr
+                    "Command '{command}' failed with exit code {exit_code}\nstdout: {stdout}\nstderr: {stderr}"
                 ),
             });
         }

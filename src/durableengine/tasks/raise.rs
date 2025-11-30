@@ -16,7 +16,7 @@ pub async fn exec_raise_task(
         OneOfErrorDefinitionOrReference::Error(err) => err,
         OneOfErrorDefinitionOrReference::Reference(ref_name) => {
             return Err(Error::Configuration {
-                message: format!("Error references not yet implemented: {}", ref_name),
+                message: format!("Error references not yet implemented: {ref_name}"),
             });
         }
     };
@@ -38,7 +38,7 @@ pub async fn exec_raise_task(
 
     // Add the instance field - this should be the path to the task in the workflow
     // The path format is /do/index/taskName
-    let task_path = format!("/do/0/{}", task_name);
+    let task_path = format!("/do/0/{task_name}");
     error_obj
         .as_object_mut()
         .unwrap()

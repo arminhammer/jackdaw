@@ -50,6 +50,9 @@ impl PostgresCache {
     }
 
     /// Create a new ``PostgreSQL`` cache with custom pool options
+    ///
+    /// # Errors
+    /// Returns an error if the schema initialization fails.
     pub async fn with_pool(pool: PgPool) -> Result<Self> {
         // Initialize schema - execute statements individually since PostgreSQL
         // prepared statements don't support multiple statements

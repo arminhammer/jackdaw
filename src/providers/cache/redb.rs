@@ -10,6 +10,11 @@ pub struct RedbCache {
 }
 
 impl RedbCache {
+    /// Creates a new `RedbCache` instance.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database transaction fails or the cache table cannot be opened.
     pub fn new(db: Arc<redb::Database>) -> Result<Self> {
         let write_txn = db.begin_write().map_err(|e| Error::Database {
             message: format!("Failed to begin write transaction: {e}"),

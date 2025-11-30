@@ -15,6 +15,15 @@ pub const CHECKPOINTS_TABLE: redb::TableDefinition<&str, &[u8]> =
     redb::TableDefinition::new("checkpoints");
 
 impl RedbPersistence {
+    /// Creates a new `RedbPersistence` instance with the database at the specified path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The database cannot be created at the given path
+    /// - A write transaction cannot be started
+    /// - The events or checkpoints tables cannot be opened
+    /// - The transaction cannot be committed
     pub fn new(path: &str) -> Result<Self> {
         let db = redb::Database::create(path).map_err(|e| Error::Database {
             message: format!("Failed to create database: {e}"),

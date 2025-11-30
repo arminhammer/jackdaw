@@ -78,8 +78,7 @@ impl Executor for OpenApiExecutor {
         if spec_value
             .get("swagger")
             .and_then(|v| v.as_str())
-            .map(|s| s.starts_with("2."))
-            == Some(true)
+            .is_some_and(|s| s.starts_with("2."))
         {
             println!("  Detected Swagger 2.0 spec, converting to OpenAPI 3.x");
             return execute_swagger_v2_spec(
@@ -144,11 +143,11 @@ async fn execute_swagger_v2_spec(
     for (path, path_item) in paths {
         if let Some(path_obj) = path_item.as_object() {
             for (method, operation) in path_obj {
-                if let Some(op_id) = operation.get("operationId").and_then(|v| v.as_str()) {
-                    if op_id == operation_id {
-                        found_operation = Some((path.as_str(), method.as_str(), operation));
-                        break;
-                    }
+                if let Some(op_id) = operation.get("operationId").and_then(|v| v.as_str())
+                    && op_id == operation_id
+                {
+                    found_operation = Some((path.as_str(), method.as_str(), operation));
+                    break;
                 }
             }
             if found_operation.is_some() {
@@ -197,25 +196,25 @@ async fn execute_swagger_v2_spec(
     // Process parameters
     if let Some(params_array) = operation.get("parameters").and_then(|p| p.as_array()) {
         for param in params_array {
-            if let Some(param_name) = param.get("name").and_then(|n| n.as_str()) {
-                if let Some(value) = parameters.get(param_name) {
-                    let value_str = match value {
-                        serde_json::Value::String(s) => s.clone(),
-                        serde_json::Value::Number(n) => n.to_string(),
-                        serde_json::Value::Bool(b) => b.to_string(),
-                        _ => value.to_string(),
-                    };
+            if let Some(param_name) = param.get("name").and_then(|n| n.as_str())
+                && let Some(value) = parameters.get(param_name)
+            {
+                let value_str = match value {
+                    serde_json::Value::String(s) => s.clone(),
+                    serde_json::Value::Number(n) => n.to_string(),
+                    serde_json::Value::Bool(b) => b.to_string(),
+                    _ => value.to_string(),
+                };
 
-                    let param_in = param.get("in").and_then(|i| i.as_str()).unwrap_or("");
-                    match param_in {
-                        "path" => {
-                            url = url.replace(&format!("{{{}}}", param_name), &value_str);
-                        }
-                        "query" => {
-                            query_params.push(format!("{}={}", param_name, value_str));
-                        }
-                        _ => {}
+                let param_in = param.get("in").and_then(|i| i.as_str()).unwrap_or("");
+                match param_in {
+                    "path" => {
+                        url = url.replace(&format!("{{{param_name}}}"), &value_str);
                     }
+                    "query" => {
+                        query_params.push(format!("{param_name}={value_str}"));
+                    }
+                    _ => {}
                 }
             }
         }
@@ -355,9 +354,7 @@ async fn execute_openapi_v3_spec(
         })?;
 
     // Build base URL
-    let base_url = if !spec.servers.is_empty() {
-        spec.servers.first().map(|s| s.url.as_str()).unwrap_or("")
-    } else {
+    let base_url = if spec.servers.is_empty() {
         // Extract from doc endpoint
         let url = Url::parse(doc_endpoint).map_err(|e| Error::Execution {
             message: format!("Failed to parse doc endpoint URL: {e}"),
@@ -367,6 +364,8 @@ async fn execute_openapi_v3_spec(
             scheme = url.scheme(),
             host = url.host_str().unwrap_or("")
         )
+    } else {
+        spec.servers.first().map_or("", |s| s.url.as_str())
     };
 
     // Build URL with path and query parameters
@@ -523,30 +522,30 @@ fn find_operation<'a>(
 ) -> Option<(&'a str, &'a str, &'a openapiv3::Operation)> {
     for (path, path_item_ref) in &spec.paths.paths {
         if let ReferenceOr::Item(path_item) = path_item_ref {
-            if let Some(op) = &path_item.get {
-                if op.operation_id.as_deref() == Some(operation_id) {
-                    return Some((path.as_str(), "get", op));
-                }
+            if let Some(op) = &path_item.get
+                && op.operation_id.as_deref() == Some(operation_id)
+            {
+                return Some((path.as_str(), "get", op));
             }
-            if let Some(op) = &path_item.post {
-                if op.operation_id.as_deref() == Some(operation_id) {
-                    return Some((path.as_str(), "post", op));
-                }
+            if let Some(op) = &path_item.post
+                && op.operation_id.as_deref() == Some(operation_id)
+            {
+                return Some((path.as_str(), "post", op));
             }
-            if let Some(op) = &path_item.put {
-                if op.operation_id.as_deref() == Some(operation_id) {
-                    return Some((path.as_str(), "put", op));
-                }
+            if let Some(op) = &path_item.put
+                && op.operation_id.as_deref() == Some(operation_id)
+            {
+                return Some((path.as_str(), "put", op));
             }
-            if let Some(op) = &path_item.delete {
-                if op.operation_id.as_deref() == Some(operation_id) {
-                    return Some((path.as_str(), "delete", op));
-                }
+            if let Some(op) = &path_item.delete
+                && op.operation_id.as_deref() == Some(operation_id)
+            {
+                return Some((path.as_str(), "delete", op));
             }
-            if let Some(op) = &path_item.patch {
-                if op.operation_id.as_deref() == Some(operation_id) {
-                    return Some((path.as_str(), "patch", op));
-                }
+            if let Some(op) = &path_item.patch
+                && op.operation_id.as_deref() == Some(operation_id)
+            {
+                return Some((path.as_str(), "patch", op));
             }
         }
     }

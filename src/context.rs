@@ -172,6 +172,11 @@ impl Context {
         }
     }
 
+    /// Saves the current workflow execution state as a checkpoint.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if there is a persistence error when saving the checkpoint.
     pub async fn save_checkpoint(&self, task_name: &str) -> Result<()> {
         let data = self.data.read().await;
         self.persistence
