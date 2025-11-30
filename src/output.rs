@@ -49,8 +49,8 @@ pub fn format_context(title: &str, context: &Value) {
         if obj.is_empty() {
             println!("  {}", style("(empty)").dim());
         } else {
-            for (key, value) in obj.iter() {
-                println!("  {}", style(format!("{}:", key)));
+            for (key, value) in obj {
+                println!("  {}", style(format!("{key}:")));
                 println!("{}", indent_json(value, 4));
             }
         }
@@ -84,7 +84,7 @@ pub fn format_task_start(task_name: &str, task_type: &str) {
         style("▸").cyan(),
         style("Task:").bold(),
         style(task_name).cyan(),
-        style(format!("[{}]", task_type)).dim()
+        style(format!("[{task_type}]")).dim()
     );
     println!("{}", "┄".repeat(80));
 }
@@ -94,7 +94,7 @@ pub fn format_task_skipped(task_name: &str) {
     println!(
         "  {} {}",
         style("⤼").yellow(),
-        style(format!("Skipping '{}' (already completed)", task_name)).yellow()
+        style(format!("Skipping '{task_name}' (already completed)")).yellow()
     );
 }
 
@@ -142,8 +142,8 @@ pub fn format_task_context(context: &Value) {
         if obj.is_empty() {
             println!("    {}", style("(empty)").dim());
         } else {
-            for (key, value) in obj.iter() {
-                println!("    {}", style(format!("{}:", key)).white());
+            for (key, value) in obj {
+                println!("    {}", style(format!("{key}:")).white());
                 println!("{}", colorize_json(value, 6, "white"));
             }
         }
@@ -161,8 +161,8 @@ pub fn format_task_input(input: &Value) {
         if obj.is_empty() {
             println!("    {}", style("(empty)").dim());
         } else {
-            for (key, value) in obj.iter() {
-                println!("    {}", style(format!("{}:", key)).cyan());
+            for (key, value) in obj {
+                println!("    {}", style(format!("{key}:")).cyan());
                 println!("{}", colorize_json(value, 6, "cyan"));
             }
         }
@@ -180,8 +180,8 @@ pub fn format_task_output(output: &Value) {
         if obj.is_empty() {
             println!("    {}", style("(empty)").dim());
         } else {
-            for (key, value) in obj.iter() {
-                println!("    {}", style(format!("{}:", key)).green());
+            for (key, value) in obj {
+                println!("    {}", style(format!("{key}:")).green());
                 println!("{}", colorize_json(value, 6, "green"));
             }
         }
@@ -216,7 +216,7 @@ pub fn format_task_complete(task_name: &str) {
     println!(
         "  {} {}",
         style("✓").green(),
-        style(format!("Completed '{}'", task_name)).green()
+        style(format!("Completed '{task_name}'")).green()
     );
 }
 
@@ -225,7 +225,7 @@ pub fn format_task_error(task_name: &str, error: &str) {
     println!(
         "  {} {}",
         style("✗").red().bold(),
-        style(format!("Failed '{}'", task_name)).red().bold()
+        style(format!("Failed '{task_name}'")).red().bold()
     );
     println!("    {} {}", style("Error:").red(), style(error).red());
 }
@@ -247,13 +247,8 @@ pub fn format_branch_start(branch_name: &str, task_type: &str) {
         "  {} {} {}",
         style("├─").dim(),
         style(branch_name).cyan(),
-        style(format!("[{}]", task_type)).dim()
+        style(format!("[{task_type}]")).dim()
     );
-}
-
-/// Helper: Format a value with full content (no truncation)
-fn format_value_full(value: &Value) -> String {
-    serde_json::to_string(value).unwrap_or_else(|_| "null".to_string())
 }
 
 /// Helper: Indent JSON output
@@ -262,7 +257,7 @@ fn indent_json(value: &Value, indent: usize) -> String {
     let indent_str = " ".repeat(indent);
     json_str
         .lines()
-        .map(|line| format!("{}{}", indent_str, line))
+        .map(|line| format!("{indent_str}{line}"))
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -283,7 +278,7 @@ fn colorize_json(value: &Value, indent: usize, color: &str) -> String {
                 "yellow" => style(line).yellow(),
                 _ => style(line),
             };
-            format!("{}{}", indent_str, styled)
+            format!("{indent_str}{styled}")
         })
         .collect();
     styled_lines.join("\n")
