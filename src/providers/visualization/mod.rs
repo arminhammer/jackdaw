@@ -69,6 +69,7 @@ pub enum DiagramFormat {
 }
 
 impl DiagramFormat {
+    #[must_use]
     pub fn from_extension(ext: &str) -> Option<Self> {
         match ext.to_lowercase().as_str() {
             "svg" => Some(DiagramFormat::SVG),
@@ -79,6 +80,7 @@ impl DiagramFormat {
         }
     }
 
+    #[must_use]
     pub fn extension(&self) -> &'static str {
         match self {
             DiagramFormat::SVG => "svg",
@@ -88,6 +90,7 @@ impl DiagramFormat {
         }
     }
 
+    #[must_use]
     pub fn is_terminal_output(&self) -> bool {
         matches!(self, DiagramFormat::ASCII)
     }
@@ -148,6 +151,10 @@ pub trait VisualizationProvider: Send + Sync + std::fmt::Debug {
     /// # Arguments
     /// * `workflow` - The workflow to visualize
     /// * `execution_state` - Optional execution state to highlight completed/failed tasks
+    ///
+    /// # Errors
+    /// Returns an error if source generation fails due to invalid workflow data,
+    /// unsupported features, or internal provider errors.
     fn generate_source(
         &self,
         workflow: &WorkflowDefinition,
@@ -161,6 +168,10 @@ pub trait VisualizationProvider: Send + Sync + std::fmt::Debug {
     /// * `output_path` - Path where the output file should be written (None for stdout/ASCII)
     /// * `format` - Output format (SVG, PNG, PDF, ASCII)
     /// * `execution_state` - Optional execution state to highlight completed/failed tasks
+    ///
+    /// # Errors
+    /// Returns an error if rendering fails, the output path is invalid or missing for file formats,
+    /// or if required external tools cannot be executed.
     fn render(
         &self,
         workflow: &WorkflowDefinition,
@@ -170,9 +181,15 @@ pub trait VisualizationProvider: Send + Sync + std::fmt::Debug {
     ) -> Result<()>;
 
     /// Check if the visualization tool is installed and available
+    ///
+    /// # Errors
+    /// Returns an error if probing the tool’s availability fails (e.g., I/O or spawn errors).
     fn is_available(&self) -> Result<bool>;
 
     /// Get the version of the installed visualization tool
+    ///
+    /// # Errors
+    /// Returns an error if the version cannot be determined (e.g., tool not found or command failure).
     #[allow(dead_code)]
     fn version(&self) -> Result<String>;
 }

@@ -166,7 +166,7 @@ impl std::fmt::Debug for DurableEngine {
 }
 
 impl DurableEngine {
-    /// Create a new DurableEngine instance
+    /// Create a new ``DurableEngine`` instance
     ///
     /// # Errors
     /// Currently, this function does not return errors, but returns `Result` for future extensibility
@@ -202,6 +202,8 @@ impl DurableEngine {
     ///
     /// This is a static method that can be used for validation without creating an engine instance.
     /// Returns the workflow graph and task name mappings if validation succeeds.
+    /// # Errors
+    /// Returns an error if the workflow graph cannot be built due to structural issues.
     pub fn validate_workflow_graph(
         workflow: &WorkflowDefinition,
     ) -> Result<(
@@ -308,7 +310,7 @@ impl DurableEngine {
             // Check timeout
             if start.elapsed() > timeout {
                 return Err(Error::WorkflowExecution {
-                    message: format!("Workflow execution timed out after {:?}", timeout),
+                    message: format!("Workflow execution timed out after {timeout:?}"),
                 });
             }
 
@@ -480,12 +482,11 @@ impl DurableEngine {
         let mut final_data = ctx.task_input.read().await.clone();
 
         // Apply workflow output filter if specified
-        if let Some(output_config) = &workflow.output {
-            if let Some(as_expr) = &output_config.as_
-                && let Some(expr_str) = as_expr.as_str()
-            {
-                final_data = crate::expressions::evaluate_expression(expr_str, &final_data)?;
-            }
+        if let Some(output_config) = &workflow.output
+            && let Some(as_expr) = &output_config.as_
+            && let Some(expr_str) = as_expr.as_str()
+        {
+            final_data = crate::expressions::evaluate_expression(expr_str, &final_data)?;
         }
 
         // Remove internal metadata fields from final output
@@ -518,6 +519,9 @@ impl DurableEngine {
     /// * `output_path` - Optional output path (None for stdout/ASCII)
     /// * `format` - Output format
     /// * `tool` - Visualization tool to use ("graphviz" or "d2")
+    ///
+    /// # Errors
+    /// Returns an error if the visualization tool is not available, not installed, or if rendering fails
     pub async fn visualize_execution(
         &self,
         workflow: &WorkflowDefinition,

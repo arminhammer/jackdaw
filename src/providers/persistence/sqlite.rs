@@ -14,7 +14,7 @@ impl SqlitePersistence {
     /// Create a new ``SQLite`` persistence provider
     ///
     /// # Arguments
-    /// * `database_url` - ``SQLite`` connection string (e.g., "sqlite:workflows.db" or "sqlite::memory:")
+    /// * `database_url` - ``SQLite`` connection string (e.g., "sqlite:workflows.db" or ``"sqlite::memory:"``)
     ///
     /// # Errors
     /// Returns an error if the database connection fails or schema initialization fails.
@@ -47,7 +47,13 @@ impl SqlitePersistence {
         Ok(Self { pool })
     }
 
-    /// Create a new SQLite persistence provider with custom pool options
+    /// Create a new ``SQLite`` persistence provider with custom pool options
+    ///
+    /// # Arguments
+    /// * `pool` - An initialized `SqlitePool` to use for persistence.
+    ///
+    /// # Errors
+    /// Returns an error if schema initialization fails (e.g., SQL execution errors).
     pub async fn with_pool(pool: SqlitePool) -> Result<Self> {
         // Initialize schema
         sqlx::query(include_str!("./sql/persistence_sqlite.sql"))
@@ -60,7 +66,7 @@ impl SqlitePersistence {
         Ok(Self { pool })
     }
 
-    /// Get the event type name for a WorkflowEvent
+    /// Get the event type name for a ``WorkflowEvent``
     fn get_event_type(event: &WorkflowEvent) -> &'static str {
         match event {
             WorkflowEvent::WorkflowStarted { .. } => "WorkflowStarted",

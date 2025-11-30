@@ -147,7 +147,7 @@ impl PythonExecutor {
                 })?;
 
             // Convert result back to JSON
-            python_to_json(py, result.bind(py))
+            python_to_json(result.bind(py))
         })
     }
 
@@ -243,8 +243,7 @@ impl Executor for PythonExecutor {
             let args = params
                 .get("arguments")
                 .and_then(|a| a.as_array())
-                .map(|a| a.as_slice())
-                .unwrap_or(&[]);
+                .map_or(&[] as &[serde_json::Value], Vec::as_slice);
 
             // Load (or get cached) function
             let func = self.load_function(module_path, function_name)?;
@@ -305,7 +304,7 @@ fn json_to_python(py: Python, value: &serde_json::Value) -> Result<PyObject> {
 }
 
 /// Convert Python object to JSON value
-fn python_to_json(py: Python, obj: &Bound<PyAny>) -> Result<serde_json::Value> {
+fn python_to_json(obj: &Bound<PyAny>) -> Result<serde_json::Value> {
     // Check for None
     if obj.is_none() {
         return Ok(serde_json::Value::Null);
@@ -335,7 +334,7 @@ fn python_to_json(py: Python, obj: &Bound<PyAny>) -> Result<serde_json::Value> {
     if let Ok(list) = obj.downcast::<pyo3::types::PyList>() {
         let mut result = Vec::new();
         for item in list.iter() {
-            result.push(python_to_json(py, &item)?);
+            result.push(python_to_json(&item)?);
         }
         return Ok(serde_json::Value::Array(result));
     }
@@ -347,7 +346,7 @@ fn python_to_json(py: Python, obj: &Bound<PyAny>) -> Result<serde_json::Value> {
             let key_str = key.extract::<String>().map_err(|_| Error::Execution {
                 message: "Dict keys must be strings".to_string(),
             })?;
-            result.insert(key_str, python_to_json(py, &value)?);
+            result.insert(key_str, python_to_json(&value)?);
         }
         return Ok(serde_json::Value::Object(result));
     }
