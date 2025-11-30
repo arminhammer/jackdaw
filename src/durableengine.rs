@@ -166,6 +166,10 @@ impl std::fmt::Debug for DurableEngine {
 }
 
 impl DurableEngine {
+    /// Create a new DurableEngine instance
+    ///
+    /// # Errors
+    /// Currently, this function does not return errors, but returns `Result` for future extensibility
     pub fn new(
         persistence: Arc<dyn PersistenceProvider>,
         cache: Arc<dyn CacheProvider>,
@@ -207,6 +211,11 @@ impl DurableEngine {
         graph::build_graph(workflow)
     }
 
+    #[allow(dead_code)]
+    /// Start a workflow execution with empty initial data
+    ///
+    /// # Errors
+    /// Returns an error if the workflow execution fails or if there are issues with persistence
     pub async fn start(&self, workflow: WorkflowDefinition) -> Result<String> {
         let (instance_id, _) = self
             .start_with_input(workflow, serde_json::json!({}))
@@ -250,6 +259,11 @@ impl DurableEngine {
         }
     }
 
+    #[allow(dead_code)]
+    /// Register a workflow for nested execution
+    ///
+    /// # Errors
+    /// This function currently does not return errors, but returns `Result` for future extensibility
     pub async fn register_workflow(&self, workflow: WorkflowDefinition) -> Result<()> {
         let key = format!(
             "{}/{}/{}",
@@ -261,6 +275,11 @@ impl DurableEngine {
         Ok(())
     }
 
+    #[allow(dead_code)]
+    /// Wait for a workflow instance to complete
+    ///
+    /// # Errors
+    /// Returns an error if the workflow execution fails, times out, or if there are issues retrieving events
     pub async fn wait_for_completion(
         &self,
         instance_id: &str,
@@ -279,7 +298,7 @@ impl DurableEngine {
                     }
                     WorkflowEvent::WorkflowFailed { error, .. } => {
                         return Err(Error::WorkflowExecution {
-                            message: format!("Workflow failed: {}", error),
+                            message: format!("Workflow failed: {error}"),
                         });
                     }
                     _ => {}
@@ -298,6 +317,11 @@ impl DurableEngine {
         }
     }
 
+    #[allow(dead_code)]
+    /// Resume a workflow execution from a previously saved checkpoint
+    ///
+    /// # Errors
+    /// Returns an error if the workflow execution fails or if the instance cannot be resumed
     pub async fn resume(
         &self,
         workflow: WorkflowDefinition,

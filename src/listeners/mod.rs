@@ -3,6 +3,12 @@ use serde::{Deserialize, Serialize};
 use snafu::prelude::*;
 use std::sync::Arc;
 
+pub mod grpc;
+pub mod http;
+
+// pub use grpc::GrpcListener;
+pub use http::HttpListener;
+
 #[derive(Debug, Snafu)]
 pub enum Error {
     #[snafu(display("Listener error: {message}"))]
@@ -64,12 +70,6 @@ impl From<prost_reflect::DescriptorError> for Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-pub mod grpc;
-pub mod http;
-
-pub use grpc::GrpcListener;
-pub use http::HttpListener;
-
 /// Listener trait for handling incoming events from various sources
 #[async_trait]
 pub trait Listener: Send + Sync {
@@ -121,8 +121,10 @@ pub struct ListenerRegistry {
     listeners: Vec<Arc<dyn Listener>>,
 }
 
+#[allow(dead_code)]
 impl ListenerRegistry {
     /// Create a new listener registry
+    #[must_use]
     pub fn new() -> Self {
         Self {
             listeners: Vec::new(),

@@ -95,6 +95,7 @@ impl DiagramFormat {
 
 /// Execution state for a task in the workflow
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum TaskExecutionState {
     /// Task has not been executed
     NotExecuted,
@@ -118,16 +119,19 @@ impl ExecutionState {
         Self::default()
     }
 
+    #[allow(dead_code)]
     pub fn mark_success(&mut self, task_name: &str) {
         self.task_states
             .insert(task_name.to_string(), TaskExecutionState::Success);
     }
 
+    #[allow(dead_code)]
     pub fn mark_failed(&mut self, task_name: &str) {
         self.task_states
             .insert(task_name.to_string(), TaskExecutionState::Failed);
     }
 
+    #[allow(dead_code)]
     pub fn mark_running(&mut self, task_name: &str) {
         self.task_states
             .insert(task_name.to_string(), TaskExecutionState::Running);
@@ -169,5 +173,6 @@ pub trait VisualizationProvider: Send + Sync + std::fmt::Debug {
     fn is_available(&self) -> Result<bool>;
 
     /// Get the version of the installed visualization tool
+    #[allow(dead_code)]
     fn version(&self) -> Result<String>;
 }

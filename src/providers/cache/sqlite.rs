@@ -8,11 +8,15 @@ pub struct SqliteCache {
     pool: SqlitePool,
 }
 
+#[allow(dead_code)]
 impl SqliteCache {
     /// Create a new ``SQLite`` cache provider
     ///
     /// # Arguments
     /// * `database_url` - ``SQLite`` connection string (e.g., "sqlite:cache.db" or "sqlite::memory:")
+    ///
+    /// # Errors
+    /// Returns an error if the database connection fails or if the schema initialization fails.
     ///
     /// # Example
     /// ```no_run

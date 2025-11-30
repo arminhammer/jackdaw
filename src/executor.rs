@@ -24,5 +24,6 @@ pub trait Executor: Send + Sync {
     ) -> Result<serde_json::Value>;
 
     /// Downcast to concrete type for special handling
+    #[allow(dead_code)]
     fn as_any(&self) -> &dyn std::any::Any;
 }

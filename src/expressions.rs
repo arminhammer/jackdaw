@@ -120,11 +120,20 @@ pub fn evaluate_expression_with_input(
 }
 
 /// Evaluates a jq expression on a value (used for output filtering)
+///
+/// # Errors
+///
+/// Returns an error if jq compilation/execution encounters an error.
+#[allow(dead_code)]
 pub fn evaluate_jq_expression(jq_expr: &str, value: &Value) -> Result<Value> {
     evaluate_jq(jq_expr, value)
 }
 
 /// Evaluates a jq expression with access to $input variable (used for output.as expressions)
+///
+/// # Errors
+///
+/// Returns an error if jq compilation/execution encounters an error.
 pub fn evaluate_jq_expression_with_context(
     jq_expr: &str,
     value: &Value,
@@ -210,10 +219,22 @@ pub fn strip_descriptors(value: &Value) -> Value {
     }
 }
 
+/// Evaluates a value recursively, processing any expression strings found.
+///
+/// # Errors
+///
+/// Returns an error if expression evaluation fails or if jq compilation/execution encounters an error.
+#[allow(dead_code)]
 pub fn evaluate_value(value: &Value, context: &Value) -> Result<Value> {
     evaluate_value_with_input(value, context, &Value::Null)
 }
 
+/// Evaluates a value recursively with input, processing any expression strings found.
+///
+/// # Errors
+///
+/// Returns an error if expression evaluation fails or if jq compilation/execution encounters an error.
+#[allow(dead_code)]
 pub fn evaluate_value_with_input(value: &Value, context: &Value, input: &Value) -> Result<Value> {
     match value {
         Value::String(s) => evaluate_expression_with_input(s, context, input),

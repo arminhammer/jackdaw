@@ -101,6 +101,7 @@ impl PythonExecutor {
     /// - Importing the sys module fails
     /// - Getting sys.path attribute fails
     /// - Inserting the path into sys.path fails
+    #[allow(dead_code)]
     pub fn add_python_path(&self, path: &str) -> Result<()> {
         Python::with_gil(|py| {
             let sys = PyModule::import_bound(py, "sys").map_err(|e| Error::Execution {

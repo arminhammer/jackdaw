@@ -29,6 +29,7 @@ pub struct CacheEntry {
 
 /// Pluggable cache provider for idempotent task execution
 #[async_trait]
+#[allow(dead_code)]
 pub trait CacheProvider: Send + Sync + std::fmt::Debug {
     async fn get(&self, key: &str) -> Result<Option<CacheEntry>>;
     async fn set(&self, entry: CacheEntry) -> Result<()>;

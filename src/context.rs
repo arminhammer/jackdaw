@@ -31,6 +31,7 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct Context {
     pub instance_id: String,
     pub data: Data,
@@ -55,6 +56,14 @@ pub struct Context {
 }
 
 impl Context {
+    /// Creates a new context for workflow execution.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The workflow has no tasks defined
+    /// - There is a persistence error when retrieving events or checkpoints
+    /// - Serialization of workflow descriptors fails
     pub async fn new(
         workflow: &WorkflowDefinition,
         persistence: Arc<dyn PersistenceProvider>,

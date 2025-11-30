@@ -25,6 +25,7 @@ impl RuntimeDescriptor {
     }
 
     #[must_use]
+    #[allow(dead_code)]
     pub fn with_metadata(mut self, metadata: serde_json::Map<String, Value>) -> Self {
         self.metadata = Some(metadata);
         self
@@ -89,6 +90,7 @@ impl WorkflowDescriptor {
 
 /// Task descriptor as per Serverless Workflow spec
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct TaskDescriptor {
     /// The task's name
     pub name: String,
@@ -108,6 +110,7 @@ pub struct TaskDescriptor {
 
 impl TaskDescriptor {
     #[must_use]
+    #[allow(dead_code)]
     pub fn new(
         name: String,
         reference: String,
@@ -126,6 +129,7 @@ impl TaskDescriptor {
     }
 
     #[must_use]
+    #[allow(dead_code)]
     pub fn with_output(mut self, output: Value) -> Self {
         self.output = Some(output);
         self

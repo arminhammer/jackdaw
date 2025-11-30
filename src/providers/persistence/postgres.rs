@@ -9,6 +9,7 @@ pub struct PostgresPersistence {
     pool: PgPool,
 }
 
+#[allow(dead_code)]
 impl PostgresPersistence {
     /// Create a new ``PostgreSQL`` persistence provider
     ///

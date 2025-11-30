@@ -34,6 +34,7 @@ pub struct GrpcListener {
     shutdown_tx: Arc<RwLock<Option<tokio::sync::oneshot::Sender<()>>>>,
 }
 
+#[allow(dead_code)]
 impl GrpcListener {
     /// Add a method handler to an existing listener
     /// This allows adding new methods to an already-running server

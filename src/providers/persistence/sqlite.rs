@@ -9,11 +9,15 @@ pub struct SqlitePersistence {
     pool: SqlitePool,
 }
 
+#[allow(dead_code)]
 impl SqlitePersistence {
     /// Create a new ``SQLite`` persistence provider
     ///
     /// # Arguments
     /// * `database_url` - ``SQLite`` connection string (e.g., "sqlite:workflows.db" or "sqlite::memory:")
+    ///
+    /// # Errors
+    /// Returns an error if the database connection fails or schema initialization fails.
     ///
     /// # Example
     /// ```no_run

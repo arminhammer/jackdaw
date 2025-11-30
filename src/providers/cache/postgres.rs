@@ -7,11 +7,15 @@ pub struct PostgresCache {
     pool: PgPool,
 }
 
+#[allow(dead_code)]
 impl PostgresCache {
     /// Create a new ``PostgreSQL`` cache provider
     ///
     /// # Arguments
     /// * `database_url` - ``PostgreSQL`` connection string (e.g., "<postgresql://user:pass@localhost/db>")
+    ///
+    /// # Errors
+    /// Returns an error if the database connection fails or if the schema initialization fails.
     ///
     /// # Example
     /// ```no_run

@@ -37,6 +37,7 @@ impl D2Provider {
     }
 
     #[must_use]
+    #[allow(dead_code)]
     pub fn with_theme(mut self, theme: String) -> Self {
         self.theme = Some(theme);
         self
