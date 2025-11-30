@@ -13,7 +13,7 @@ impl SqliteCache {
     /// Create a new ``SQLite`` cache provider
     ///
     /// # Arguments
-    /// * `database_url` - ``SQLite`` connection string (e.g., "sqlite:cache.db" or "sqlite::memory:")
+    /// * `database_url` - ``SQLite`` connection string (e.g., `sqlite:cache.db` or `sqlite::memory:`)
     ///
     /// # Errors
     /// Returns an error if the database connection fails or if the schema initialization fails.
@@ -46,7 +46,10 @@ impl SqliteCache {
         Ok(Self { pool })
     }
 
-    /// Create a new SQLite cache with custom pool options
+    /// Create a new ``SQLite`` cache with custom pool options
+    ///
+    /// # Errors
+    /// Returns an error if the schema initialization fails.
     pub async fn with_pool(pool: SqlitePool) -> Result<Self> {
         // Initialize schema
         sqlx::query(include_str!("./sql/cache_sqlite.sql"))

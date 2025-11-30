@@ -1,7 +1,6 @@
 use crate::ListenerWorld;
 use crate::common::parse_docstring;
 use cucumber::{given, then, when};
-use serde_json::Value;
 use serverless_workflow_core::models::workflow::WorkflowDefinition;
 
 // Helper to parse JSON/YAML request body

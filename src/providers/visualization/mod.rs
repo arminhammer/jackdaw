@@ -118,6 +118,7 @@ pub struct ExecutionState {
 }
 
 impl ExecutionState {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }

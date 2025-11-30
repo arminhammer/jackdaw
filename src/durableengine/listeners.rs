@@ -263,6 +263,7 @@ impl DurableEngine {
     }
 
     /// Extract event source and ``OpenAPI`` path from a Listen task
+    #[allow(clippy::unused_self)]
     fn extract_listen_source(
         &self,
         listen_task: &ListenTaskDefinition,
@@ -317,6 +318,7 @@ impl DurableEngine {
     /// Create a handler function from a Listen task's foreach.do block
     ///
     /// Extracts the handler module and function from the first Call task in the foreach block
+    #[allow(clippy::unused_self)]
     fn create_handler_from_listen_task(
         &self,
         listen_task: &ListenTaskDefinition,

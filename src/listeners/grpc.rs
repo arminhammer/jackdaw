@@ -38,6 +38,9 @@ pub struct GrpcListener {
 impl GrpcListener {
     /// Add a method handler to an existing listener
     /// This allows adding new methods to an already-running server
+    ///
+    /// # Errors
+    /// Returns an error if the provided `method_name` does not exist in the service descriptor.
     pub async fn add_method(
         &self,
         method_name: String,
@@ -73,6 +76,13 @@ impl GrpcListener {
 
     /// Create a new gRPC listener with multiple method handlers
     /// This allows a single server to handle multiple methods on the same port
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// - The provided proto file cannot be compiled or encoded.
+    /// - The compiled descriptors cannot be decoded into a `DescriptorPool`.
+    /// - The requested `service_name` is not found in the proto descriptors.
+    /// - Any of the provided `method_handlers` refer to a method name not present in the service.
     pub fn new_multi_method(
         bind_addr: String,
         proto_path: &str,
@@ -181,7 +191,7 @@ impl Listener for GrpcListener {
                 .await;
 
             match result {
-                Ok(_) => println!("  gRPC server on {addr} exited cleanly"),
+                Ok(()) => println!("  gRPC server on {addr} exited cleanly"),
                 Err(e) => {
                     tracing::error!("gRPC server error: {e}");
                 }
@@ -400,7 +410,7 @@ impl Service<http::Request<BoxBody>> for MultiMethodServiceWrapper {
                     "  After skipping frame header, message length: {}",
                     request_bytes.len()
                 );
-                if request_bytes.len() > 0 {
+                if !request_bytes.is_empty() {
                     println!("  Message bytes: {:?}", &request_bytes[..]);
                 }
             }

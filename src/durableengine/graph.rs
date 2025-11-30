@@ -7,7 +7,7 @@ use super::{Error, Result};
 
 /// Build an execution graph from a workflow definition
 ///
-/// Returns a tuple of (graph, task_name_to_node_index_map)
+/// Returns a tuple of (graph, ``task_name_to_node_index_map``)
 pub(super) fn build_graph(
     workflow: &WorkflowDefinition,
 ) -> Result<(

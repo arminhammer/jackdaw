@@ -11,7 +11,7 @@ pub struct HttpListener {
 
     /// Route handlers: path -> handler function
     /// For multi-route servers, this contains all handlers
-    /// Using RwLock to allow adding routes dynamically
+    /// Using ``RwLock`` to allow adding routes dynamically
     route_handlers: Arc<
         RwLock<
             std::collections::HashMap<
@@ -50,6 +50,9 @@ impl HttpListener {
 
     /// Create a new HTTP listener with multiple route handlers
     /// This allows a single server to handle multiple paths on the same port
+    ///
+    /// # Errors
+    /// This function currently does not return an error and will always succeed; it returns `Ok(Self)`.
     pub fn new_multi_route(
         bind_addr: String,
         route_handlers: std::collections::HashMap<
@@ -127,7 +130,7 @@ impl Listener for HttpListener {
 
         // Parse bind address
         let addr: std::net::SocketAddr = bind_addr.parse().map_err(|e| super::Error::Listener {
-            message: format!("Invalid bind address {}: {}", bind_addr, e),
+            message: format!("Invalid bind address {bind_addr}: {e}"),
         })?;
 
         // Spawn server in background
@@ -197,6 +200,8 @@ impl std::fmt::Debug for HttpListener {
             .field("bind_addr", &self.bind_addr)
             .field("openapi_spec", &"<OpenAPI spec>")
             .field("route_handlers", &"<function handlers>")
+            .field("shutdown_tx", &"<shutdown sender>")
+            .field("server_handle", &"<server task>")
             .finish()
     }
 }
