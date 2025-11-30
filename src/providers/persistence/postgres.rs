@@ -9,10 +9,10 @@ pub struct PostgresPersistence {
 }
 
 impl PostgresPersistence {
-    /// Create a new PostgreSQL persistence provider
+    /// Create a new ``PostgreSQL`` persistence provider
     ///
     /// # Arguments
-    /// * `database_url` - PostgreSQL connection string (e.g., "postgresql://user:pass@localhost/db")
+    /// * `database_url` - ``PostgreSQL`` connection string (e.g., "postgresql://user:pass@localhost/db")
     ///
     /// # Example
     /// ```no_run
@@ -28,7 +28,7 @@ impl PostgresPersistence {
             .connect(database_url)
             .await
             .map_err(|e| Error::Database {
-                message: format!("Failed to connect to PostgreSQL: {}", e),
+                message: format!("Failed to connect to PostgreSQL: {e}"),
             })?;
 
         // Initialize schema - execute statements individually since PostgreSQL
@@ -39,14 +39,14 @@ impl PostgresPersistence {
                 .execute(&pool)
                 .await
                 .map_err(|e| Error::Database {
-                    message: format!("Failed to execute schema statement: {}", e),
+                    message: format!("Failed to execute schema statement: {e}"),
                 })?;
         }
 
         Ok(Self { pool })
     }
 
-    /// Create a new PostgreSQL persistence provider with custom pool options
+    /// Create a new ``PostgreSQL`` persistence provider with custom pool options
     pub async fn with_pool(pool: PgPool) -> Result<Self> {
         // Initialize schema - execute statements individually since PostgreSQL
         // prepared statements don't support multiple statements
@@ -56,14 +56,14 @@ impl PostgresPersistence {
                 .execute(&pool)
                 .await
                 .map_err(|e| Error::Database {
-                    message: format!("Failed to execute schema statement: {}", e),
+                    message: format!("Failed to execute schema statement: {e}"),
                 })?;
         }
 
         Ok(Self { pool })
     }
 
-    /// Get the event type name for a WorkflowEvent
+    /// Get the event type name for a ``WorkflowEvent``
     fn get_event_type(event: &WorkflowEvent) -> &'static str {
         match event {
             WorkflowEvent::WorkflowStarted { .. } => "WorkflowStarted",
@@ -92,7 +92,7 @@ impl PersistenceProvider for PostgresPersistence {
         .bind(&instance_id)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| Error::Database { message: format!("Failed to get sequence number: {}", e) })?;
+        .map_err(|e| Error::Database { message: format!("Failed to get sequence number: {e}") })?;
 
         sqlx::query(
             "INSERT INTO workflow_events (instance_id, event_type, event_data, timestamp, sequence_number) VALUES ($1, $2, $3, $4, $5)"
@@ -100,11 +100,11 @@ impl PersistenceProvider for PostgresPersistence {
         .bind(&instance_id)
         .bind(event_type)
         .bind(&event_data)
-        .bind(&timestamp)
+        .bind(timestamp)
         .bind(sequence_number)
         .execute(&self.pool)
         .await
-        .map_err(|e| Error::Database { message: format!("Failed to save event: {}", e) })?;
+        .map_err(|e| Error::Database { message: format!("Failed to save event: {e}") })?;
 
         Ok(())
     }
@@ -116,7 +116,7 @@ impl PersistenceProvider for PostgresPersistence {
         .bind(instance_id)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| Error::Database { message: format!("Failed to get events: {}", e) })?;
+        .map_err(|e| Error::Database { message: format!("Failed to get events: {e}") })?;
 
         let mut events = Vec::new();
         for (event_data,) in rows {
@@ -150,7 +150,7 @@ impl PersistenceProvider for PostgresPersistence {
         .execute(&self.pool)
         .await
         .map_err(|e| Error::Database {
-            message: format!("Failed to save checkpoint: {}", e),
+            message: format!("Failed to save checkpoint: {e}"),
         })?;
 
         Ok(())
@@ -163,7 +163,7 @@ impl PersistenceProvider for PostgresPersistence {
         .bind(instance_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| Error::Database { message: format!("Failed to get checkpoint: {}", e) })?;
+        .map_err(|e| Error::Database { message: format!("Failed to get checkpoint: {e}") })?;
 
         match result {
             Some((instance_id, current_task, data, timestamp)) => Ok(Some(WorkflowCheckpoint {

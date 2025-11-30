@@ -1,7 +1,6 @@
 use crate::context::Context;
 use crate::executor::{Error, Executor, Result};
 use async_trait::async_trait;
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 
 pub struct RestExecutor(pub reqwest::Client);
 
@@ -69,10 +68,10 @@ impl Executor for RestExecutor {
         }
 
         // Add body for POST/PUT requests
-        if method == "post" || method == "put" || method == "patch" {
-            if let Some(body) = params.get("body") {
-                request_builder = request_builder.json(body);
-            }
+        if (method == "post" || method == "put" || method == "patch")
+            && let Some(body) = params.get("body")
+        {
+            request_builder = request_builder.json(body);
         }
 
         // Send the request
@@ -98,7 +97,7 @@ impl Executor for RestExecutor {
                     return Err(Error::Execution {
                         message: serde_json::to_string(&error_obj).map_err(|e| {
                             Error::Execution {
-                                message: format!("Failed to serialize error: {}", e),
+                                message: format!("Failed to serialize error: {e}"),
                             }
                         })?,
                     });
@@ -106,7 +105,7 @@ impl Executor for RestExecutor {
 
                 // Get response body
                 let body_text = response.text().await.map_err(|e| Error::Execution {
-                    message: format!("Failed to read response body: {}", e),
+                    message: format!("Failed to read response body: {e}"),
                 })?;
 
                 // Try to parse as JSON if content-type is application/json
@@ -158,7 +157,7 @@ impl Executor for RestExecutor {
 
                 Err(Error::Execution {
                     message: serde_json::to_string(&error_obj).map_err(|e| Error::Execution {
-                        message: format!("Failed to serialize error: {}", e),
+                        message: format!("Failed to serialize error: {e}"),
                     })?,
                 })
             }
@@ -186,7 +185,7 @@ async fn apply_authentication(
                 &ctx.initial_input,
             )
             .map_err(|e| Error::Execution {
-                message: format!("Failed to evaluate username expression: {}", e),
+                message: format!("Failed to evaluate username expression: {e}"),
             })?;
             evaluated.as_str().unwrap_or("").to_string()
         } else {
@@ -204,7 +203,7 @@ async fn apply_authentication(
                 &ctx.initial_input,
             )
             .map_err(|e| Error::Execution {
-                message: format!("Failed to evaluate password expression: {}", e),
+                message: format!("Failed to evaluate password expression: {e}"),
             })?;
             evaluated.as_str().unwrap_or("").to_string()
         } else {
@@ -237,7 +236,7 @@ async fn interpolate_uri(uri: &str, ctx: &Context) -> Result<String> {
                 serde_json::Value::Bool(b) => b.to_string(),
                 _ => value.to_string(),
             };
-            result = result.replace(&format!("{{{}}}", param_name), &value_str);
+            result = result.replace(&format!("{{{param_name}}}"), &value_str);
         }
     }
 

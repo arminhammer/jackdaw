@@ -9,10 +9,10 @@ pub struct SqlitePersistence {
 }
 
 impl SqlitePersistence {
-    /// Create a new SQLite persistence provider
+    /// Create a new ``SQLite`` persistence provider
     ///
     /// # Arguments
-    /// * `database_url` - SQLite connection string (e.g., "sqlite:workflows.db" or "sqlite::memory:")
+    /// * `database_url` - ``SQLite`` connection string (e.g., "sqlite:workflows.db" or "sqlite::memory:")
     ///
     /// # Example
     /// ```no_run
@@ -28,7 +28,7 @@ impl SqlitePersistence {
             .connect(database_url)
             .await
             .map_err(|e| Error::Database {
-                message: format!("Failed to connect to SQLite: {}", e),
+                message: format!("Failed to connect to SQLite: {e}"),
             })?;
 
         // Initialize schema
@@ -36,7 +36,7 @@ impl SqlitePersistence {
             .execute(&pool)
             .await
             .map_err(|e| Error::Database {
-                message: format!("Failed to execute schema: {}", e),
+                message: format!("Failed to execute schema: {e}"),
             })?;
 
         Ok(Self { pool })
@@ -49,7 +49,7 @@ impl SqlitePersistence {
             .execute(&pool)
             .await
             .map_err(|e| Error::Database {
-                message: format!("Failed to execute schema: {}", e),
+                message: format!("Failed to execute schema: {e}"),
             })?;
 
         Ok(Self { pool })
@@ -84,7 +84,7 @@ impl PersistenceProvider for SqlitePersistence {
         .bind(&instance_id)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| Error::Database { message: format!("Failed to get sequence number: {}", e) })?;
+        .map_err(|e| Error::Database { message: format!("Failed to get sequence number: {e}") })?;
 
         sqlx::query(
             "INSERT INTO workflow_events (instance_id, event_type, event_data, timestamp, sequence_number) VALUES (?, ?, ?, ?, ?)"
@@ -96,7 +96,7 @@ impl PersistenceProvider for SqlitePersistence {
         .bind(sequence_number)
         .execute(&self.pool)
         .await
-        .map_err(|e| Error::Database { message: format!("Failed to save event: {}", e) })?;
+        .map_err(|e| Error::Database { message: format!("Failed to save event: {e}") })?;
 
         Ok(())
     }
@@ -108,7 +108,7 @@ impl PersistenceProvider for SqlitePersistence {
         .bind(instance_id)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| Error::Database { message: format!("Failed to get events: {}", e) })?;
+        .map_err(|e| Error::Database { message: format!("Failed to get events: {e}") })?;
 
         let mut events = Vec::new();
         for (event_data,) in rows {
@@ -134,7 +134,7 @@ impl PersistenceProvider for SqlitePersistence {
         .bind(&timestamp_str)
         .execute(&self.pool)
         .await
-        .map_err(|e| Error::Database { message: format!("Failed to save checkpoint: {}", e) })?;
+        .map_err(|e| Error::Database { message: format!("Failed to save checkpoint: {e}") })?;
 
         Ok(())
     }
@@ -146,7 +146,7 @@ impl PersistenceProvider for SqlitePersistence {
         .bind(instance_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| Error::Database { message: format!("Failed to get checkpoint: {}", e) })?;
+        .map_err(|e| Error::Database { message: format!("Failed to get checkpoint: {e}") })?;
 
         match result {
             Some((instance_id, current_task, data_json, timestamp_str)) => {
@@ -154,7 +154,7 @@ impl PersistenceProvider for SqlitePersistence {
                     .map_err(|e| Error::Serialization { source: e })?;
                 let timestamp = chrono::DateTime::parse_from_rfc3339(&timestamp_str)
                     .map_err(|e| Error::Database {
-                        message: format!("Failed to parse timestamp: {}", e),
+                        message: format!("Failed to parse timestamp: {e}"),
                     })?
                     .with_timezone(&chrono::Utc);
 
