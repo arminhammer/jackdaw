@@ -1,5 +1,5 @@
 use console::{Color, style};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader as AsyncBufReader};
 use tokio::process::Child;
 use tokio::sync::Mutex;
@@ -14,10 +14,8 @@ static TASK_COLORS: &[Color] = &[
     Color::Red,
 ];
 
-lazy_static::lazy_static! {
-    /// Global output lock shared across all tasks to prevent output interleaving
-    pub static ref OUTPUT_LOCK: Arc<Mutex<()>> = Arc::new(Mutex::new(()));
-}
+/// Global output lock shared across all tasks to prevent output interleaving
+pub static OUTPUT_LOCK: LazyLock<Arc<Mutex<()>>> = LazyLock::new(|| Arc::new(Mutex::new(())));
 
 /// Task output streamer that handles color-coded, labeled output
 pub struct TaskOutputStreamer {
@@ -31,6 +29,7 @@ impl TaskOutputStreamer {
     /// # Arguments
     /// * `task_name` - Name of the task
     /// * `task_index` - Index of the task (used for color selection in concurrent scenarios)
+    #[must_use]
     pub fn new(task_name: String, task_index: usize) -> Self {
         let color = TASK_COLORS[task_index % TASK_COLORS.len()];
         Self { task_name, color }
@@ -46,14 +45,14 @@ impl TaskOutputStreamer {
     pub async fn print_stdout(&self, line: &str) {
         let formatted = self.format_line("stdout", line);
         let _lock = OUTPUT_LOCK.lock().await;
-        println!("{}", formatted);
+        println!("{formatted}");
     }
 
     /// Print a single line to stderr with task label
     pub async fn print_stderr(&self, line: &str) {
         let formatted = self.format_line("stderr", line);
         let _lock = OUTPUT_LOCK.lock().await;
-        eprintln!("{}", formatted);
+        eprintln!("{formatted}");
     }
 
     /// Print multiple lines to stdout

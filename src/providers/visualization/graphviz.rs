@@ -1,6 +1,7 @@
 use serverless_workflow_core::models::task::TaskDefinition;
 use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use snafu::prelude::*;
+use std::fmt::Write as FmtWrite;
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -11,13 +12,14 @@ use super::{
     VisualizationProvider, WaitFailedSnafu, WriteStdinFailedSnafu,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct GraphvizProvider {
     /// Path to dot executable (default: "dot" from PATH)
     dot_path: String,
 }
 
 impl GraphvizProvider {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             dot_path: "dot".to_string(),
@@ -25,6 +27,7 @@ impl GraphvizProvider {
     }
 
     #[allow(dead_code)]
+    #[must_use]
     pub fn with_dot_path(mut self, path: String) -> Self {
         self.dot_path = path;
         self
@@ -35,11 +38,11 @@ impl GraphvizProvider {
         &self,
         workflow: &WorkflowDefinition,
         execution_state: Option<&ExecutionState>,
-    ) -> Result<String> {
+    ) -> String {
         let mut dot = String::new();
 
         // Graph header
-        dot.push_str(&format!("digraph \"{}\" {{\n", workflow.document.name));
+        writeln!(&mut dot, "digraph \"{}\" {{", workflow.document.name).unwrap();
         dot.push_str("  rankdir=TB;\n");
         dot.push_str("  node [shape=box, style=\"rounded,filled\", fontname=\"Helvetica\"];\n");
         dot.push_str("  edge [fontname=\"Helvetica\", fontsize=10];\n\n");
@@ -50,7 +53,7 @@ impl GraphvizProvider {
         // Collect all task names in order
         let mut task_names = Vec::new();
         for entry in &workflow.do_.entries {
-            for (name, _) in entry {
+            for name in entry.keys() {
                 task_names.push(name.clone());
             }
         }
@@ -62,21 +65,21 @@ impl GraphvizProvider {
                 let label = self.task_label(name, task);
 
                 // Override color based on execution state
-                if let Some(state) = execution_state {
-                    if let Some(task_state) = state.task_states.get(name) {
-                        color = match task_state {
-                            TaskExecutionState::Success => "#90EE90", // Green
-                            TaskExecutionState::Failed => "#FF6B6B",  // Red
-                            TaskExecutionState::Running => "#FFD700", // Gold
-                            TaskExecutionState::NotExecuted => color, // Default
-                        };
-                    }
+                if let Some(state) = execution_state
+                    && let Some(task_state) = state.task_states.get(name)
+                {
+                    color = match task_state {
+                        TaskExecutionState::Success => "#90EE90", // Green
+                        TaskExecutionState::Failed => "#FF6B6B",  // Red
+                        TaskExecutionState::Running => "#FFD700", // Gold
+                        TaskExecutionState::NotExecuted => color, // Default
+                    };
                 }
-
-                dot.push_str(&format!(
-                    "  \"{}\" [label=\"{}\", shape={}, fillcolor=\"{}\"];\n",
-                    name, label, shape, color
-                ));
+                writeln!(
+                    &mut dot,
+                    "  \"{name}\" [label=\"{label}\", shape={shape}, fillcolor=\"{color}\"];"
+                )
+                .unwrap();
             }
         }
 
@@ -108,7 +111,7 @@ impl GraphvizProvider {
         }
 
         dot.push_str("}\n");
-        Ok(dot)
+        dot
     }
 
     /// Determine node style based on task type
@@ -159,7 +162,7 @@ impl VisualizationProvider for GraphvizProvider {
         workflow: &WorkflowDefinition,
         execution_state: Option<&ExecutionState>,
     ) -> Result<String> {
-        self.workflow_to_dot(workflow, execution_state)
+        Ok(self.workflow_to_dot(workflow, execution_state))
     }
 
     fn render(
