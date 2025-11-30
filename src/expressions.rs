@@ -1,10 +1,8 @@
 use regex::Regex;
 use serde_json::Value;
 use snafu::prelude::*;
-use std::rc::Rc;
 
 use jaq_core::Ctx;
-use jaq_json::Val;
 use tracing::debug;
 
 #[derive(Debug, Snafu)]

@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct SqliteCache {
     pool: SqlitePool,
 }

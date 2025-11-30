@@ -132,36 +132,6 @@ impl ExecutionState {
         self.task_states
             .insert(task_name.to_string(), TaskExecutionState::Running);
     }
-
-    // /// Build execution state from workflow events
-    // pub fn from_events(events: &[WorkflowEvent]) -> Self {
-    //     let mut state = Self::new();
-    //     let mut last_task: Option<String> = None;
-
-    //     for event in events {
-    //         match event {
-    //             WorkflowEvent::TaskEntered { task_name, .. } => {
-    //                 last_task = Some(task_name.clone());
-    //             }
-    //             WorkflowEvent::TaskStarted { task_name, .. } => {
-    //                 state.mark_running(task_name);
-    //                 last_task = Some(task_name.clone());
-    //             }
-    //             WorkflowEvent::TaskCompleted { task_name, .. } => {
-    //                 state.mark_success(task_name);
-    //             }
-    //             WorkflowEvent::WorkflowFailed { .. } => {
-    //                 // Mark the last task as failed
-    //                 if let Some(task) = last_task.as_ref() {
-    //                     state.mark_failed(task);
-    //                 }
-    //             }
-    //             _ => {}
-    //         }
-    //     }
-
-    //     state
-    // }
 }
 
 /// Common trait for workflow visualization providers

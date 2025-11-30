@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct PostgresPersistence {
     pool: PgPool,
 }

@@ -151,7 +151,7 @@ impl DurableEngine {
         // Now create all HTTP listeners with their complete route tables
         let mut http_listeners = self.http_listeners.write().await;
 
-        for ((bind_addr, openapi_path), routes) in http_routes {
+        for ((bind_addr, _openapi_path), routes) in http_routes {
             // Build route handlers map
             let mut route_handlers = std::collections::HashMap::new();
             for (path, task_name, handler) in routes {
@@ -160,8 +160,7 @@ impl DurableEngine {
             }
 
             // Create and start the listener with all routes
-            let listener =
-                HttpListener::new_multi_route(bind_addr.clone(), &openapi_path, route_handlers)?;
+            let listener = HttpListener::new_multi_route(bind_addr.clone(), route_handlers)?;
             let listener_arc = Arc::new(listener);
             listener_arc.start().await?;
 
