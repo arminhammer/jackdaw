@@ -64,19 +64,11 @@ impl Default for RunConfig {
 }
 
 /// Configuration for the 'validate' command
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ValidateConfig {
     /// Show verbose output including all expressions checked
     #[serde(default)]
     pub verbose: bool,
-}
-
-impl Default for ValidateConfig {
-    fn default() -> Self {
-        Self {
-            verbose: false,
-        }
-    }
 }
 
 /// Configuration for the 'visualize' command

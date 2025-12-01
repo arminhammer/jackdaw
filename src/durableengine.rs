@@ -24,6 +24,7 @@ use super::cache::CacheProvider;
 
 // Submodules
 mod catalog;
+mod export;
 mod graph;
 mod listeners;
 mod tasks;
@@ -404,48 +405,7 @@ impl DurableEngine {
             *ctx.state.task_input.write().await = result.clone();
 
             // Handle export.as to update context
-            // According to spec: "defaults to the expression that returns the existing context"
-            // So if no export.as is specified, context remains unchanged
-            let export_config = match task {
-                TaskDefinition::Call(t) => t.common.export.as_ref(),
-                TaskDefinition::Do(t) => t.common.export.as_ref(),
-                TaskDefinition::Emit(t) => t.common.export.as_ref(),
-                TaskDefinition::For(t) => t.common.export.as_ref(),
-                TaskDefinition::Fork(t) => t.common.export.as_ref(),
-                TaskDefinition::Listen(t) => t.common.export.as_ref(),
-                TaskDefinition::Raise(t) => t.common.export.as_ref(),
-                TaskDefinition::Run(t) => t.common.export.as_ref(),
-                TaskDefinition::Set(t) => t.common.export.as_ref(),
-                TaskDefinition::Switch(t) => t.common.export.as_ref(),
-                TaskDefinition::Try(t) => t.common.export.as_ref(),
-                TaskDefinition::Wait(t) => t.common.export.as_ref(),
-            };
-
-            if let Some(export_def) = export_config {
-                if let Some(export_expr) = &export_def.as_
-                    && let Some(expr_str) = export_expr.as_str()
-                {
-                    // Evaluate export.as expression on the transformed task output
-                    // The result becomes the new context
-                    let new_context = crate::expressions::evaluate_expression(expr_str, &result)?;
-                    *ctx.state.data.write().await = new_context;
-                }
-            } else {
-                // No explicit export.as - apply default behavior
-                // Default: merge the transformed task output into the existing context
-                // This respects the task's output - every task produces output that should be used
-                let mut current_context = ctx.state.data.write().await;
-                if let serde_json::Value::Object(result_obj) = &result {
-                    if let Some(context_obj) = (*current_context).as_object_mut() {
-                        for (key, value) in result_obj {
-                            context_obj.insert(key.clone(), value.clone());
-                        }
-                    }
-                } else {
-                    // If result is not an object, we cannot merge - replace the context entirely
-                    *current_context = result.clone();
-                }
-            }
+            export::apply_export_to_context(task, &result, &ctx).await?;
 
             ctx.save_checkpoint(task_name).await?;
 
