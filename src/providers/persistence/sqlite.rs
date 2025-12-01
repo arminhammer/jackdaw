@@ -1,6 +1,7 @@
-use crate::persistence::{Error, PersistenceProvider, Result};
+use crate::persistence::{Error, PersistenceProvider, Result, SerializationSnafu};
 use crate::workflow::{WorkflowCheckpoint, WorkflowEvent};
 use async_trait::async_trait;
+use snafu::prelude::*;
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 
 #[derive(Debug)]
@@ -85,7 +86,7 @@ impl PersistenceProvider for SqlitePersistence {
         let instance_id = event.instance_id().to_string();
         let event_type = Self::get_event_type(&event);
         let event_data =
-            serde_json::to_string(&event).map_err(|e| Error::Serialization { source: e })?;
+            serde_json::to_string(&event).context(SerializationSnafu)?;
         let timestamp = chrono::Utc::now().to_rfc3339();
 
         // Get the next sequence number for this instance
@@ -124,7 +125,7 @@ impl PersistenceProvider for SqlitePersistence {
         let mut events = Vec::new();
         for (event_data,) in rows {
             let event: WorkflowEvent = serde_json::from_str(&event_data)
-                .map_err(|e| Error::Serialization { source: e })?;
+                .context(SerializationSnafu)?;
             events.push(event);
         }
 
@@ -133,7 +134,7 @@ impl PersistenceProvider for SqlitePersistence {
 
     async fn save_checkpoint(&self, checkpoint: WorkflowCheckpoint) -> Result<()> {
         let data_json = serde_json::to_string(&checkpoint.data)
-            .map_err(|e| Error::Serialization { source: e })?;
+            .context(SerializationSnafu)?;
         let timestamp_str = checkpoint.timestamp.to_rfc3339();
 
         sqlx::query(
@@ -162,7 +163,7 @@ impl PersistenceProvider for SqlitePersistence {
         match result {
             Some((instance_id, current_task, data_json, timestamp_str)) => {
                 let data = serde_json::from_str(&data_json)
-                    .map_err(|e| Error::Serialization { source: e })?;
+                    .context(SerializationSnafu)?;
                 let timestamp = chrono::DateTime::parse_from_rfc3339(&timestamp_str)
                     .map_err(|e| Error::Database {
                         message: format!("Failed to parse timestamp: {e}"),

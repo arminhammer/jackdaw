@@ -1,9 +1,10 @@
 use serverless_workflow_core::models::workflow::WorkflowDefinition;
+use snafu::prelude::*;
 use std::collections::HashMap;
 
 use crate::context::Context;
 
-use super::{DurableEngine, Error, Result};
+use super::{DurableEngine, Error, IoSnafu, Result};
 
 impl DurableEngine {
     /// Try to load and execute a function from a catalog
@@ -96,7 +97,7 @@ impl DurableEngine {
             let path = function_url.strip_prefix("file://").unwrap();
             tokio::fs::read_to_string(path)
                 .await
-                .map_err(|e| Error::Io { source: e })?
+                .context(IoSnafu)?
         } else {
             // HTTP(S) URL
             let response = reqwest::get(&function_url)

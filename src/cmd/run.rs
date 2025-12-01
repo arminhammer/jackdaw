@@ -161,7 +161,7 @@ fn discover_workflow_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
             }
         } else if path.is_dir() {
             // Directory - recursively find all workflow files
-            let entries = std::fs::read_dir(path).map_err(|e| Error::Io { source: e })?;
+            let entries = std::fs::read_dir(path).context(IoSnafu)?;
 
             for entry in entries {
                 let entry = entry?;

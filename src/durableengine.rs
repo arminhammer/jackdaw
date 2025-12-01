@@ -30,6 +30,7 @@ mod listeners;
 mod tasks;
 
 #[derive(Debug, Snafu)]
+#[snafu(visibility(pub))]
 pub enum Error {
     #[snafu(display("Workflow execution error: {message}"))]
     WorkflowExecution { message: String },

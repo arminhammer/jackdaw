@@ -1,4 +1,5 @@
 use chrono::Utc;
+use snafu::prelude::*;
 use std::process::Stdio;
 
 use crate::cache::{CacheEntry, compute_cache_key};
@@ -7,7 +8,7 @@ use crate::output;
 use crate::task_output::TaskOutputStreamer;
 use crate::workflow::WorkflowEvent;
 
-use super::super::{DurableEngine, Error, Result};
+use super::super::{DurableEngine, Error, IoSnafu, Result};
 
 /// Execute a Run task - runs workflows, scripts, containers, or shell commands
 pub async fn exec_run_task(
@@ -110,7 +111,7 @@ pub async fn exec_run_task(
                 let file_path = source_uri.strip_prefix("file://").unwrap();
                 tokio::fs::read_to_string(file_path)
                     .await
-                    .map_err(|e| Error::Io { source: e })?
+                    .context(IoSnafu)?
             } else if source_uri.starts_with("http://") || source_uri.starts_with("https://") {
                 // Load from HTTP(S)
                 let response =
