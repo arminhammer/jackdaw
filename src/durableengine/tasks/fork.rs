@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::context::Context;
 
@@ -15,6 +16,7 @@ pub async fn exec_fork_task(
     if fork_task.fork.compete {
         // In compete mode, use boxed futures for select_all (requires Unpin)
         let mut branch_futures = Vec::new();
+        let engine = Arc::new(engine);
 
         let mut branch_index = 0;
         for entry in &fork_task.fork.branches.entries {
@@ -23,11 +25,10 @@ pub async fn exec_fork_task(
                 let branch_task = branch_task.clone();
                 let mut ctx = ctx.clone();
                 ctx.state.task_index = Some(branch_index);
-                let engine = engine as *const DurableEngine;
+                let engine = Arc::clone(&engine);
 
                 let future = Box::pin(async move {
-                    let engine_ref = unsafe { &*engine };
-                    let result = engine_ref
+                    let result = engine
                         .exec_task(&branch_name, &branch_task, &ctx)
                         .await?;
                     Ok::<_, Error>((branch_name, result))
@@ -50,6 +51,7 @@ pub async fn exec_fork_task(
         // In normal mode, plain futures work fine with join_all
         let mut branch_futures = Vec::new();
         let mut results = HashMap::new();
+        let engine = Arc::new(engine);
 
         let mut branch_index = 0;
         for entry in &fork_task.fork.branches.entries {
@@ -58,11 +60,10 @@ pub async fn exec_fork_task(
                 let branch_task = branch_task.clone();
                 let mut ctx = ctx.clone();
                 ctx.state.task_index = Some(branch_index);
-                let engine = engine as *const DurableEngine;
+                let engine = Arc::clone(&engine);
 
                 let future = async move {
-                    let engine_ref = unsafe { &*engine };
-                    let result = engine_ref
+                    let result = engine
                         .exec_task(&branch_name, &branch_task, &ctx)
                         .await?;
                     Ok::<_, Error>((branch_name, result))
