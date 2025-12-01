@@ -22,6 +22,92 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// Handles preprocessing of jq expressions to add null-safe operations
+///
+/// This preprocessor applies transformations to make jq expressions more robust
+/// by automatically adding null-safe operators in common patterns.
+#[derive(Debug)]
+pub struct ExpressionPreprocessor {
+    /// Enable null-safe field access transformations
+    null_safe_enabled: bool,
+}
+
+impl Default for ExpressionPreprocessor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ExpressionPreprocessor {
+    /// Create a new preprocessor with null-safe transformations enabled
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            null_safe_enabled: true,
+        }
+    }
+
+    /// Preprocess a jq expression with configured transformations
+    ///
+    /// # Panics
+    ///
+    /// Panics if regex compilation fails (should not happen with hardcoded valid regex patterns).
+    #[must_use]
+    pub fn preprocess(&self, expr: &str) -> String {
+        let mut result = expr.to_string();
+
+        if self.null_safe_enabled {
+            result = self.apply_null_safe_field_access(&result);
+            result = self.apply_null_safe_array_ops(&result);
+        }
+
+        result
+    }
+
+    /// Apply null-safe transformations to nested field access patterns
+    ///
+    /// Transforms `.parent.child` into `(.parent // {}).child` to prevent
+    /// errors when parent is null/missing.
+    ///
+    /// # Panics
+    ///
+    /// Panics if regex compilation fails (should not happen with hardcoded valid regex patterns).
+    #[must_use]
+    fn apply_null_safe_field_access(&self, expr: &str) -> String {
+        // Transform: .parent.child -> (.parent // {}).child
+        // This ensures that if .parent is null/missing, we get an empty object
+        // instead of a jq error
+        let re_parent =
+            Regex::new(r"(\.[a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)").unwrap();
+        re_parent
+            .replace_all(expr, |caps: &regex::Captures| {
+                format!("({} // {}).{}", &caps[1], "{}", &caps[2])
+            })
+            .to_string()
+    }
+
+    /// Apply null-safe transformations to array addition patterns
+    ///
+    /// Transforms `(.field + [x])` into `((.field // []) + [x])` to prevent
+    /// errors when the field is null/missing.
+    ///
+    /// # Panics
+    ///
+    /// Panics if regex compilation fails (should not happen with hardcoded valid regex patterns).
+    #[must_use]
+    fn apply_null_safe_array_ops(&self, expr: &str) -> String {
+        // Transform: (.field + [...]) -> ((.field // []) + [...])
+        // This ensures that if .field is null/missing, we treat it as an empty array
+        // before appending new elements
+        let re = Regex::new(r"\((\.[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]*)*)\s*\+\s*\[")
+            .unwrap();
+        re.replace_all(expr, |caps: &regex::Captures| {
+            format!("(({} // []) + [", &caps[1])
+        })
+        .to_string()
+    }
+}
+
 /// Evaluates an expression with the given context.
 ///
 /// # Errors
@@ -50,26 +136,14 @@ pub fn evaluate_expression_with_input(
         return Ok(Value::String(expression.to_string()));
     }
 
-    let mut jq_expr = expr[2..expr.len() - 1].trim().to_string();
+    let jq_expr_raw = expr[2..expr.len() - 1].trim();
 
-    // Null-safe array operations: wrap field accesses before + with // []
-    // This handles cases like: (.processed.colors + [x]) -> (((.processed // {}).colors // []) + [x])
-    // Do this BEFORE variable binding to avoid interfering with the binding syntax
-    let re_parent = Regex::new(r"(\.[a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)").unwrap();
-    jq_expr = re_parent
-        .replace_all(&jq_expr, |caps: &regex::Captures| {
-            format!("({} // {}).{}", &caps[1], "{}", &caps[2])
-        })
-        .to_string();
-
-    // Then, wrap array additions with // []
-    let re =
-        Regex::new(r"\((\.[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\s*\+\s*\[").unwrap();
-    jq_expr = re
-        .replace_all(&jq_expr, |caps: &regex::Captures| {
-            format!("(({} // []) + [", &caps[1])
-        })
-        .to_string();
+    // Apply null-safe transformations using preprocessor
+    // This handles patterns like:
+    // - .parent.child -> (.parent // {}).child
+    // - (.field + [...]) -> ((.field // []) + [...])
+    let preprocessor = ExpressionPreprocessor::new();
+    let mut jq_expr = preprocessor.preprocess(jq_expr_raw);
 
     // Build evaluation context and bind variables
     // We need to detect which $variables are used and bind them using jaq's 'as' syntax
