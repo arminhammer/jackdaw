@@ -1,24 +1,6 @@
 use crate::context::Context;
-use serverless_workflow_core::models::output::OutputDataModelDefinition;
+use crate::task_ext::TaskDefinitionExt;
 use serverless_workflow_core::models::task::TaskDefinition;
-
-/// Extract export configuration from a task definition
-pub fn get_task_export(task: &TaskDefinition) -> Option<&OutputDataModelDefinition> {
-    match task {
-        TaskDefinition::Call(t) => t.common.export.as_ref(),
-        TaskDefinition::Do(t) => t.common.export.as_ref(),
-        TaskDefinition::Emit(t) => t.common.export.as_ref(),
-        TaskDefinition::For(t) => t.common.export.as_ref(),
-        TaskDefinition::Fork(t) => t.common.export.as_ref(),
-        TaskDefinition::Listen(t) => t.common.export.as_ref(),
-        TaskDefinition::Raise(t) => t.common.export.as_ref(),
-        TaskDefinition::Run(t) => t.common.export.as_ref(),
-        TaskDefinition::Set(t) => t.common.export.as_ref(),
-        TaskDefinition::Switch(t) => t.common.export.as_ref(),
-        TaskDefinition::Try(t) => t.common.export.as_ref(),
-        TaskDefinition::Wait(t) => t.common.export.as_ref(),
-    }
-}
 
 /// Apply export configuration to update context based on task result
 ///
@@ -34,7 +16,7 @@ pub async fn apply_export_to_context(
     result: &serde_json::Value,
     ctx: &Context,
 ) -> Result<(), crate::expressions::Error> {
-    let export_config = get_task_export(task);
+    let export_config = task.export();
 
     if let Some(export_def) = export_config
         && let Some(export_expr) = &export_def.as_

@@ -17,6 +17,7 @@ mod listeners;
 pub mod output;
 mod persistence;
 mod providers;
+mod task_ext;
 pub mod task_output;
 mod workflow;
 

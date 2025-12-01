@@ -2,6 +2,7 @@ use serverless_workflow_core::models::task::TaskDefinition;
 
 use crate::context::Context;
 use crate::output;
+use crate::task_ext::TaskDefinitionExt;
 
 use super::{DurableEngine, Result};
 
@@ -33,24 +34,8 @@ impl DurableEngine {
         task: &TaskDefinition,
         ctx: &Context,
     ) -> Result<serde_json::Value> {
-        // Determine task type for display
-        let task_type = match task {
-            TaskDefinition::Call(_) => "Call",
-            TaskDefinition::Set(_) => "Set",
-            TaskDefinition::Fork(_) => "Fork",
-            TaskDefinition::Run(_) => "Run",
-            TaskDefinition::Do(_) => "Do",
-            TaskDefinition::For(_) => "For",
-            TaskDefinition::Switch(_) => "Switch",
-            TaskDefinition::Try(_) => "Try",
-            TaskDefinition::Emit(_) => "Emit",
-            TaskDefinition::Raise(_) => "Raise",
-            TaskDefinition::Wait(_) => "Wait",
-            TaskDefinition::Listen(_) => "Listen",
-        };
-
         // Format task start
-        output::format_task_start(task_name, task_type);
+        output::format_task_start(task_name, task.type_name());
 
         // Show current context
         let current_context = ctx.state.data.read().await.clone();
@@ -103,22 +88,7 @@ impl DurableEngine {
         task: &TaskDefinition,
         ctx: &Context,
     ) -> Result<bool> {
-        // Get the common task fields to check for input.from
-        let input_config = match task {
-            TaskDefinition::Call(t) => t.common.input.as_ref(),
-            TaskDefinition::Set(t) => t.common.input.as_ref(),
-            TaskDefinition::Fork(t) => t.common.input.as_ref(),
-            TaskDefinition::Run(t) => t.common.input.as_ref(),
-            TaskDefinition::Do(t) => t.common.input.as_ref(),
-            TaskDefinition::For(t) => t.common.input.as_ref(),
-            TaskDefinition::Switch(t) => t.common.input.as_ref(),
-            TaskDefinition::Try(t) => t.common.input.as_ref(),
-            TaskDefinition::Emit(t) => t.common.input.as_ref(),
-            TaskDefinition::Raise(t) => t.common.input.as_ref(),
-            _ => None,
-        };
-
-        if let Some(input) = input_config
+        if let Some(input) = task.input()
             && let Some(from_expr) = &input.from
             && let Some(expr_str) = from_expr.as_str()
         {
