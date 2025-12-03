@@ -92,9 +92,10 @@ pub async fn exec_run_task(
             serde_json::json!({ "instance_id": instance_id })
         }
     } else if let Some(script) = run_task.run.script.as_ref() {
-        // Script execution
-        let executor = engine.executors.get("python").ok_or(Error::TaskExecution {
-            message: "No python executor found".to_string(),
+        // Script execution - select executor based on language
+        let language = script.language.to_lowercase();
+        let executor = engine.executors.get(&language).ok_or(Error::TaskExecution {
+            message: format!("No executor found for language: {}", language),
         })?;
 
         // Get script code - either inline or from external source
@@ -158,14 +159,52 @@ pub async fn exec_run_task(
             )?
         } else {
             // No arguments specified
-            serde_json::json!({})
+            serde_json::json!([])
         };
 
-        // Execute script with arguments injected as globals
-        let script_params = serde_json::json!({
+        // Get stdin if provided and evaluate it
+        let stdin = if let Some(stdin_str) = script.stdin.as_ref() {
+            let evaluated = crate::expressions::evaluate_value_with_input(
+                &serde_json::Value::String(stdin_str.clone()),
+                &current_data,
+                &ctx.metadata.initial_input,
+            )?;
+            evaluated.as_str().map(String::from)
+        } else {
+            None
+        };
+
+        // Get environment variables if provided and evaluate them
+        let environment = if let Some(env) = script.environment.as_ref() {
+            let mut evaluated_env = serde_json::Map::new();
+            for (key, value) in env {
+                let evaluated = crate::expressions::evaluate_value_with_input(
+                    &serde_json::Value::String(value.clone()),
+                    &current_data,
+                    &ctx.metadata.initial_input,
+                )?;
+                if let Some(s) = evaluated.as_str() {
+                    evaluated_env.insert(key.clone(), serde_json::Value::String(s.to_string()));
+                }
+            }
+            Some(serde_json::Value::Object(evaluated_env))
+        } else {
+            None
+        };
+
+        // Execute script with stdin, arguments, and environment
+        let mut script_params = serde_json::json!({
             "script": script_code,
             "arguments": arguments
         });
+
+        if let Some(stdin_val) = stdin {
+            script_params["stdin"] = serde_json::Value::String(stdin_val);
+        }
+
+        if let Some(env_val) = environment {
+            script_params["environment"] = env_val;
+        }
 
         executor.exec(task_name, &script_params, ctx).await?
     } else if let Some(shell) = run_task.run.shell.as_ref() {

@@ -14,7 +14,7 @@ use crate::{
     output,
     persistence::PersistenceProvider,
     providers::{
-        executors::{OpenApiExecutor, PythonExecutor, RestExecutor},
+        executors::{OpenApiExecutor, PythonExecutor, RestExecutor, TypeScriptExecutor},
         visualization::{D2Provider, ExecutionState, GraphvizProvider, VisualizationProvider},
     },
     workflow::WorkflowEvent,
@@ -190,6 +190,10 @@ impl DurableEngine {
             Box::new(OpenApiExecutor(reqwest::Client::new())),
         );
         executors.insert("python".into(), Box::new(PythonExecutor::new()));
+        executors.insert(
+            "javascript".into(),
+            Box::new(TypeScriptExecutor::new()),
+        );
         Ok(Self {
             executors,
             persistence,

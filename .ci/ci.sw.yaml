@@ -1,5 +1,5 @@
 document:
-  dsl: '1.0.0'
+  dsl: '1.0.2'
   namespace: ci
   name: jackdaw-ci
   version: '1.0.0'
@@ -18,164 +18,14 @@ do:
         script:
           language: python
           arguments:
-            runtime_name: ${ $runtime.name }
-            runtime_version: ${ $runtime.version }
-            workflow_id: ${ $workflow.id }
-            workflow_started_at: ${ $workflow.startedAt.iso8601 }
+            - ${ $workflow.id }
+            - ${ $workflow.name }
+            - Foo
+            - Bar
           code: |
-            import json
-            print(json.dumps({
-                'runtime_name': runtime_name,
-                'runtime_version': runtime_version,
-                'workflow_id': workflow_id,
-                'workflow_started_at': workflow_started_at
-            }))
-      output:
-        as: .runtime_info
-
-  # Step 1: Compute file hashes for cache invalidation
-  # Note: Uses $workflow.id to ensure this always runs (cache buster)
-  - computeHashes:
-      call: compute-hashes:1.0.0
-      with:
-        categories:
-          rust_sources:
-            patterns:
-              - 'src/**/*.rs'
-              - 'Cargo.toml'
-              - 'Cargo.lock'
-          sql_schemas:
-            patterns:
-              - 'sql/**/*.sql'
-          ci_workflows:
-            patterns:
-              - '.ci/**/*.yaml'
-              - '.ci/**/*.py'
-          all_sources:
-            patterns:
-              - 'src/**/*.rs'
-              - 'Cargo.toml'
-              - 'Cargo.lock'
-              - 'sql/**/*.sql'
-        workflow_id: ${ $workflow.id }
-      output:
-        as: .
-
-  # Step 2: Run all CI tasks in parallel (with caching)
-  - runCITasks:
-      fork:
-        compete: false
-        branches:
-          # Lint check - format
-          - formatCheck:
-              run:
-                shell:
-                  command: cargo
-                  arguments:
-                    - fmt
-                    - --check
-              input:
-                from: "${ {hash: .computeHashes.rust_sources} }"
-
-          # # Lint check - clippy
-          # - clippyCheck:
-          #     run:
-          #       shell:
-          #         command: cargo
-          #         arguments:
-          #           - clippy
-          #           - --
-          #           - -D
-          #           - warnings
-          #     input:
-          #       from:
-          #         hash: ${ .hashes.results.rust_sources.hash }
-
-          # Unit tests
-          - unitTests:
-              run:
-                shell:
-                  command: cargo
-                  arguments:
-                    - test
-              input:
-                from:
-                  hash: ${ .hashes.results.rust_sources.hash }
-
-          # # CTK conformance tests
-          # - ctkTests:
-          #     run:
-          #       shell:
-          #         command: cargo
-          #         arguments:
-          #           - test
-          #           - --test
-          #           - ctk_conformance
-          #     input:
-          #       from:
-          #         hash: ${ .hashes.results.rust_sources.hash }
-
-          # # Listener tests
-          # - listenerTests:
-          #     run:
-          #       shell:
-          #         command: cargo
-          #         arguments:
-          #           - test
-          #           - --test
-          #           - listener_tests
-          #     input:
-          #       from:
-          #         hash: ${ .hashes.results.rust_sources.hash }
-
-          # # Nested workflow tests
-          # - nestedWorkflowTests:
-          #     run:
-          #       shell:
-          #         command: cargo
-          #         arguments:
-          #           - test
-          #           - --test
-          #           - nested_workflow_tests
-          #     input:
-          #       from:
-          #         hash: ${ .hashes.results.rust_sources.hash }
-
-          # # Build release binary
-          # - buildRelease:
-          #     run:
-          #       shell:
-          #         command: cargo
-          #         arguments:
-          #           - build
-          #           - --release
-          #     input:
-          #       from:
-          #         hash: ${ .hashes.results.all_sources.hash }
-
-  # # Step 3: Verify build artifacts
-  # - verifyArtifacts:
-  #     call: check-artifacts:1.0.0
-  #     with:
-  #       binary_path: target/release/jackdaw
-
-  # # Step 4: Archive artifacts (can be used by GitHub Actions)
-  # - archiveArtifacts:
-  #     run:
-  #       shell:
-  #         command: tar
-  #         arguments:
-  #           - czf
-  #           - ci-artifacts.tar.gz
-  #           - target/release/jackdaw
-  #           - .ci/*.db
-  #     if: ${ .verify.valid }
-
-  # # Step 5: Generate CI report
-  # - generateReport:
-  #     call: generate-report:1.0.0
-  #     with:
-  #       tasks: ${ .runCITasks }
-  #       artifacts: ${ .verify }
-  #     output:
-  #       as: .ci_report
+            import sys
+            print(sys.argv)
+            print("\nrunning\n")
+            for arg in sys.argv[1:]:
+                print(f"ARG: {arg}\n")
+            print("done\n")
