@@ -87,7 +87,7 @@ pub async fn exec_call_task(
             )?;
 
             let final_params = serde_json::to_value(&merged_params)?;
-            executor.exec(task_name, &final_params, ctx).await?
+            executor.exec(task_name, &final_params, ctx, None).await?
         } else if let Some(catalog_result) = engine
             .try_load_catalog_function(function_name, &evaluated_with_params, ctx)
             .await?
@@ -103,7 +103,7 @@ pub async fn exec_call_task(
             )?;
 
             let final_params = serde_json::to_value(&evaluated_with_params)?;
-            executor.exec(task_name, &final_params, ctx).await?
+            executor.exec(task_name, &final_params, ctx, None).await?
         };
 
     let mut result = function_result;

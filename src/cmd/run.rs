@@ -219,15 +219,6 @@ async fn execute_workflow(
         .start_with_input(workflow.clone(), serde_json::json!({}))
         .await?;
 
-    if verbose {
-        println!(
-            "{} Workflow '{}' started with instance ID: {}",
-            style("✓").green(),
-            workflow.document.name,
-            instance_id
-        );
-    }
-
     if let Some(pb) = progress {
         pb.finish_with_message(format!("Completed {}", workflow_path.display()));
     }
@@ -418,11 +409,6 @@ pub async fn handle_run(workflows: Vec<PathBuf>, config: RunConfig, multi_progre
         for workflow_path in workflow_files {
             match execute_workflow(&workflow_path, engine.clone(), Some(&pb), config.verbose).await {
                 Ok((instance_id, result, workflow)) => {
-                    multi_progress.println(format!(
-                        "{} Completed: {}",
-                        style("✓").green(),
-                        style(workflow_path.display()).bold()
-                    ))?;
                     if config.verbose {
                         let filtered = filter_internal_fields(&result);
                         multi_progress.println(serde_json::to_string_pretty(&filtered)?)?;
@@ -474,12 +460,6 @@ pub async fn handle_run(workflows: Vec<PathBuf>, config: RunConfig, multi_progre
 
         pb.finish_with_message("All workflows completed");
     }
-
-    println!(
-        "\n{} {}",
-        style("✓").green().bold(),
-        style("All workflows executed successfully").bold()
-    );
 
     Ok(())
 }

@@ -94,6 +94,55 @@ pub async fn exec_run_task(
     } else if let Some(script) = run_task.run.script.as_ref() {
         // Script execution - select executor based on language
         let language = script.language.to_lowercase();
+
+        // Display script parameters instead of generic input
+        let current_data = ctx.state.data.read().await.clone();
+        let stdin_display = script.stdin.as_ref().and_then(|s| {
+            crate::expressions::evaluate_value_with_input(
+                &serde_json::Value::String(s.clone()),
+                &current_data,
+                &ctx.metadata.initial_input,
+            )
+            .ok()
+            .and_then(|v| v.as_str().map(String::from))
+        });
+
+        let arguments_display = script.arguments.as_ref().and_then(|args| {
+            crate::expressions::evaluate_value_with_input(
+                &serde_json::to_value(args).ok()?,
+                &current_data,
+                &ctx.metadata.initial_input,
+            )
+            .ok()
+        });
+
+        let environment_display = script.environment.as_ref().and_then(|env| {
+            let mut evaluated_env = serde_json::Map::new();
+            for (key, value) in env {
+                if let Ok(evaluated) = crate::expressions::evaluate_value_with_input(
+                    &serde_json::Value::String(value.clone()),
+                    &current_data,
+                    &ctx.metadata.initial_input,
+                ) {
+                    if let Some(s) = evaluated.as_str() {
+                        evaluated_env.insert(key.clone(), serde_json::Value::String(s.to_string()));
+                    }
+                }
+            }
+            if evaluated_env.is_empty() {
+                None
+            } else {
+                Some(serde_json::Value::Object(evaluated_env))
+            }
+        });
+
+        output::format_run_task_params(
+            Some(&language),
+            stdin_display.as_deref(),
+            arguments_display.as_ref(),
+            environment_display.as_ref(),
+        );
+
         let executor = engine.executors.get(&language).ok_or(Error::TaskExecution {
             message: format!("No executor found for language: {}", language),
         })?;
@@ -206,7 +255,21 @@ pub async fn exec_run_task(
             script_params["environment"] = env_val;
         }
 
-        executor.exec(task_name, &script_params, ctx).await?
+        // Create streamer for real-time output streaming (before execution)
+        let task_index = ctx.state.task_index.unwrap_or(0);
+        let streamer = TaskOutputStreamer::new(task_name.to_string(), task_index);
+
+        // Pass streamer directly to executor for real-time streaming
+        let script_result = executor.exec(task_name, &script_params, ctx, Some(streamer)).await?;
+
+        // Output has already been streamed in real-time by the executor!
+        // Mark it as streamed so we don't print it again
+        let mut result_with_marker = script_result.clone();
+        if let Some(obj) = result_with_marker.as_object_mut() {
+            obj.insert("__streamed".to_string(), serde_json::Value::Bool(true));
+        }
+
+        result_with_marker
     } else if let Some(shell) = run_task.run.shell.as_ref() {
         // Shell command execution
         let command = &shell.command;

@@ -13,6 +13,7 @@ impl Executor for OpenApiExecutor {
         task_name: &str,
         params: &serde_json::Value,
         ctx: &Context,
+        _streamer: Option<crate::task_output::TaskOutputStreamer>,
     ) -> Result<serde_json::Value> {
         // Extract document endpoint
         let doc_endpoint = params

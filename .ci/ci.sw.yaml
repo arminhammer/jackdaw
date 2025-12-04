@@ -24,8 +24,13 @@ do:
             - Bar
           code: |
             import sys
+            from time import sleep
+            print("Starting script...\n")
+            sleep(2)
             print(sys.argv)
+            sleep(5)
             print("\nrunning\n")
             for arg in sys.argv[1:]:
                 print(f"ARG: {arg}\n")
+                sleep(2)            
             print("done\n")

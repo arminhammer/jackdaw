@@ -2,12 +2,53 @@ use async_trait::async_trait;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyModule};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 
 use crate::{
     context::Context,
     executor::{Error, Executor, Result},
 };
+
+/// A Python file-like object that sends output line-by-line through a channel
+/// This enables real-time streaming from Python (sync) to Rust async tasks
+#[pyclass]
+struct StreamWriter {
+    sender: mpsc::Sender<String>,
+    buffer: Arc<Mutex<String>>,
+}
+
+#[pymethods]
+impl StreamWriter {
+    fn write(&self, s: &str) -> PyResult<usize> {
+        let len = s.len();
+        let mut buffer = self.buffer.lock().unwrap();
+        buffer.push_str(s);
+
+        // Send complete lines immediately through the channel
+        while let Some(newline_pos) = buffer.find('\n') {
+            let line = buffer[..newline_pos].to_string();
+            buffer.drain(..=newline_pos);
+            // Ignore send errors (receiver might be dropped if cancelled)
+            let _ = self.sender.send(line);
+        }
+
+        Ok(len)
+    }
+
+    fn flush(&self) -> PyResult<()> {
+        // Flush any remaining buffered content as a final line
+        let mut buffer = self.buffer.lock().unwrap();
+        if !buffer.is_empty() {
+            let _ = self.sender.send(buffer.clone());
+            buffer.clear();
+        }
+        Ok(())
+    }
+
+    fn isatty(&self) -> bool {
+        false
+    }
+}
 
 /// Python executor using pyo3 free-threaded mode for in-process execution with hot module caching
 pub struct PythonExecutor {
@@ -150,23 +191,54 @@ impl PythonExecutor {
         })
     }
 
-    /// Execute Python script using embedded interpreter with stdin, arguments (sys.argv), and environment variables
+    /// Execute Python script using embedded interpreter with TRUE real-time streaming
+    ///
+    /// Uses separate thread for Python execution and async task for streaming output
+    /// This enables real-time output even while Python is executing (no GIL blocking streaming)
     async fn exec_script(
         &self,
         script: &str,
         stdin: Option<&str>,
         arguments: Option<&[String]>,
         environment: Option<&HashMap<String, String>>,
+        streamer: Option<crate::task_output::TaskOutputStreamer>,
     ) -> Result<serde_json::Value> {
-        // Use tokio::task::spawn_blocking since pyo3 operations need to block
         let script = script.to_string();
         let stdin = stdin.map(String::from);
         let arguments = arguments.map(<[String]>::to_vec);
         let environment = environment.cloned();
 
-        tokio::task::spawn_blocking(move || {
+        // Create channels for streaming stdout and stderr from Python thread to async task
+        let (stdout_tx, stdout_rx) = mpsc::channel::<String>();
+        let (stderr_tx, stderr_rx) = mpsc::channel::<String>();
+
+        // Spawn OS thread to execute Python (not spawn_blocking, to avoid blocking executor)
+        let python_handle = std::thread::spawn(move || -> Result<i32> {
             Python::with_gil(|py| {
-                // Capture stdout and stderr
+                // Create StreamWriter instances
+                let stdout_writer = Py::new(
+                    py,
+                    StreamWriter {
+                        sender: stdout_tx,
+                        buffer: Arc::new(Mutex::new(String::new())),
+                    },
+                )
+                .map_err(|e| Error::Execution {
+                    message: format!("Failed to create stdout writer: {e}"),
+                })?;
+
+                let stderr_writer = Py::new(
+                    py,
+                    StreamWriter {
+                        sender: stderr_tx,
+                        buffer: Arc::new(Mutex::new(String::new())),
+                    },
+                )
+                .map_err(|e| Error::Execution {
+                    message: format!("Failed to create stderr writer: {e}"),
+                })?;
+
+                // Get sys and io modules
                 let sys = PyModule::import_bound(py, "sys").map_err(|e| Error::Execution {
                     message: format!("Failed to import sys module: {e}"),
                 })?;
@@ -174,27 +246,7 @@ impl PythonExecutor {
                     message: format!("Failed to import io module: {e}"),
                 })?;
 
-                // Create StringIO objects for stdout and stderr
-                let stdout_capture = io_module
-                    .getattr("StringIO")
-                    .map_err(|e| Error::Execution {
-                        message: format!("Failed to get StringIO: {e}"),
-                    })?
-                    .call0()
-                    .map_err(|e| Error::Execution {
-                        message: format!("Failed to create StringIO: {e}"),
-                    })?;
-                let stderr_capture = io_module
-                    .getattr("StringIO")
-                    .map_err(|e| Error::Execution {
-                        message: format!("Failed to get StringIO: {e}"),
-                    })?
-                    .call0()
-                    .map_err(|e| Error::Execution {
-                        message: format!("Failed to create StringIO: {e}"),
-                    })?;
-
-                // Save original stdout/stderr
+                // Save original stdout/stderr/argv
                 let orig_stdout = sys.getattr("stdout").map_err(|e| Error::Execution {
                     message: format!("Failed to get original stdout: {e}"),
                 })?;
@@ -254,64 +306,106 @@ impl PythonExecutor {
                     })?;
                 }
 
-                // Redirect stdout and stderr
-                sys.setattr("stdout", &stdout_capture)
+                // Redirect stdout and stderr to our StreamWriters
+                sys.setattr("stdout", &stdout_writer)
                     .map_err(|e| Error::Execution {
                         message: format!("Failed to redirect stdout: {e}"),
                     })?;
-                sys.setattr("stderr", &stderr_capture)
+                sys.setattr("stderr", &stderr_writer)
                     .map_err(|e| Error::Execution {
                         message: format!("Failed to redirect stderr: {e}"),
                     })?;
 
-                // Execute the script
+                // Execute the script - output will stream to channels in real-time!
                 let result = py.run_bound(&script, None, None);
+
+                // Flush any remaining buffered output
+                let _ = stdout_writer.call_method0(py, "flush");
+                let _ = stderr_writer.call_method0(py, "flush");
 
                 // Restore original stdout/stderr/argv
                 let _ = sys.setattr("stdout", orig_stdout);
                 let _ = sys.setattr("stderr", orig_stderr);
                 let _ = sys.setattr("argv", orig_argv);
 
-                // Get captured output
-                let stdout_str = stdout_capture
-                    .call_method0("getvalue")
-                    .map_err(|e| Error::Execution {
-                        message: format!("Failed to get stdout value: {e}"),
-                    })?
-                    .extract::<String>()
-                    .map_err(|e| Error::Execution {
-                        message: format!("Failed to extract stdout string: {e}"),
-                    })?;
-
-                let stderr_str = stderr_capture
-                    .call_method0("getvalue")
-                    .map_err(|e| Error::Execution {
-                        message: format!("Failed to get stderr value: {e}"),
-                    })?
-                    .extract::<String>()
-                    .map_err(|e| Error::Execution {
-                        message: format!("Failed to extract stderr string: {e}"),
-                    })?;
-
                 // Check if script execution failed
                 if let Err(e) = result {
                     return Err(Error::Execution {
-                        message: format!("Python script failed: {e}\nStderr: {stderr_str}"),
+                        message: format!("Python script failed: {e}"),
                     });
                 }
 
-                // Return stdout and stderr
-                Ok(serde_json::json!({
-                    "stdout": stdout_str,
-                    "stderr": stderr_str,
-                    "exitCode": 0
-                }))
+                // Return exit code (stdout/stderr already streamed)
+                Ok(0)
             })
-        })
-        .await
-        .map_err(|e| Error::Execution {
-            message: format!("Task join error: {e}"),
-        })?
+        });
+
+        // Spawn async task to receive and stream output in real-time
+        let stdout_lines = Arc::new(Mutex::new(Vec::new()));
+        let stderr_lines = Arc::new(Mutex::new(Vec::new()));
+        let stdout_lines_clone = Arc::clone(&stdout_lines);
+        let stderr_lines_clone = Arc::clone(&stderr_lines);
+
+        let streaming_task = tokio::spawn(async move {
+            // Receive from both channels and stream output
+            let stdout_task = {
+                let stdout_lines = Arc::clone(&stdout_lines_clone);
+                let streamer = streamer.clone();
+                tokio::task::spawn_blocking(move || {
+                    while let Ok(line) = stdout_rx.recv() {
+                        if let Some(ref s) = streamer {
+                            // Stream the line in real-time
+                            tokio::task::block_in_place(|| {
+                                tokio::runtime::Handle::current().block_on(async {
+                                    s.print_stdout(&line).await;
+                                });
+                            });
+                        }
+                        stdout_lines.lock().unwrap().push(line);
+                    }
+                })
+            };
+
+            let stderr_task = {
+                let stderr_lines = stderr_lines_clone;
+                let streamer = streamer.clone();
+                tokio::task::spawn_blocking(move || {
+                    while let Ok(line) = stderr_rx.recv() {
+                        if let Some(ref s) = streamer {
+                            tokio::task::block_in_place(|| {
+                                tokio::runtime::Handle::current().block_on(async {
+                                    s.print_stderr(&line).await;
+                                });
+                            });
+                        }
+                        stderr_lines.lock().unwrap().push(line);
+                    }
+                })
+            };
+
+            let _ = tokio::join!(stdout_task, stderr_task);
+        });
+
+        // Wait for Python thread to complete
+        let exit_code = python_handle.join()
+            .map_err(|_| Error::Execution {
+                message: "Python thread panicked".to_string(),
+            })??;
+
+        // Wait for streaming to complete
+        streaming_task.await.map_err(|e| Error::Execution {
+            message: format!("Streaming task failed: {e}"),
+        })?;
+
+        // Collect final output
+        let stdout_str = stdout_lines.lock().unwrap().join("\n");
+        let stderr_str = stderr_lines.lock().unwrap().join("\n");
+
+        Ok(serde_json::json!({
+            "stdout": stdout_str,
+            "stderr": stderr_str,
+            "exitCode": exit_code
+        }))
     }
 }
 
@@ -322,6 +416,7 @@ impl Executor for PythonExecutor {
         _task_name: &str,
         params: &serde_json::Value,
         _ctx: &Context,
+        streamer: Option<crate::task_output::TaskOutputStreamer>,
     ) -> Result<serde_json::Value> {
         // Check if this is a module-based call (new style) or script-based (legacy)
         if let Some(module_path) = params.get("module").and_then(|m| m.as_str()) {
@@ -366,6 +461,7 @@ impl Executor for PythonExecutor {
                 stdin,
                 arguments.as_deref(),
                 environment.as_ref(),
+                streamer,
             )
             .await
         } else {

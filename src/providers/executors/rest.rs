@@ -11,6 +11,7 @@ impl Executor for RestExecutor {
         task_name: &str,
         params: &serde_json::Value,
         ctx: &Context,
+        _streamer: Option<crate::task_output::TaskOutputStreamer>,
     ) -> Result<serde_json::Value> {
         // Extract endpoint - can be a string or an object with 'uri' field
         let (endpoint_str, auth_config) = if let Some(endpoint_val) = params.get("endpoint") {

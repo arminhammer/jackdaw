@@ -273,6 +273,7 @@ impl crate::executor::Executor for TypeScriptExecutor {
         _task_name: &str,
         params: &Value,
         _ctx: &crate::context::Context,
+        _streamer: Option<crate::task_output::TaskOutputStreamer>,
     ) -> Result<Value> {
         // Check if this is a module-based call or script-based
         if let Some(module_path) = params.get("module").and_then(|m| m.as_str()) {
