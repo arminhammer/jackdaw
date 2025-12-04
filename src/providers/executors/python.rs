@@ -1,3 +1,6 @@
+// Allow unsafe operations in PyO3-generated code
+#![allow(unsafe_op_in_unsafe_fn)]
+
 use async_trait::async_trait;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyModule};

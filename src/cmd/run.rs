@@ -199,7 +199,7 @@ async fn execute_workflow(
     workflow_path: &PathBuf,
     engine: Arc<DurableEngine>,
     progress: Option<&ProgressBar>,
-    verbose: bool,
+    _verbose: bool,
 ) -> Result<(String, serde_json::Value, WorkflowDefinition)> {
     if let Some(pb) = progress {
         pb.set_message(format!("Loading {}", workflow_path.display()));

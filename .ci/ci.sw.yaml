@@ -19,18 +19,41 @@ do:
           language: python
           arguments:
             - ${ $workflow.id }
-            - ${ $workflow.name }
-            - Foo
-            - Bar
           code: |
             import sys
-            from time import sleep
-            print("Starting script...\n")
-            sleep(2)
-            print(sys.argv)
-            sleep(5)
-            print("\nrunning\n")
-            for arg in sys.argv[1:]:
-                print(f"ARG: {arg}\n")
-                sleep(2)            
-            print("done\n")
+            import json
+            workflow_id = sys.argv[1]
+            print(json.dumps({
+                'workflow_id': workflow_id
+            }))
+      output:
+        as: .workflow_id
+
+  # Step 1: Compute file hashes for cache invalidation
+  # Note: Uses $workflow.id to ensure this always runs (cache buster)
+  - computeHashes:
+      call: compute-hashes:1.0.0
+      with:
+        categories:
+          rust_sources:
+            patterns:
+              - 'src/**/*.rs'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+          sql_schemas:
+            patterns:
+              - 'sql/**/*.sql'
+          ci_workflows:
+            patterns:
+              - '.ci/**/*.yaml'
+              - '.ci/**/*.py'
+          all_sources:
+            patterns:
+              - 'src/**/*.rs'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'sql/**/*.sql'
+        workflow_id: ${ $workflow.id }
+      output:
+        as: 
+          computed_hash: ${ .all_sources }

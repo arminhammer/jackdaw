@@ -190,10 +190,7 @@ impl DurableEngine {
             Box::new(OpenApiExecutor(reqwest::Client::new())),
         );
         executors.insert("python".into(), Box::new(PythonExecutor::new()));
-        executors.insert(
-            "javascript".into(),
-            Box::new(TypeScriptExecutor::new()),
-        );
+        executors.insert("javascript".into(), Box::new(TypeScriptExecutor::new()));
         Ok(Self {
             executors,
             persistence,
@@ -382,7 +379,8 @@ impl DurableEngine {
                 break;
             }
 
-            ctx.services.persistence
+            ctx.services
+                .persistence
                 .save_event(WorkflowEvent::TaskEntered {
                     instance_id: ctx.metadata.instance_id.clone(),
                     task_name: task_name.clone(),
@@ -394,9 +392,9 @@ impl DurableEngine {
 
             // Format task output
             output::format_task_output(&result);
-            output::format_task_complete(task_name);
 
-            ctx.services.persistence
+            ctx.services
+                .persistence
                 .save_event(WorkflowEvent::TaskCompleted {
                     instance_id: ctx.metadata.instance_id.clone(),
                     task_name: task_name.clone(),
@@ -460,7 +458,8 @@ impl DurableEngine {
             obj.remove("__runtime");
         }
 
-        ctx.services.persistence
+        ctx.services
+            .persistence
             .save_event(WorkflowEvent::WorkflowCompleted {
                 instance_id: ctx.metadata.instance_id.clone(),
                 final_data: final_data.clone(),
