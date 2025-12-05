@@ -9,6 +9,9 @@ pub trait TaskDefinitionExt {
     /// Get the export configuration for this task
     fn export(&self) -> Option<&OutputDataModelDefinition>;
 
+    /// Get the output configuration for this task
+    fn output(&self) -> Option<&OutputDataModelDefinition>;
+
     /// Get the input configuration for this task
     fn input(&self) -> Option<&InputDataModelDefinition>;
 
@@ -31,6 +34,23 @@ impl TaskDefinitionExt for TaskDefinition {
             TaskDefinition::Switch(t) => t.common.export.as_ref(),
             TaskDefinition::Try(t) => t.common.export.as_ref(),
             TaskDefinition::Wait(t) => t.common.export.as_ref(),
+        }
+    }
+
+    fn output(&self) -> Option<&OutputDataModelDefinition> {
+        match self {
+            TaskDefinition::Call(t) => t.common.output.as_ref(),
+            TaskDefinition::Do(t) => t.common.output.as_ref(),
+            TaskDefinition::Emit(t) => t.common.output.as_ref(),
+            TaskDefinition::For(t) => t.common.output.as_ref(),
+            TaskDefinition::Fork(t) => t.common.output.as_ref(),
+            TaskDefinition::Listen(t) => t.common.output.as_ref(),
+            TaskDefinition::Raise(t) => t.common.output.as_ref(),
+            TaskDefinition::Run(t) => t.common.output.as_ref(),
+            TaskDefinition::Set(t) => t.common.output.as_ref(),
+            TaskDefinition::Switch(t) => t.common.output.as_ref(),
+            TaskDefinition::Try(t) => t.common.output.as_ref(),
+            TaskDefinition::Wait(t) => t.common.output.as_ref(),
         }
     }
 

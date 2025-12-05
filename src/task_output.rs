@@ -44,14 +44,16 @@ impl TaskOutputStreamer {
     /// Print a single line to stdout with task label
     pub async fn print_stdout(&self, line: &str) {
         let formatted = self.format_line("stdout", line);
-        let _lock = OUTPUT_LOCK.lock().await;
+        // Don't use OUTPUT_LOCK - it can cause deadlocks with concurrent tasks
+        // Let output interleave naturally (it's line-buffered anyway)
         println!("{formatted}");
     }
 
     /// Print a single line to stderr with task label
     pub async fn print_stderr(&self, line: &str) {
         let formatted = self.format_line("stderr", line);
-        let _lock = OUTPUT_LOCK.lock().await;
+        // Don't use OUTPUT_LOCK - it can cause deadlocks with concurrent tasks
+        // Let output interleave naturally (it's line-buffered anyway)
         eprintln!("{formatted}");
     }
 

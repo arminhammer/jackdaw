@@ -12,25 +12,7 @@ use:
         uri: file://./.ci/catalog
 
 do:
-  # Step 0: Log runtime and workflow info (test descriptors)
-  - logRuntimeInfo:
-      run:
-        script:
-          language: python
-          arguments:
-            - ${ $workflow.id }
-          code: |
-            import sys
-            import json
-            workflow_id = sys.argv[1]
-            print(json.dumps({
-                'workflow_id': workflow_id
-            }))
-      output:
-        as: .workflow_id
-
   # Step 1: Compute file hashes for cache invalidation
-  # Note: Uses $workflow.id to ensure this always runs (cache buster)
   - computeHashes:
       call: compute-hashes:1.0.0
       with:
@@ -53,7 +35,120 @@ do:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'sql/**/*.sql'
-        workflow_id: ${ $workflow.id }
+        workflow_id: "ci-run"
       output:
-        as: 
-          computed_hash: ${ .all_sources }
+        as:
+          computed_hash: ${ .stdout }
+
+  # Step 2: Run all CI tasks in parallel (with caching)
+  - runCITasks:
+      fork:
+        compete: false
+        branches:
+          # Lint check - format
+          - formatCheck:
+              input:
+                from: .computed_hash
+              run:
+                shell:
+                  command: cargo
+                  arguments:
+                    - fmt
+                    - --check
+
+          # Lint check - clippy
+          - clippyCheck:
+              input:
+                from: .computed_hash
+              run:
+                shell:
+                  command: cargo
+                  arguments:
+                    - clippy
+                    - --
+                    - -D
+                    - warnings
+
+  #         # Unit tests
+  #         - unitTests:
+  #             input:
+  #               from: "{ rust_sources_hash: .rust_sources }"
+  #             run:
+  #               shell:
+  #                 command: cargo
+  #                 arguments:
+  #                   - test
+
+  #         # CTK conformance tests
+  #         - ctkTests:
+  #             input:
+  #               from: "{ rust_sources_hash: .rust_sources }"
+  #             run:
+  #               shell:
+  #                 command: cargo
+  #                 arguments:
+  #                   - test
+  #                   - --test
+  #                   - ctk_conformance
+
+  #         # Listener tests
+  #         - listenerTests:
+  #             input:
+  #               from: "{ rust_sources_hash: .rust_sources }"
+  #             run:
+  #               shell:
+  #                 command: cargo
+  #                 arguments:
+  #                   - test
+  #                   - --test
+  #                   - listener_tests
+
+  #         # Nested workflow tests
+  #         - nestedWorkflowTests:
+  #             input:
+  #               from: "{ rust_sources_hash: .rust_sources }"
+  #             run:
+  #               shell:
+  #                 command: cargo
+  #                 arguments:
+  #                   - test
+  #                   - --test
+  #                   - nested_workflow_tests
+
+  #         # Build release binary
+  #         - buildRelease:
+  #             input:
+  #               from: "{ all_sources_hash: .all_sources }"
+  #             run:
+  #               shell:
+  #                 command: cargo
+  #                 arguments:
+  #                   - build
+  #                   - --release
+
+  # # Step 3: Verify build artifacts
+  # - verifyArtifacts:
+  #     call: check-artifacts:1.0.0
+  #     with:
+  #       binary_path: target/release/jackdaw
+
+  # # Step 4: Archive artifacts (can be used by GitHub Actions)
+  # - archiveArtifacts:
+  #     run:
+  #       shell:
+  #         command: tar
+  #         arguments:
+  #           - czf
+  #           - ci-artifacts.tar.gz
+  #           - target/release/jackdaw
+  #           - .ci/*.db
+  #     if: ${ .verifyArtifacts.valid }
+
+  # # Step 5: Generate CI report
+  # - generateReport:
+  #     call: generate-report:1.0.0
+  #     with:
+  #       tasks: ${ .runCITasks }
+  #       artifacts: ${ .verifyArtifacts }
+  #     output:
+  #       as: .ci_report

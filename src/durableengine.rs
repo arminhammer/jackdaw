@@ -17,6 +17,7 @@ use crate::{
         executors::{OpenApiExecutor, PythonExecutor, RestExecutor, TypeScriptExecutor},
         visualization::{D2Provider, ExecutionState, GraphvizProvider, VisualizationProvider},
     },
+    task_ext::TaskDefinitionExt,
     workflow::WorkflowEvent,
 };
 
@@ -388,7 +389,28 @@ impl DurableEngine {
                 })
                 .await?;
 
-            let result = self.exec_task(task_name, task, &ctx).await?;
+            let mut result = self.exec_task(task_name, task, &ctx).await?;
+
+            // Apply output.as transformation if specified
+            if let Some(output_config) = task.output() {
+                if let Some(as_value) = &output_config.as_ {
+                    // Handle both string (expression) and object (field mapping) forms
+                    if let Some(expr_str) = as_value.as_str() {
+                        // String form: runtime expression
+                        result = crate::expressions::evaluate_expression(expr_str, &result)?;
+                    } else if let Some(as_obj) = as_value.as_object() {
+                        // Object form: map fields with expressions
+                        let mut transformed = serde_json::Map::new();
+                        for (key, value) in as_obj {
+                            if let Some(expr_str) = value.as_str() {
+                                let evaluated = crate::expressions::evaluate_expression(expr_str, &result)?;
+                                transformed.insert(key.clone(), evaluated);
+                            }
+                        }
+                        result = serde_json::Value::Object(transformed);
+                    }
+                }
+            }
 
             // Format task output
             output::format_task_output(&result);

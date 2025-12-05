@@ -234,47 +234,18 @@ pub fn format_run_task_params(
 
 /// Format task output
 pub fn format_task_output(output: &Value) {
+    // Skip output block entirely for streamed script/shell output
+    // (it was already printed in real-time during execution)
+    if output.get("__streamed").and_then(serde_json::Value::as_bool).unwrap_or(false) {
+        return;
+    }
+
     println!("  {}", style("Output").green());
     println!("  {}", "·".repeat(78));
 
     let filtered = filter_internal_fields(output);
 
-    // For streamed output, show stdout/stderr based on exit code
-    if output.get("__streamed").and_then(serde_json::Value::as_bool).unwrap_or(false) {
-        if let Some(obj) = filtered.as_object() {
-            let exit_code = obj.get("exitCode").and_then(serde_json::Value::as_i64).unwrap_or(0);
-
-            if exit_code == 0 {
-                // Success: Only show stdout value (no stderr, no exitCode)
-                if let Some(stdout) = obj.get("stdout").and_then(serde_json::Value::as_str) {
-                    if !stdout.is_empty() {
-                        println!("    {}", style(format!("\"{stdout}\"")).green());
-                    } else {
-                        println!("    {}", style("(empty)").dim());
-                    }
-                } else {
-                    println!("    {}", style("(empty)").dim());
-                }
-            } else {
-                // Failure: Show both stdout and stderr for debugging (no exitCode)
-                if let Some(stdout) = obj.get("stdout").and_then(serde_json::Value::as_str) {
-                    if !stdout.is_empty() {
-                        println!("    {}", style("stdout:").green());
-                        println!("      {}", style(format!("\"{stdout}\"")).green());
-                    }
-                }
-                if let Some(stderr) = obj.get("stderr").and_then(serde_json::Value::as_str) {
-                    if !stderr.is_empty() {
-                        println!("    {}", style("stderr:").green());
-                        println!("      {}", style(format!("\"{stderr}\"")).green());
-                    }
-                }
-            }
-        }
-        return;
-    }
-
-    // For non-streamed output, show full structure
+    // Show full structure for non-streamed output
     if let Some(obj) = filtered.as_object() {
         if obj.is_empty() {
             println!("    {}", style("(empty)").dim());

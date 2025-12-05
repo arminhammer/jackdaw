@@ -355,13 +355,13 @@ impl PythonExecutor {
                 let stdout_lines = Arc::clone(&stdout_lines_clone);
                 let streamer = streamer.clone();
                 tokio::task::spawn_blocking(move || {
+                    let handle = tokio::runtime::Handle::current();
                     while let Ok(line) = stdout_rx.recv() {
                         if let Some(ref s) = streamer {
                             // Stream the line in real-time
-                            tokio::task::block_in_place(|| {
-                                tokio::runtime::Handle::current().block_on(async {
-                                    s.print_stdout(&line).await;
-                                });
+                            // We're already in spawn_blocking, just use block_on directly
+                            handle.block_on(async {
+                                s.print_stdout(&line).await;
                             });
                         }
                         stdout_lines.lock().unwrap().push(line);
@@ -373,12 +373,13 @@ impl PythonExecutor {
                 let stderr_lines = stderr_lines_clone;
                 let streamer = streamer.clone();
                 tokio::task::spawn_blocking(move || {
+                    let handle = tokio::runtime::Handle::current();
                     while let Ok(line) = stderr_rx.recv() {
                         if let Some(ref s) = streamer {
-                            tokio::task::block_in_place(|| {
-                                tokio::runtime::Handle::current().block_on(async {
-                                    s.print_stderr(&line).await;
-                                });
+                            // Stream the line in real-time
+                            // We're already in spawn_blocking, just use block_on directly
+                            handle.block_on(async {
+                                s.print_stderr(&line).await;
                             });
                         }
                         stderr_lines.lock().unwrap().push(line);

@@ -318,17 +318,17 @@ pub async fn exec_run_task(
         // Check exit status
         if exit_code != 0 {
             return Err(Error::TaskExecution {
-                message: format!(
-                    "Command '{command}' failed with exit code {exit_code}\nstdout: {stdout}\nstderr: {stderr}"
-                ),
+                message: format!("Command '{command}' failed with exit code {exit_code}"),
             });
         }
 
         // Return stdout and stderr as result
+        // Mark as streamed so output formatting skips printing it again
         serde_json::json!({
             "stdout": stdout,
             "stderr": stderr,
-            "exit_code": exit_code
+            "exitCode": exit_code,
+            "__streamed": true
         })
     } else {
         // Other run types (container, etc.) not yet implemented
