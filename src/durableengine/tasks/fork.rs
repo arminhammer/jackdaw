@@ -28,9 +28,7 @@ pub async fn exec_fork_task(
                 let engine = Arc::clone(&engine);
 
                 let future = Box::pin(async move {
-                    let result = engine
-                        .exec_task(&branch_name, &branch_task, &ctx)
-                        .await?;
+                    let result = engine.exec_task(&branch_name, &branch_task, &ctx).await?;
                     Ok::<_, Error>((branch_name, result))
                 });
                 branch_futures.push(future);
@@ -63,9 +61,7 @@ pub async fn exec_fork_task(
                 let engine = Arc::clone(&engine);
 
                 let future = async move {
-                    let result = engine
-                        .exec_task(&branch_name, &branch_task, &ctx)
-                        .await?;
+                    let result = engine.exec_task(&branch_name, &branch_task, &ctx).await?;
                     Ok::<_, Error>((branch_name, result))
                 };
                 branch_futures.push(future);

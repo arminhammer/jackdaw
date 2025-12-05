@@ -79,10 +79,8 @@ impl CacheProvider for SqliteCache {
 
         match result {
             Some((key, inputs_json, output_json, timestamp_str)) => {
-                let inputs = serde_json::from_str(&inputs_json)
-                    .context(SerializationSnafu)?;
-                let output = serde_json::from_str(&output_json)
-                    .context(SerializationSnafu)?;
+                let inputs = serde_json::from_str(&inputs_json).context(SerializationSnafu)?;
+                let output = serde_json::from_str(&output_json).context(SerializationSnafu)?;
                 let timestamp = chrono::DateTime::parse_from_rfc3339(&timestamp_str)
                     .map_err(|e| Error::Database {
                         message: format!("Failed to parse timestamp: {e}"),
@@ -101,10 +99,8 @@ impl CacheProvider for SqliteCache {
     }
 
     async fn set(&self, entry: CacheEntry) -> Result<()> {
-        let inputs_json =
-            serde_json::to_string(&entry.inputs).context(SerializationSnafu)?;
-        let output_json =
-            serde_json::to_string(&entry.output).context(SerializationSnafu)?;
+        let inputs_json = serde_json::to_string(&entry.inputs).context(SerializationSnafu)?;
+        let output_json = serde_json::to_string(&entry.output).context(SerializationSnafu)?;
         let timestamp_str = entry.timestamp.to_rfc3339();
 
         sqlx::query(

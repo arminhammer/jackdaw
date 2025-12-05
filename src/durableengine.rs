@@ -403,7 +403,8 @@ impl DurableEngine {
                         let mut transformed = serde_json::Map::new();
                         for (key, value) in as_obj {
                             if let Some(expr_str) = value.as_str() {
-                                let evaluated = crate::expressions::evaluate_expression(expr_str, &result)?;
+                                let evaluated =
+                                    crate::expressions::evaluate_expression(expr_str, &result)?;
                                 transformed.insert(key.clone(), evaluated);
                             }
                         }

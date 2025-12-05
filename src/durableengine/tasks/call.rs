@@ -43,7 +43,8 @@ pub async fn exec_call_task(
 
     output::format_cache_miss(task_name, &cache_key);
 
-    ctx.services.persistence
+    ctx.services
+        .persistence
         .save_event(WorkflowEvent::TaskStarted {
             instance_id: ctx.metadata.instance_id.clone(),
             task_name: task_name.to_string(),
@@ -59,7 +60,8 @@ pub async fn exec_call_task(
     // First check user-defined functions
     let function_result =
         if let Some(function_def) = ctx
-            .metadata.workflow
+            .metadata
+            .workflow
             .use_
             .as_ref()
             .and_then(|use_| use_.functions.as_ref())

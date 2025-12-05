@@ -1,8 +1,8 @@
 //! Extension trait for TaskDefinition to provide convenient helper methods
 
-use serverless_workflow_core::models::task::TaskDefinition;
 use serverless_workflow_core::models::input::InputDataModelDefinition;
 use serverless_workflow_core::models::output::OutputDataModelDefinition;
+use serverless_workflow_core::models::task::TaskDefinition;
 
 /// Extension trait providing helper methods for TaskDefinition
 pub trait TaskDefinitionExt {

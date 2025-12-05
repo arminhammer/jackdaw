@@ -202,7 +202,11 @@ pub fn format_run_task_params(
     }
 
     if let Some(stdin_val) = stdin {
-        println!("  {} {}", style("Stdin:").cyan(), style(format!("\"{}\"", stdin_val)).cyan());
+        println!(
+            "  {} {}",
+            style("Stdin:").cyan(),
+            style(format!("\"{}\"", stdin_val)).cyan()
+        );
     }
 
     if let Some(args) = arguments {
@@ -224,7 +228,11 @@ pub fn format_run_task_params(
                 println!("  {}", style("Environment:").cyan());
                 for (key, value) in obj {
                     if let Some(s) = value.as_str() {
-                        println!("    {} {}", style(format!("{}:", key)).cyan(), style(s).cyan());
+                        println!(
+                            "    {} {}",
+                            style(format!("{}:", key)).cyan(),
+                            style(s).cyan()
+                        );
                     }
                 }
             }
@@ -236,7 +244,11 @@ pub fn format_run_task_params(
 pub fn format_task_output(output: &Value) {
     // Skip output block entirely for streamed script/shell output
     // (it was already printed in real-time during execution)
-    if output.get("__streamed").and_then(serde_json::Value::as_bool).unwrap_or(false) {
+    if output
+        .get("__streamed")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
         return;
     }
 
