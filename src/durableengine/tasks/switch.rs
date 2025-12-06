@@ -10,7 +10,7 @@ pub async fn exec_switch_task(
     ctx: &Context,
 ) -> Result<serde_json::Value> {
     // Get current context data
-    let current_data = ctx.data.read().await.clone();
+    let current_data = ctx.state.data.read().await.clone();
 
     // Evaluate each case in order
     for entry in &switch_task.switch.entries {
@@ -34,16 +34,16 @@ pub async fn exec_switch_task(
             if matches {
                 // Set the next task to the matched case's 'then' target
                 if let Some(then_target) = &case_def.then {
-                    *ctx.next_task.write().await = Some(then_target.clone());
+                    *ctx.state.next_task.write().await = Some(then_target.clone());
                 }
-                return Ok(ctx.task_input.read().await.clone());
+                return Ok(ctx.state.task_input.read().await.clone());
             }
         }
     }
 
     // No cases matched - check if there's a common 'then' transition
     if let Some(then_target) = &switch_task.common.then {
-        *ctx.next_task.write().await = Some(then_target.clone());
+        *ctx.state.next_task.write().await = Some(then_target.clone());
     }
-    Ok(ctx.task_input.read().await.clone())
+    Ok(ctx.state.task_input.read().await.clone())
 }

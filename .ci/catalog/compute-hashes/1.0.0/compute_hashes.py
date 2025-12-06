@@ -59,15 +59,34 @@ def handler(request: ComputeHashesInput) -> Dict[str, str]:
 
 
 # Serverless Workflow script execution
-# Arguments are injected as global variables by the workflow runtime
+# Arguments are passed via sys.argv (after script name at index 0)
 if __name__ == '__main__':
-    # Build typed input from injected global 'categories' variable
+    import sys
+
+    # Parse arguments from sys.argv
+    # sys.argv[0] is script name, sys.argv[1] is first arg, etc.
+    if len(sys.argv) < 3:
+        print(f"Error: Expected 2 arguments, got {len(sys.argv) - 1}", file=sys.stderr)
+        print(f"sys.argv: {sys.argv}", file=sys.stderr)
+        sys.exit(1)
+
+    # Arguments are JSON-serialized when passed through sys.argv
+    categories = json.loads(sys.argv[1])
+    workflow_id = sys.argv[2]
+
+    print(f"Computing hashes for workflow ID: {workflow_id}", file=sys.stderr)
+    print(f"Categories: {json.dumps(categories)}", file=sys.stderr)
+
+    # Build typed input
     input_data: ComputeHashesInput = {
-        'categories': categories  # type: ignore - injected by workflow runtime
+        'categories': categories,
+        'workflow_id': workflow_id
     }
 
     # Execute strongly-typed handler
     output = handler(input_data)
 
-    # Output result as JSON for workflow consumption
-    print(json.dumps(output))
+    # Return just the all_sources hash as the output
+    # (all hashes are logged to stderr for debugging)
+    print(json.dumps({"all_sources_hash": output.get("all_sources", "")}), file=sys.stderr)
+    print(output.get("all_sources", output.get("all_sources", "")))

@@ -1,4 +1,5 @@
 use chrono::Utc;
+use snafu::prelude::*;
 use std::process::Stdio;
 
 use crate::cache::{CacheEntry, compute_cache_key};
@@ -7,7 +8,7 @@ use crate::output;
 use crate::task_output::TaskOutputStreamer;
 use crate::workflow::WorkflowEvent;
 
-use super::super::{DurableEngine, Error, Result};
+use super::super::{DurableEngine, Error, IoSnafu, Result};
 
 /// Execute a Run task - runs workflows, scripts, containers, or shell commands
 pub async fn exec_run_task(
@@ -18,10 +19,13 @@ pub async fn exec_run_task(
 ) -> Result<serde_json::Value> {
     // Evaluate expressions in the run task definition before computing cache key
     // This ensures that expressions like $workflow.id are evaluated to their actual values
-    let current_data = ctx.data.read().await.clone();
+    let current_data = ctx.state.data.read().await.clone();
     let params = serde_json::to_value(&run_task.run)?;
-    let evaluated_params =
-        crate::expressions::evaluate_value_with_input(&params, &current_data, &ctx.initial_input)?;
+    let evaluated_params = crate::expressions::evaluate_value_with_input(
+        &params,
+        &current_data,
+        &ctx.metadata.initial_input,
+    )?;
 
     // Combine task definition with current context data for cache key
     // This ensures that input.from filters affect caching
@@ -32,7 +36,7 @@ pub async fn exec_run_task(
 
     let cache_key = compute_cache_key(task_name, &cache_params);
 
-    if let Some(cached) = ctx.cache.get(&cache_key).await? {
+    if let Some(cached) = ctx.services.cache.get(&cache_key).await? {
         output::format_cache_hit(
             task_name,
             &cache_key,
@@ -43,9 +47,10 @@ pub async fn exec_run_task(
 
     output::format_cache_miss(task_name, &cache_key);
 
-    ctx.persistence
+    ctx.services
+        .persistence
         .save_event(WorkflowEvent::TaskStarted {
-            instance_id: ctx.instance_id.clone(),
+            instance_id: ctx.metadata.instance_id.clone(),
             task_name: task_name.to_string(),
             timestamp: Utc::now(),
         })
@@ -73,11 +78,11 @@ pub async fn exec_run_task(
         let input_data = workflow_def.input.clone().unwrap_or(serde_json::json!({}));
 
         // Evaluate input data against current context
-        let current_data = ctx.data.read().await.clone();
+        let current_data = ctx.state.data.read().await.clone();
         let evaluated_input = crate::expressions::evaluate_value_with_input(
             &input_data,
             &current_data,
-            &ctx.initial_input,
+            &ctx.metadata.initial_input,
         )?;
 
         // Execute the nested workflow
@@ -91,10 +96,63 @@ pub async fn exec_run_task(
             serde_json::json!({ "instance_id": instance_id })
         }
     } else if let Some(script) = run_task.run.script.as_ref() {
-        // Script execution
-        let executor = engine.executors.get("python").ok_or(Error::TaskExecution {
-            message: "No python executor found".to_string(),
-        })?;
+        // Script execution - select executor based on language
+        let language = script.language.to_lowercase();
+
+        // Display script parameters instead of generic input
+        let current_data = ctx.state.data.read().await.clone();
+        let stdin_display = script.stdin.as_ref().and_then(|s| {
+            crate::expressions::evaluate_value_with_input(
+                &serde_json::Value::String(s.clone()),
+                &current_data,
+                &ctx.metadata.initial_input,
+            )
+            .ok()
+            .and_then(|v| v.as_str().map(String::from))
+        });
+
+        let arguments_display = script.arguments.as_ref().and_then(|args| {
+            crate::expressions::evaluate_value_with_input(
+                &serde_json::to_value(args).ok()?,
+                &current_data,
+                &ctx.metadata.initial_input,
+            )
+            .ok()
+        });
+
+        let environment_display = script.environment.as_ref().and_then(|env| {
+            let mut evaluated_env = serde_json::Map::new();
+            for (key, value) in env {
+                if let Ok(evaluated) = crate::expressions::evaluate_value_with_input(
+                    &serde_json::Value::String(value.clone()),
+                    &current_data,
+                    &ctx.metadata.initial_input,
+                ) {
+                    if let Some(s) = evaluated.as_str() {
+                        evaluated_env.insert(key.clone(), serde_json::Value::String(s.to_string()));
+                    }
+                }
+            }
+            if evaluated_env.is_empty() {
+                None
+            } else {
+                Some(serde_json::Value::Object(evaluated_env))
+            }
+        });
+
+        output::format_run_task_params(
+            Some(&language),
+            stdin_display.as_deref(),
+            arguments_display.as_ref(),
+            environment_display.as_ref(),
+        );
+
+        let executor = engine
+            .executors
+            .get(&language)
+            .ok_or(Error::TaskExecution {
+                message: format!("No executor found for language: {}", language),
+            })?;
 
         // Get script code - either inline or from external source
         let script_code = if let Some(source) = script.source.as_ref() {
@@ -110,7 +168,7 @@ pub async fn exec_run_task(
                 let file_path = source_uri.strip_prefix("file://").unwrap();
                 tokio::fs::read_to_string(file_path)
                     .await
-                    .map_err(|e| Error::Io { source: e })?
+                    .context(IoSnafu)?
             } else if source_uri.starts_with("http://") || source_uri.starts_with("https://") {
                 // Load from HTTP(S)
                 let response =
@@ -148,32 +206,86 @@ pub async fn exec_run_task(
         };
 
         // Get script arguments if provided and evaluate them against context
-        let current_data = ctx.data.read().await.clone();
+        let current_data = ctx.state.data.read().await.clone();
         let arguments = if let Some(args) = script.arguments.as_ref() {
             crate::expressions::evaluate_value_with_input(
                 &serde_json::to_value(args)?,
                 &current_data,
-                &ctx.initial_input,
+                &ctx.metadata.initial_input,
             )?
         } else {
             // No arguments specified
-            serde_json::json!({})
+            serde_json::json!([])
         };
 
-        // Execute script with arguments injected as globals
-        let script_params = serde_json::json!({
+        // Get stdin if provided and evaluate it
+        let stdin = if let Some(stdin_str) = script.stdin.as_ref() {
+            let evaluated = crate::expressions::evaluate_value_with_input(
+                &serde_json::Value::String(stdin_str.clone()),
+                &current_data,
+                &ctx.metadata.initial_input,
+            )?;
+            evaluated.as_str().map(String::from)
+        } else {
+            None
+        };
+
+        // Get environment variables if provided and evaluate them
+        let environment = if let Some(env) = script.environment.as_ref() {
+            let mut evaluated_env = serde_json::Map::new();
+            for (key, value) in env {
+                let evaluated = crate::expressions::evaluate_value_with_input(
+                    &serde_json::Value::String(value.clone()),
+                    &current_data,
+                    &ctx.metadata.initial_input,
+                )?;
+                if let Some(s) = evaluated.as_str() {
+                    evaluated_env.insert(key.clone(), serde_json::Value::String(s.to_string()));
+                }
+            }
+            Some(serde_json::Value::Object(evaluated_env))
+        } else {
+            None
+        };
+
+        // Execute script with stdin, arguments, and environment
+        let mut script_params = serde_json::json!({
             "script": script_code,
             "arguments": arguments
         });
 
-        executor.exec(task_name, &script_params, ctx).await?
+        if let Some(stdin_val) = stdin {
+            script_params["stdin"] = serde_json::Value::String(stdin_val);
+        }
+
+        if let Some(env_val) = environment {
+            script_params["environment"] = env_val;
+        }
+
+        // Create streamer for real-time output streaming (before execution)
+        let task_index = ctx.state.task_index.unwrap_or(0);
+        let streamer = TaskOutputStreamer::new(task_name.to_string(), task_index);
+
+        // Pass streamer directly to executor for real-time streaming
+        let script_result = executor
+            .exec(task_name, &script_params, ctx, Some(streamer))
+            .await?;
+
+        // Output has already been streamed in real-time by the executor!
+        // Mark it as streamed so we don't print it again
+        let mut result_with_marker = script_result.clone();
+        if let Some(obj) = result_with_marker.as_object_mut() {
+            obj.insert("__streamed".to_string(), serde_json::Value::Bool(true));
+        }
+
+        result_with_marker
     } else if let Some(shell) = run_task.run.shell.as_ref() {
         // Shell command execution
         let command = &shell.command;
         let args = shell.arguments.as_deref().unwrap_or(&[]);
 
         // Evaluate arguments against current context
-        let current_data = ctx.data.read().await.clone();
+        let current_data = ctx.state.data.read().await.clone();
         let evaluated_args: Vec<String> = args
             .iter()
             .map(|arg| {
@@ -181,7 +293,7 @@ pub async fn exec_run_task(
                 match crate::expressions::evaluate_value_with_input(
                     &serde_json::Value::String(arg.clone()),
                     &current_data,
-                    &ctx.initial_input,
+                    &ctx.metadata.initial_input,
                 ) {
                     Ok(serde_json::Value::String(s)) => s,
                     _ => arg.clone(),
@@ -190,7 +302,7 @@ pub async fn exec_run_task(
             .collect();
 
         // Create streamer for color-coded output
-        let task_index = ctx.task_index.unwrap_or(0);
+        let task_index = ctx.state.task_index.unwrap_or(0);
         let streamer = TaskOutputStreamer::new(task_name.to_string(), task_index);
 
         // Execute shell command with piped stdout/stderr for streaming
@@ -238,7 +350,7 @@ pub async fn exec_run_task(
         output: result.clone(),
         timestamp: Utc::now(),
     };
-    ctx.cache.set(cache_entry).await?;
+    ctx.services.cache.set(cache_entry).await?;
 
     Ok(result)
 }

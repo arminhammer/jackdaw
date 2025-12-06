@@ -1,5 +1,4 @@
 use crate::context::Context;
-use serverless_workflow_core::models::task::TaskDefinition;
 
 use super::super::{DurableEngine, Error, Result};
 
@@ -11,7 +10,7 @@ pub async fn exec_for_task(
     ctx: &Context,
 ) -> Result<serde_json::Value> {
     // Get current context data
-    let current_data = ctx.data.read().await.clone();
+    let current_data = ctx.state.data.read().await.clone();
 
     // Evaluate the 'in' expression to get the collection to iterate over
     let collection_expr = &for_task.for_.in_;
@@ -33,7 +32,7 @@ pub async fn exec_for_task(
     // Iterate over the collection
     for (index, item) in items.iter().enumerate() {
         // Get current accumulated state (includes updates from previous iterations)
-        let accumulated_data = ctx.data.read().await.clone();
+        let accumulated_data = ctx.state.data.read().await.clone();
 
         // Inject iteration variables into the current state
         let mut iteration_data = accumulated_data;
@@ -45,7 +44,7 @@ pub async fn exec_for_task(
 
         // Update context with iteration variables
         {
-            let mut data_guard = ctx.data.write().await;
+            let mut data_guard = ctx.state.data.write().await;
             *data_guard = iteration_data;
         }
 
@@ -55,42 +54,10 @@ pub async fn exec_for_task(
                 let result = Box::pin(engine.exec_task(subtask_name, subtask, ctx)).await?;
 
                 // Update task_input for the next subtask
-                *ctx.task_input.write().await = result.clone();
-                // Handle export.as for subtasks (same logic as main execution loop)
-                let export_config = match subtask {
-                    TaskDefinition::Call(t) => t.common.export.as_ref(),
-                    TaskDefinition::Do(t) => t.common.export.as_ref(),
-                    TaskDefinition::Emit(t) => t.common.export.as_ref(),
-                    TaskDefinition::For(t) => t.common.export.as_ref(),
-                    TaskDefinition::Fork(t) => t.common.export.as_ref(),
-                    TaskDefinition::Listen(t) => t.common.export.as_ref(),
-                    TaskDefinition::Raise(t) => t.common.export.as_ref(),
-                    TaskDefinition::Run(t) => t.common.export.as_ref(),
-                    TaskDefinition::Set(t) => t.common.export.as_ref(),
-                    TaskDefinition::Switch(t) => t.common.export.as_ref(),
-                    TaskDefinition::Try(t) => t.common.export.as_ref(),
-                    TaskDefinition::Wait(t) => t.common.export.as_ref(),
-                };
+                *ctx.state.task_input.write().await = result.clone();
 
-                if let Some(export_def) = export_config {
-                    if let Some(export_expr) = &export_def.as_
-                        && let Some(expr_str) = export_expr.as_str()
-                    {
-                        let new_context =
-                            crate::expressions::evaluate_expression(expr_str, &result)?;
-                        *ctx.data.write().await = new_context;
-                    }
-                } else {
-                    // No explicit export.as - apply default behavior (merge into context)
-                    let mut current_context = ctx.data.write().await;
-                    if let serde_json::Value::Object(result_obj) = &result
-                        && let Some(context_obj) = (*current_context).as_object_mut()
-                    {
-                        for (key, value) in result_obj {
-                            context_obj.insert(key.clone(), value.clone());
-                        }
-                    }
-                }
+                // Handle export.as for subtasks (same logic as main execution loop)
+                super::super::export::apply_export_to_context(subtask, &result, ctx).await?;
 
                 last_result = result;
             }
@@ -98,7 +65,7 @@ pub async fn exec_for_task(
 
         // Remove iteration variables but keep accumulated changes
         {
-            let mut data_guard = ctx.data.write().await;
+            let mut data_guard = ctx.state.data.write().await;
             if let Some(obj) = data_guard.as_object_mut() {
                 obj.remove(item_var);
                 obj.remove(index_var);

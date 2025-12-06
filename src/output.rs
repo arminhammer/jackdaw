@@ -69,10 +69,28 @@ pub fn format_workflow_output(output: &Value) {
     println!("\n{}", "═".repeat(80));
     println!("{}", style("Workflow Completed").green().bold());
     println!("{}", "─".repeat(80));
-    println!("{}", style("Output").bold());
-    println!("{}", "┄".repeat(80));
+
     let filtered = filter_internal_fields(output);
-    println!("{}", indent_json(&filtered, 2));
+
+    // Only show output section if there's meaningful data to display
+    // Skip if it's just stdout/stderr/exitCode (which was already streamed)
+    if let Some(obj) = filtered.as_object() {
+        let is_just_script_output = obj.len() <= 3
+            && obj.contains_key("stdout")
+            && obj.contains_key("stderr")
+            && obj.contains_key("exitCode");
+
+        if !is_just_script_output && !obj.is_empty() {
+            println!("{}", style("Output").bold());
+            println!("{}", "┄".repeat(80));
+            println!("{}", indent_json(&filtered, 2));
+        }
+    } else if !filtered.is_null() {
+        println!("{}", style("Output").bold());
+        println!("{}", "┄".repeat(80));
+        println!("{}", indent_json(&filtered, 2));
+    }
+
     println!("{}", "═".repeat(80));
 }
 
@@ -172,11 +190,106 @@ pub fn format_task_input(input: &Value) {
     }
 }
 
+/// Format run task parameters (stdin, arguments, environment)
+pub fn format_run_task_params(
+    language: Option<&str>,
+    stdin: Option<&str>,
+    arguments: Option<&Value>,
+    environment: Option<&Value>,
+) {
+    if let Some(lang) = language {
+        println!("  {} {}", style("Language:").cyan(), style(lang).cyan());
+    }
+
+    if let Some(stdin_val) = stdin {
+        println!(
+            "  {} {}",
+            style("Stdin:").cyan(),
+            style(format!("\"{}\"", stdin_val)).cyan()
+        );
+    }
+
+    if let Some(args) = arguments {
+        if let Some(arr) = args.as_array() {
+            if !arr.is_empty() {
+                println!("  {}", style("Arguments:").cyan());
+                for arg in arr {
+                    if let Some(s) = arg.as_str() {
+                        println!("    {}", style(format!("- {}", s)).cyan());
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(env) = environment {
+        if let Some(obj) = env.as_object() {
+            if !obj.is_empty() {
+                println!("  {}", style("Environment:").cyan());
+                for (key, value) in obj {
+                    if let Some(s) = value.as_str() {
+                        println!(
+                            "    {} {}",
+                            style(format!("{}:", key)).cyan(),
+                            style(s).cyan()
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Format task output
 pub fn format_task_output(output: &Value) {
     println!("  {}", style("Output").green());
     println!("  {}", "·".repeat(78));
+
     let filtered = filter_internal_fields(output);
+
+    // For streamed output, show stdout/stderr based on exit code
+    if output
+        .get("__streamed")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        if let Some(obj) = filtered.as_object() {
+            let exit_code = obj
+                .get("exitCode")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(0);
+
+            if exit_code == 0 {
+                // Success: Only show stdout value (no stderr, no exitCode)
+                if let Some(stdout) = obj.get("stdout").and_then(serde_json::Value::as_str) {
+                    if !stdout.is_empty() {
+                        println!("    {}", style(format!("\"{stdout}\"")).green());
+                    } else {
+                        println!("    {}", style("(empty)").dim());
+                    }
+                } else {
+                    println!("    {}", style("(empty)").dim());
+                }
+            } else {
+                // Failure: Show both stdout and stderr for debugging (no exitCode)
+                if let Some(stdout) = obj.get("stdout").and_then(serde_json::Value::as_str) {
+                    if !stdout.is_empty() {
+                        println!("    {}", style("stdout:").green());
+                        println!("      {}", style(format!("\"{stdout}\"")).green());
+                    }
+                }
+                if let Some(stderr) = obj.get("stderr").and_then(serde_json::Value::as_str) {
+                    if !stderr.is_empty() {
+                        println!("    {}", style("stderr:").green());
+                        println!("      {}", style(format!("\"{stderr}\"")).green());
+                    }
+                }
+            }
+        }
+        return;
+    }
+
+    // For non-streamed output, show full structure
     if let Some(obj) = filtered.as_object() {
         if obj.is_empty() {
             println!("    {}", style("(empty)").dim());

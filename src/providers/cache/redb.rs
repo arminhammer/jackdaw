@@ -1,5 +1,6 @@
-use crate::cache::{CacheEntry, CacheProvider, Error, Result};
+use crate::cache::{CacheEntry, CacheProvider, Error, Result, SerializationSnafu};
 use async_trait::async_trait;
+use snafu::prelude::*;
 use std::sync::Arc;
 
 const CACHE_TABLE: redb::TableDefinition<&str, &[u8]> = redb::TableDefinition::new("cache");
@@ -50,8 +51,8 @@ impl CacheProvider for RedbCache {
             if let Some(value) = table.get(key.as_str()).map_err(|e| Error::Database {
                 message: format!("Failed to get value: {e}"),
             })? {
-                let entry: CacheEntry = serde_json::from_slice(value.value())
-                    .map_err(|e| Error::Serialization { source: e })?;
+                let entry: CacheEntry =
+                    serde_json::from_slice(value.value()).context(SerializationSnafu)?;
                 Ok(Some(entry))
             } else {
                 Ok(None)
@@ -75,8 +76,7 @@ impl CacheProvider for RedbCache {
                     .map_err(|e| Error::Database {
                         message: format!("Failed to open cache table: {e}"),
                     })?;
-                let value =
-                    serde_json::to_vec(&entry).map_err(|e| Error::Serialization { source: e })?;
+                let value = serde_json::to_vec(&entry).context(SerializationSnafu)?;
                 table
                     .insert(entry.key.as_str(), value.as_slice())
                     .map_err(|e| Error::Database {

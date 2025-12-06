@@ -1,8 +1,9 @@
 use async_trait::async_trait;
 use chrono::Utc;
+use snafu::prelude::*;
 use std::sync::Arc;
 
-use crate::persistence::{Error, PersistenceProvider, Result};
+use crate::persistence::{Error, PersistenceProvider, Result, SerializationSnafu};
 use crate::workflow::{WorkflowCheckpoint, WorkflowEvent};
 
 #[derive(Debug)]
@@ -70,8 +71,7 @@ impl PersistenceProvider for RedbPersistence {
                     event.instance_id(),
                     Utc::now().timestamp_nanos_opt().unwrap_or(0)
                 );
-                let value =
-                    serde_json::to_vec(&event).map_err(|e| Error::Serialization { source: e })?;
+                let value = serde_json::to_vec(&event).context(SerializationSnafu)?;
                 table
                     .insert(key.as_str(), value.as_slice())
                     .map_err(|e| Error::Database {
@@ -111,8 +111,8 @@ impl PersistenceProvider for RedbPersistence {
                     message: format!("Failed to read item: {e}"),
                 })?;
                 if key.value().starts_with(&prefix) {
-                    let event: WorkflowEvent = serde_json::from_slice(value.value())
-                        .map_err(|e| Error::Serialization { source: e })?;
+                    let event: WorkflowEvent =
+                        serde_json::from_slice(value.value()).context(SerializationSnafu)?;
                     events.push(event);
                 }
             }
@@ -137,8 +137,7 @@ impl PersistenceProvider for RedbPersistence {
                         .map_err(|e| Error::Database {
                             message: format!("Failed to open checkpoints table: {e}"),
                         })?;
-                let value = serde_json::to_vec(&checkpoint)
-                    .map_err(|e| Error::Serialization { source: e })?;
+                let value = serde_json::to_vec(&checkpoint).context(SerializationSnafu)?;
                 table
                     .insert(checkpoint.instance_id.as_str(), value.as_slice())
                     .map_err(|e| Error::Database {
@@ -174,8 +173,8 @@ impl PersistenceProvider for RedbPersistence {
                     message: format!("Failed to get checkpoint: {e}"),
                 })?
             {
-                let checkpoint: WorkflowCheckpoint = serde_json::from_slice(value.value())
-                    .map_err(|e| Error::Serialization { source: e })?;
+                let checkpoint: WorkflowCheckpoint =
+                    serde_json::from_slice(value.value()).context(SerializationSnafu)?;
                 Ok(Some(checkpoint))
             } else {
                 Ok(None)

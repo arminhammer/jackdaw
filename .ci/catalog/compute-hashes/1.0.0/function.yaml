@@ -29,8 +29,8 @@ do:
         script:
           language: python
           arguments:
-            categories: ${ .categories }
-            workflow_id: ${ .workflow_id }
+            - ${ .categories | tojson }
+            - ${ .workflow_id }
           source:
             endpoint:
               uri: file://./.ci/catalog/compute-hashes/1.0.0/compute_hashes.py

@@ -9,5 +9,6 @@ pub mod listeners;
 pub mod output;
 pub mod persistence;
 pub mod providers;
+pub mod task_ext;
 pub mod task_output;
 pub mod workflow;

@@ -1,4 +1,5 @@
 use crate::context::Context;
+use crate::task_output::TaskOutputStreamer;
 use async_trait::async_trait;
 use snafu::prelude::*;
 
@@ -20,6 +21,7 @@ pub trait Executor: Send + Sync {
         task_name: &str,
         params: &serde_json::Value,
         ctx: &Context,
+        streamer: Option<TaskOutputStreamer>,
     ) -> Result<serde_json::Value>;
 
     /// Downcast to concrete type for special handling

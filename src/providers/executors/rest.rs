@@ -11,6 +11,7 @@ impl Executor for RestExecutor {
         task_name: &str,
         params: &serde_json::Value,
         ctx: &Context,
+        _streamer: Option<crate::task_output::TaskOutputStreamer>,
     ) -> Result<serde_json::Value> {
         // Extract endpoint - can be a string or an object with 'uri' field
         let (endpoint_str, auth_config) = if let Some(endpoint_val) = params.get("endpoint") {
@@ -90,7 +91,7 @@ impl Executor for RestExecutor {
                         "status": status.as_u16(),
                         "title": format!("HTTP {} Error", status.as_u16()),
                         "detail": format!("{} request to {} failed with status {}", method.to_uppercase(), endpoint, status),
-                        "instance": format!("/do/0/{}/try/0/{}", ctx.current_task.read().await, task_name)
+                        "instance": format!("/do/0/{}/try/0/{}", ctx.state.current_task.read().await, task_name)
                     });
 
                     // Return error as JSON string
@@ -152,7 +153,7 @@ impl Executor for RestExecutor {
                     "status": 500,
                     "title": "Communication Error",
                     "detail": e.to_string(),
-                    "instance": format!("/do/0/{}/try/0/{}", ctx.current_task.read().await, task_name)
+                    "instance": format!("/do/0/{}/try/0/{}", ctx.state.current_task.read().await, task_name)
                 });
 
                 Err(Error::Execution {
@@ -178,11 +179,11 @@ async fn apply_authentication(
     if let Some(basic) = auth_config.get("basic") {
         let username = if let Some(username_expr) = basic.get("username") {
             // Evaluate expression
-            let current_data = ctx.data.read().await.clone();
+            let current_data = ctx.state.data.read().await.clone();
             let evaluated = crate::expressions::evaluate_value_with_input(
                 username_expr,
                 &current_data,
-                &ctx.initial_input,
+                &ctx.metadata.initial_input,
             )
             .map_err(|e| Error::Execution {
                 message: format!("Failed to evaluate username expression: {e}"),
@@ -196,11 +197,11 @@ async fn apply_authentication(
 
         let password = if let Some(password_expr) = basic.get("password") {
             // Evaluate expression
-            let current_data = ctx.data.read().await.clone();
+            let current_data = ctx.state.data.read().await.clone();
             let evaluated = crate::expressions::evaluate_value_with_input(
                 password_expr,
                 &current_data,
-                &ctx.initial_input,
+                &ctx.metadata.initial_input,
             )
             .map_err(|e| Error::Execution {
                 message: format!("Failed to evaluate password expression: {e}"),
@@ -222,7 +223,7 @@ async fn apply_authentication(
 async fn interpolate_uri(uri: &str, ctx: &Context) -> Result<String> {
     // Simple URI interpolation - replace {paramName} with values from context
     let mut result = uri.to_string();
-    let data = ctx.data.read().await;
+    let data = ctx.state.data.read().await;
 
     // Find all {paramName} patterns and replace them
     let re = regex::Regex::new(r"\{([^}]+)\}").unwrap();

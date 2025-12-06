@@ -289,16 +289,18 @@ fn extract_all_expressions(workflow: &WorkflowDefinition) -> Vec<(String, String
     // Extract from input filter
     if let Some(input) = &workflow.input
         && let Some(from) = &input.from
-            && let Some(from_str) = from.as_str() {
-                expressions.push(("input.from".to_string(), from_str.to_string()));
-            }
+        && let Some(from_str) = from.as_str()
+    {
+        expressions.push(("input.from".to_string(), from_str.to_string()));
+    }
 
     // Extract from output filter
     if let Some(output) = &workflow.output
         && let Some(as_expr) = &output.as_
-            && let Some(as_str) = as_expr.as_str() {
-                expressions.push(("output.as".to_string(), as_str.to_string()));
-            }
+        && let Some(as_str) = as_expr.as_str()
+    {
+        expressions.push(("output.as".to_string(), as_str.to_string()));
+    }
 
     // Extract from tasks - TaskDefinition is an enum, so we need to match on it
     use serverless_workflow_core::models::task::TaskDefinition;
@@ -315,12 +317,14 @@ fn extract_all_expressions(workflow: &WorkflowDefinition) -> Vec<(String, String
                         SetValue::Map(map) => {
                             for (var_name, value) in map {
                                 if let Some(val_str) = value.as_str()
-                                    && val_str.starts_with("${") && val_str.ends_with("}") {
-                                        expressions.push((
-                                            format!("task.{}.set.{}", task_name, var_name),
-                                            val_str.to_string(),
-                                        ));
-                                    }
+                                    && val_str.starts_with("${")
+                                    && val_str.ends_with("}")
+                                {
+                                    expressions.push((
+                                        format!("task.{}.set.{}", task_name, var_name),
+                                        val_str.to_string(),
+                                    ));
+                                }
                             }
                         }
                         SetValue::Expression(expr) => {
@@ -332,20 +336,20 @@ fn extract_all_expressions(workflow: &WorkflowDefinition) -> Vec<(String, String
                     // Extract common expressions
                     if let Some(input) = &set_task.common.input
                         && let Some(from) = &input.from
-                            && let Some(from_str) = from.as_str() {
-                                expressions.push((
-                                    format!("task.{}.input.from", task_name),
-                                    from_str.to_string(),
-                                ));
-                            }
+                        && let Some(from_str) = from.as_str()
+                    {
+                        expressions.push((
+                            format!("task.{}.input.from", task_name),
+                            from_str.to_string(),
+                        ));
+                    }
                     if let Some(output) = &set_task.common.output
                         && let Some(as_expr) = &output.as_
-                            && let Some(as_str) = as_expr.as_str() {
-                                expressions.push((
-                                    format!("task.{}.output.as", task_name),
-                                    as_str.to_string(),
-                                ));
-                            }
+                        && let Some(as_str) = as_expr.as_str()
+                    {
+                        expressions
+                            .push((format!("task.{}.output.as", task_name), as_str.to_string()));
+                    }
                     if let Some(if_cond) = &set_task.common.if_ {
                         expressions.push((format!("task.{}.if", task_name), if_cond.clone()));
                     }
@@ -365,20 +369,20 @@ fn extract_all_expressions(workflow: &WorkflowDefinition) -> Vec<(String, String
                     // Extract common expressions
                     if let Some(input) = &call_task.common.input
                         && let Some(from) = &input.from
-                            && let Some(from_str) = from.as_str() {
-                                expressions.push((
-                                    format!("task.{}.input.from", task_name),
-                                    from_str.to_string(),
-                                ));
-                            }
+                        && let Some(from_str) = from.as_str()
+                    {
+                        expressions.push((
+                            format!("task.{}.input.from", task_name),
+                            from_str.to_string(),
+                        ));
+                    }
                     if let Some(output) = &call_task.common.output
                         && let Some(as_expr) = &output.as_
-                            && let Some(as_str) = as_expr.as_str() {
-                                expressions.push((
-                                    format!("task.{}.output.as", task_name),
-                                    as_str.to_string(),
-                                ));
-                            }
+                        && let Some(as_str) = as_expr.as_str()
+                    {
+                        expressions
+                            .push((format!("task.{}.output.as", task_name), as_str.to_string()));
+                    }
                     if let Some(if_cond) = &call_task.common.if_ {
                         expressions.push((format!("task.{}.if", task_name), if_cond.clone()));
                     }
@@ -391,20 +395,20 @@ fn extract_all_expressions(workflow: &WorkflowDefinition) -> Vec<(String, String
                     // Extract common expressions
                     if let Some(input) = &for_task.common.input
                         && let Some(from) = &input.from
-                            && let Some(from_str) = from.as_str() {
-                                expressions.push((
-                                    format!("task.{}.input.from", task_name),
-                                    from_str.to_string(),
-                                ));
-                            }
+                        && let Some(from_str) = from.as_str()
+                    {
+                        expressions.push((
+                            format!("task.{}.input.from", task_name),
+                            from_str.to_string(),
+                        ));
+                    }
                     if let Some(output) = &for_task.common.output
                         && let Some(as_expr) = &output.as_
-                            && let Some(as_str) = as_expr.as_str() {
-                                expressions.push((
-                                    format!("task.{}.output.as", task_name),
-                                    as_str.to_string(),
-                                ));
-                            }
+                        && let Some(as_str) = as_expr.as_str()
+                    {
+                        expressions
+                            .push((format!("task.{}.output.as", task_name), as_str.to_string()));
+                    }
                     if let Some(if_cond) = &for_task.common.if_ {
                         expressions.push((format!("task.{}.if", task_name), if_cond.clone()));
                     }
@@ -425,20 +429,20 @@ fn extract_all_expressions(workflow: &WorkflowDefinition) -> Vec<(String, String
                     // Extract common expressions
                     if let Some(input) = &switch_task.common.input
                         && let Some(from) = &input.from
-                            && let Some(from_str) = from.as_str() {
-                                expressions.push((
-                                    format!("task.{}.input.from", task_name),
-                                    from_str.to_string(),
-                                ));
-                            }
+                        && let Some(from_str) = from.as_str()
+                    {
+                        expressions.push((
+                            format!("task.{}.input.from", task_name),
+                            from_str.to_string(),
+                        ));
+                    }
                     if let Some(output) = &switch_task.common.output
                         && let Some(as_expr) = &output.as_
-                            && let Some(as_str) = as_expr.as_str() {
-                                expressions.push((
-                                    format!("task.{}.output.as", task_name),
-                                    as_str.to_string(),
-                                ));
-                            }
+                        && let Some(as_str) = as_expr.as_str()
+                    {
+                        expressions
+                            .push((format!("task.{}.output.as", task_name), as_str.to_string()));
+                    }
                     if let Some(if_cond) = &switch_task.common.if_ {
                         expressions.push((format!("task.{}.if", task_name), if_cond.clone()));
                     }
@@ -447,20 +451,20 @@ fn extract_all_expressions(workflow: &WorkflowDefinition) -> Vec<(String, String
                     // Extract common expressions
                     if let Some(input) = &run_task.common.input
                         && let Some(from) = &input.from
-                            && let Some(from_str) = from.as_str() {
-                                expressions.push((
-                                    format!("task.{}.input.from", task_name),
-                                    from_str.to_string(),
-                                ));
-                            }
+                        && let Some(from_str) = from.as_str()
+                    {
+                        expressions.push((
+                            format!("task.{}.input.from", task_name),
+                            from_str.to_string(),
+                        ));
+                    }
                     if let Some(output) = &run_task.common.output
                         && let Some(as_expr) = &output.as_
-                            && let Some(as_str) = as_expr.as_str() {
-                                expressions.push((
-                                    format!("task.{}.output.as", task_name),
-                                    as_str.to_string(),
-                                ));
-                            }
+                        && let Some(as_str) = as_expr.as_str()
+                    {
+                        expressions
+                            .push((format!("task.{}.output.as", task_name), as_str.to_string()));
+                    }
                     if let Some(if_cond) = &run_task.common.if_ {
                         expressions.push((format!("task.{}.if", task_name), if_cond.clone()));
                     }
@@ -469,20 +473,20 @@ fn extract_all_expressions(workflow: &WorkflowDefinition) -> Vec<(String, String
                     // Extract common expressions
                     if let Some(input) = &do_task.common.input
                         && let Some(from) = &input.from
-                            && let Some(from_str) = from.as_str() {
-                                expressions.push((
-                                    format!("task.{}.input.from", task_name),
-                                    from_str.to_string(),
-                                ));
-                            }
+                        && let Some(from_str) = from.as_str()
+                    {
+                        expressions.push((
+                            format!("task.{}.input.from", task_name),
+                            from_str.to_string(),
+                        ));
+                    }
                     if let Some(output) = &do_task.common.output
                         && let Some(as_expr) = &output.as_
-                            && let Some(as_str) = as_expr.as_str() {
-                                expressions.push((
-                                    format!("task.{}.output.as", task_name),
-                                    as_str.to_string(),
-                                ));
-                            }
+                        && let Some(as_str) = as_expr.as_str()
+                    {
+                        expressions
+                            .push((format!("task.{}.output.as", task_name), as_str.to_string()));
+                    }
                     if let Some(if_cond) = &do_task.common.if_ {
                         expressions.push((format!("task.{}.if", task_name), if_cond.clone()));
                     }
@@ -491,20 +495,20 @@ fn extract_all_expressions(workflow: &WorkflowDefinition) -> Vec<(String, String
                     // Extract common expressions
                     if let Some(input) = &fork_task.common.input
                         && let Some(from) = &input.from
-                            && let Some(from_str) = from.as_str() {
-                                expressions.push((
-                                    format!("task.{}.input.from", task_name),
-                                    from_str.to_string(),
-                                ));
-                            }
+                        && let Some(from_str) = from.as_str()
+                    {
+                        expressions.push((
+                            format!("task.{}.input.from", task_name),
+                            from_str.to_string(),
+                        ));
+                    }
                     if let Some(output) = &fork_task.common.output
                         && let Some(as_expr) = &output.as_
-                            && let Some(as_str) = as_expr.as_str() {
-                                expressions.push((
-                                    format!("task.{}.output.as", task_name),
-                                    as_str.to_string(),
-                                ));
-                            }
+                        && let Some(as_str) = as_expr.as_str()
+                    {
+                        expressions
+                            .push((format!("task.{}.output.as", task_name), as_str.to_string()));
+                    }
                     if let Some(if_cond) = &fork_task.common.if_ {
                         expressions.push((format!("task.{}.if", task_name), if_cond.clone()));
                     }
@@ -513,20 +517,20 @@ fn extract_all_expressions(workflow: &WorkflowDefinition) -> Vec<(String, String
                     // Extract common expressions
                     if let Some(input) = &try_task.common.input
                         && let Some(from) = &input.from
-                            && let Some(from_str) = from.as_str() {
-                                expressions.push((
-                                    format!("task.{}.input.from", task_name),
-                                    from_str.to_string(),
-                                ));
-                            }
+                        && let Some(from_str) = from.as_str()
+                    {
+                        expressions.push((
+                            format!("task.{}.input.from", task_name),
+                            from_str.to_string(),
+                        ));
+                    }
                     if let Some(output) = &try_task.common.output
                         && let Some(as_expr) = &output.as_
-                            && let Some(as_str) = as_expr.as_str() {
-                                expressions.push((
-                                    format!("task.{}.output.as", task_name),
-                                    as_str.to_string(),
-                                ));
-                            }
+                        && let Some(as_str) = as_expr.as_str()
+                    {
+                        expressions
+                            .push((format!("task.{}.output.as", task_name), as_str.to_string()));
+                    }
                     if let Some(if_cond) = &try_task.common.if_ {
                         expressions.push((format!("task.{}.if", task_name), if_cond.clone()));
                     }
@@ -535,20 +539,20 @@ fn extract_all_expressions(workflow: &WorkflowDefinition) -> Vec<(String, String
                     // Extract common expressions
                     if let Some(input) = &emit_task.common.input
                         && let Some(from) = &input.from
-                            && let Some(from_str) = from.as_str() {
-                                expressions.push((
-                                    format!("task.{}.input.from", task_name),
-                                    from_str.to_string(),
-                                ));
-                            }
+                        && let Some(from_str) = from.as_str()
+                    {
+                        expressions.push((
+                            format!("task.{}.input.from", task_name),
+                            from_str.to_string(),
+                        ));
+                    }
                     if let Some(output) = &emit_task.common.output
                         && let Some(as_expr) = &output.as_
-                            && let Some(as_str) = as_expr.as_str() {
-                                expressions.push((
-                                    format!("task.{}.output.as", task_name),
-                                    as_str.to_string(),
-                                ));
-                            }
+                        && let Some(as_str) = as_expr.as_str()
+                    {
+                        expressions
+                            .push((format!("task.{}.output.as", task_name), as_str.to_string()));
+                    }
                     if let Some(if_cond) = &emit_task.common.if_ {
                         expressions.push((format!("task.{}.if", task_name), if_cond.clone()));
                     }
@@ -557,20 +561,20 @@ fn extract_all_expressions(workflow: &WorkflowDefinition) -> Vec<(String, String
                     // Extract common expressions
                     if let Some(input) = &raise_task.common.input
                         && let Some(from) = &input.from
-                            && let Some(from_str) = from.as_str() {
-                                expressions.push((
-                                    format!("task.{}.input.from", task_name),
-                                    from_str.to_string(),
-                                ));
-                            }
+                        && let Some(from_str) = from.as_str()
+                    {
+                        expressions.push((
+                            format!("task.{}.input.from", task_name),
+                            from_str.to_string(),
+                        ));
+                    }
                     if let Some(output) = &raise_task.common.output
                         && let Some(as_expr) = &output.as_
-                            && let Some(as_str) = as_expr.as_str() {
-                                expressions.push((
-                                    format!("task.{}.output.as", task_name),
-                                    as_str.to_string(),
-                                ));
-                            }
+                        && let Some(as_str) = as_expr.as_str()
+                    {
+                        expressions
+                            .push((format!("task.{}.output.as", task_name), as_str.to_string()));
+                    }
                     if let Some(if_cond) = &raise_task.common.if_ {
                         expressions.push((format!("task.{}.if", task_name), if_cond.clone()));
                     }
@@ -579,20 +583,20 @@ fn extract_all_expressions(workflow: &WorkflowDefinition) -> Vec<(String, String
                     // Extract common expressions
                     if let Some(input) = &wait_task.common.input
                         && let Some(from) = &input.from
-                            && let Some(from_str) = from.as_str() {
-                                expressions.push((
-                                    format!("task.{}.input.from", task_name),
-                                    from_str.to_string(),
-                                ));
-                            }
+                        && let Some(from_str) = from.as_str()
+                    {
+                        expressions.push((
+                            format!("task.{}.input.from", task_name),
+                            from_str.to_string(),
+                        ));
+                    }
                     if let Some(output) = &wait_task.common.output
                         && let Some(as_expr) = &output.as_
-                            && let Some(as_str) = as_expr.as_str() {
-                                expressions.push((
-                                    format!("task.{}.output.as", task_name),
-                                    as_str.to_string(),
-                                ));
-                            }
+                        && let Some(as_str) = as_expr.as_str()
+                    {
+                        expressions
+                            .push((format!("task.{}.output.as", task_name), as_str.to_string()));
+                    }
                     if let Some(if_cond) = &wait_task.common.if_ {
                         expressions.push((format!("task.{}.if", task_name), if_cond.clone()));
                     }
@@ -601,20 +605,20 @@ fn extract_all_expressions(workflow: &WorkflowDefinition) -> Vec<(String, String
                     // Extract common expressions
                     if let Some(input) = &listen_task.common.input
                         && let Some(from) = &input.from
-                            && let Some(from_str) = from.as_str() {
-                                expressions.push((
-                                    format!("task.{}.input.from", task_name),
-                                    from_str.to_string(),
-                                ));
-                            }
+                        && let Some(from_str) = from.as_str()
+                    {
+                        expressions.push((
+                            format!("task.{}.input.from", task_name),
+                            from_str.to_string(),
+                        ));
+                    }
                     if let Some(output) = &listen_task.common.output
                         && let Some(as_expr) = &output.as_
-                            && let Some(as_str) = as_expr.as_str() {
-                                expressions.push((
-                                    format!("task.{}.output.as", task_name),
-                                    as_str.to_string(),
-                                ));
-                            }
+                        && let Some(as_str) = as_expr.as_str()
+                    {
+                        expressions
+                            .push((format!("task.{}.output.as", task_name), as_str.to_string()));
+                    }
                     if let Some(if_cond) = &listen_task.common.if_ {
                         expressions.push((format!("task.{}.if", task_name), if_cond.clone()));
                     }
@@ -688,11 +692,12 @@ fn validate_references(workflow: &WorkflowDefinition, issues: &mut Vec<Validatio
     // Collect defined functions
     let mut defined_functions = HashSet::new();
     if let Some(use_) = &workflow.use_
-        && let Some(functions) = &use_.functions {
-            for func_name in functions.keys() {
-                defined_functions.insert(func_name.clone());
-            }
+        && let Some(functions) = &use_.functions
+    {
+        for func_name in functions.keys() {
+            defined_functions.insert(func_name.clone());
         }
+    }
 
     // Check function references in 'call' tasks
     for entry in &workflow.do_.entries {

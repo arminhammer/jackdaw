@@ -11,4 +11,16 @@ rustflags = [
     "-L/home/linuxbrew/.linuxbrew/opt/python@3.14/lib",
     "-Aclippy::type_complexity",
     "-Aclippy::too_many_arguments",
+    # Panic detection lints (warnings, not errors)
+    "-Wclippy::unwrap_used",
+    "-Wclippy::expect_used",
+    "-Wclippy::panic",
+    "-Wclippy::indexing_slicing",
 ]
+
+# Cross-compilation targets for release binaries
+[target.x86_64-unknown-linux-musl]
+linker = "x86_64-linux-musl-gcc"
+
+[target.aarch64-unknown-linux-musl]
+linker = "aarch64-linux-musl-gcc"

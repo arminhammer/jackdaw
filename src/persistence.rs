@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use snafu::prelude::*;
 
 #[derive(Debug, Snafu)]
+#[snafu(visibility(pub))]
 pub enum Error {
     #[snafu(display("Persistence error: {message}"))]
     Persistence { message: String },
