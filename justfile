@@ -209,30 +209,56 @@ show-binary-sizes:
     @ls -lh target/universal-apple-darwin/release/jackdaw 2>/dev/null || echo "  universal-apple-darwin: not built"
 
 # ============================================================================
-# Docker Builds
+# Docker Builds (Linux cross-compilation)
 # ============================================================================
 
-# Build static Linux binary in Docker (includes V8 from source)
+# Build Linux x86_64 binary using Docker
 docker-build-linux-amd64:
-    docker build -f Dockerfile.build -t jackdaw-builder:latest .
-    docker create --name jackdaw-extract jackdaw-builder:latest
-    docker cp jackdaw-extract:/jackdaw ./target/jackdaw-linux-amd64
-    docker rm jackdaw-extract
-    @echo "✓ Static binary extracted to: ./target/jackdaw-linux-amd64"
-    @ls -lh ./target/jackdaw-linux-amd64
-
-# Build and extract binary in one command
-docker-build-extract:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "Building static binary in Docker (this will take 30-60 minutes on first build)..."
-    docker build -f Dockerfile.build -t jackdaw-builder:latest .
+    echo "Building Linux x86_64 binary in Docker..."
+    docker buildx build \
+        --platform linux/amd64 \
+        --load \
+        -f Dockerfile.build \
+        -t jackdaw-builder:linux-amd64 .
     echo "Extracting binary..."
     mkdir -p dist
-    docker create --name jackdaw-extract jackdaw-builder:latest
-    docker cp jackdaw-extract:/jackdaw ./dist/jackdaw-linux-amd64
+    docker create --name jackdaw-extract jackdaw-builder:linux-amd64
+    docker cp jackdaw-extract:/usr/local/bin/jackdaw ./dist/jackdaw-linux-amd64
     docker rm jackdaw-extract
-    echo "✓ Static binary ready: ./dist/jackdaw-linux-amd64"
+    echo "✓ Linux x86_64 binary ready: ./dist/jackdaw-linux-amd64"
     ls -lh ./dist/jackdaw-linux-amd64
-    echo "Verifying static binary..."
     file ./dist/jackdaw-linux-amd64
+
+# Build Linux ARM64 binary using Docker
+docker-build-linux-arm64:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Building Linux ARM64 binary in Docker..."
+    docker buildx build \
+        --platform linux/arm64 \
+        --load \
+        -f Dockerfile.build \
+        -t jackdaw-builder:linux-arm64 .
+    echo "Extracting binary..."
+    mkdir -p dist
+    docker create --name jackdaw-extract jackdaw-builder:linux-arm64
+    docker cp jackdaw-extract:/usr/local/bin/jackdaw ./dist/jackdaw-linux-arm64
+    docker rm jackdaw-extract
+    echo "✓ Linux ARM64 binary ready: ./dist/jackdaw-linux-arm64"
+    ls -lh ./dist/jackdaw-linux-arm64
+    file ./dist/jackdaw-linux-arm64
+
+# Build both Linux binaries (amd64 and arm64)
+docker-build-linux: docker-build-linux-amd64 docker-build-linux-arm64
+    @echo ""
+    @echo "✓ All Linux binaries built:"
+    @ls -lh ./dist/jackdaw-linux-*
+
+# Build all release binaries (Linux via Docker, macOS native)
+docker-build-all: docker-build-linux build-macos-universal
+    @echo ""
+    @echo "✓ All release binaries ready:"
+    @ls -lh ./dist/jackdaw-*
+    @ls -lh ./target/universal-apple-darwin/release/jackdaw
