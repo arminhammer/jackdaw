@@ -112,17 +112,34 @@ pub async fn exec_call_task(
 
     // Apply output filtering if specified
     if let Some(output_config) = &call_task.common.output
-        && let Some(as_expr) = &output_config.as_
-        && let Some(expr_str) = as_expr.as_str()
+        && let Some(as_value) = &output_config.as_
     {
-        // Evaluate the jq expression on the result with access to $input
-        // $input represents the task input (previous task's output for sequential tasks)
         let task_input = ctx.state.task_input.read().await.clone();
-        result = crate::expressions::evaluate_jq_expression_with_context(
-            expr_str,
-            &result,
-            &task_input,
-        )?;
+
+        // Handle both string (expression) and object (field mapping) forms
+        if let Some(expr_str) = as_value.as_str() {
+            // String form: jq expression (not wrapped in ${})
+            // Evaluate the jq expression on the result with access to $input
+            result = crate::expressions::evaluate_jq_expression_with_context(
+                expr_str,
+                &result,
+                &task_input,
+            )?;
+        } else if let Some(as_obj) = as_value.as_object() {
+            // Object form: map fields with expressions (may be wrapped in ${})
+            let mut transformed = serde_json::Map::new();
+            for (key, value) in as_obj {
+                if let Some(expr_str) = value.as_str() {
+                    let evaluated = crate::expressions::evaluate_expression_with_input(
+                        expr_str,
+                        &result,
+                        &task_input,
+                    )?;
+                    transformed.insert(key.clone(), evaluated);
+                }
+            }
+            result = serde_json::Value::Object(transformed);
+        }
     }
 
     let cache_entry = CacheEntry {

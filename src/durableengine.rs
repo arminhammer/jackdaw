@@ -388,7 +388,14 @@ impl DurableEngine {
                 })
                 .await?;
 
+            // Save the original context before exec_task (which may apply input.from filtering)
+            let original_context = ctx.state.data.read().await.clone();
+
             let result = self.exec_task(task_name, task, &ctx).await?;
+
+            // Restore the original context before applying export
+            // This ensures that input.from filtering doesn't affect export merging
+            *ctx.state.data.write().await = original_context;
 
             // Format task output
             output::format_task_output(&result);
