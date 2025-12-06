@@ -392,19 +392,29 @@ impl DurableEngine {
             let mut result = self.exec_task(task_name, task, &ctx).await?;
 
             // Apply output.as transformation if specified
+            // Note: output.as uses plain jq expressions (not runtime expressions with ${ })
             if let Some(output_config) = task.output() {
                 if let Some(as_value) = &output_config.as_ {
                     // Handle both string (expression) and object (field mapping) forms
                     if let Some(expr_str) = as_value.as_str() {
-                        // String form: runtime expression
-                        result = crate::expressions::evaluate_expression(expr_str, &result)?;
+                        // String form: jq expression (may use $input to reference previous task input)
+                        let task_input = ctx.state.task_input.read().await.clone();
+                        result = crate::expressions::evaluate_jq_expression_with_context(
+                            expr_str,
+                            &result,
+                            &task_input,
+                        )?;
                     } else if let Some(as_obj) = as_value.as_object() {
-                        // Object form: map fields with expressions
+                        // Object form: map fields with jq expressions
+                        let task_input = ctx.state.task_input.read().await.clone();
                         let mut transformed = serde_json::Map::new();
                         for (key, value) in as_obj {
                             if let Some(expr_str) = value.as_str() {
-                                let evaluated =
-                                    crate::expressions::evaluate_expression(expr_str, &result)?;
+                                let evaluated = crate::expressions::evaluate_jq_expression_with_context(
+                                    expr_str,
+                                    &result,
+                                    &task_input,
+                                )?;
                                 transformed.insert(key.clone(), evaluated);
                             }
                         }

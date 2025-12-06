@@ -38,9 +38,6 @@ pub async fn apply_export_to_context(
                 context_obj.insert(key.clone(), value.clone());
             }
         }
-    } else {
-        // If result is not an object, we cannot merge - replace the context entirely
-        *current_context = result.clone();
     }
 
     Ok(())

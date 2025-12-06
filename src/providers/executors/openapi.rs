@@ -560,12 +560,13 @@ async fn evaluate_parameters(
     if let Some(obj) = parameters.as_object() {
         let mut result = serde_json::Map::new();
         let current_data = ctx.state.data.read().await.clone();
+        let task_input = ctx.state.task_input.read().await.clone();
 
         for (key, value) in obj {
             let evaluated = crate::expressions::evaluate_value_with_input(
                 value,
                 &current_data,
-                &ctx.metadata.initial_input,
+                &task_input,
             )
             .map_err(|e| Error::Execution {
                 message: format!("Failed to evaluate parameter '{key}': {e}"),

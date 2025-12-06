@@ -180,10 +180,11 @@ async fn apply_authentication(
         let username = if let Some(username_expr) = basic.get("username") {
             // Evaluate expression
             let current_data = ctx.state.data.read().await.clone();
+            let task_input = ctx.state.task_input.read().await.clone();
             let evaluated = crate::expressions::evaluate_value_with_input(
                 username_expr,
                 &current_data,
-                &ctx.metadata.initial_input,
+                &task_input,
             )
             .map_err(|e| Error::Execution {
                 message: format!("Failed to evaluate username expression: {e}"),
@@ -198,10 +199,11 @@ async fn apply_authentication(
         let password = if let Some(password_expr) = basic.get("password") {
             // Evaluate expression
             let current_data = ctx.state.data.read().await.clone();
+            let task_input = ctx.state.task_input.read().await.clone();
             let evaluated = crate::expressions::evaluate_value_with_input(
                 password_expr,
                 &current_data,
-                &ctx.metadata.initial_input,
+                &task_input,
             )
             .map_err(|e| Error::Execution {
                 message: format!("Failed to evaluate password expression: {e}"),

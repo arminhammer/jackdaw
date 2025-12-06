@@ -13,6 +13,7 @@ pub async fn exec_emit_task(
 ) -> Result<serde_json::Value> {
     // Get current context data for expression evaluation
     let current_data = ctx.state.data.read().await.clone();
+    let task_input = ctx.state.task_input.read().await.clone();
 
     // Evaluate the event attributes
     let mut event_data = serde_json::Map::new();
@@ -38,7 +39,7 @@ pub async fn exec_emit_task(
         let evaluated_value = crate::expressions::evaluate_value_with_input(
             value,
             &current_data,
-            &ctx.metadata.initial_input,
+            &task_input,
         )?;
         event_data.insert(key.clone(), evaluated_value);
     }

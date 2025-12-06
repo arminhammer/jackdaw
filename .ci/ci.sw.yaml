@@ -40,34 +40,28 @@ do:
         as:
           computed_hash: ${ .stdout }
 
-  # Step 2: Run all CI tasks in parallel (with caching)
-  - runCITasks:
-      fork:
-        compete: false
-        branches:
-          # Lint check - format
-          - formatCheck:
-              input:
-                from: .computed_hash
-              run:
-                shell:
-                  command: cargo
-                  arguments:
-                    - fmt
-                    - --check
+  - formatCheck:
+      input:
+        from: .computed_hash
+      run:
+        shell:
+          command: cargo
+          arguments:
+            - fmt
+            - --check
 
-          # Lint check - clippy
-          - clippyCheck:
-              input:
-                from: .computed_hash
-              run:
-                shell:
-                  command: cargo
-                  arguments:
-                    - clippy
-                    - --
-                    - -D
-                    - warnings
+  # Lint check - clippy
+  - clippyCheck:
+      input:
+        from: .computed_hash
+      run:
+        shell:
+          command: cargo
+          arguments:
+            - clippy
+            - --
+            - -D
+            - warnings
 
   #         # Unit tests
   #         - unitTests:

@@ -19,10 +19,11 @@ pub async fn exec_call_task(
 
     // Evaluate expressions in with parameters
     let current_data = ctx.state.data.read().await.clone();
+    let task_input = ctx.state.task_input.read().await.clone();
     let evaluated_with_params_value = crate::expressions::evaluate_value_with_input(
         &serde_json::to_value(&with_params)?,
         &current_data,
-        &ctx.metadata.initial_input,
+        &task_input,
     )?;
 
     // Convert back to HashMap

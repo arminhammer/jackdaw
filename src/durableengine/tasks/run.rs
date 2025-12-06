@@ -20,11 +20,12 @@ pub async fn exec_run_task(
     // Evaluate expressions in the run task definition before computing cache key
     // This ensures that expressions like $workflow.id are evaluated to their actual values
     let current_data = ctx.state.data.read().await.clone();
+    let task_input = ctx.state.task_input.read().await.clone();
     let params = serde_json::to_value(&run_task.run)?;
     let evaluated_params = crate::expressions::evaluate_value_with_input(
         &params,
         &current_data,
-        &ctx.metadata.initial_input,
+        &task_input,
     )?;
 
     // Combine task definition with current context data for cache key
@@ -82,7 +83,7 @@ pub async fn exec_run_task(
         let evaluated_input = crate::expressions::evaluate_value_with_input(
             &input_data,
             &current_data,
-            &ctx.metadata.initial_input,
+            &task_input,
         )?;
 
         // Execute the nested workflow
@@ -105,7 +106,7 @@ pub async fn exec_run_task(
             crate::expressions::evaluate_value_with_input(
                 &serde_json::Value::String(s.clone()),
                 &current_data,
-                &ctx.metadata.initial_input,
+                &task_input,
             )
             .ok()
             .and_then(|v| v.as_str().map(String::from))
@@ -115,7 +116,7 @@ pub async fn exec_run_task(
             crate::expressions::evaluate_value_with_input(
                 &serde_json::to_value(args).ok()?,
                 &current_data,
-                &ctx.metadata.initial_input,
+                &task_input,
             )
             .ok()
         });
@@ -126,7 +127,7 @@ pub async fn exec_run_task(
                 if let Ok(evaluated) = crate::expressions::evaluate_value_with_input(
                     &serde_json::Value::String(value.clone()),
                     &current_data,
-                    &ctx.metadata.initial_input,
+                    &task_input,
                 ) {
                     if let Some(s) = evaluated.as_str() {
                         evaluated_env.insert(key.clone(), serde_json::Value::String(s.to_string()));
@@ -211,7 +212,7 @@ pub async fn exec_run_task(
             crate::expressions::evaluate_value_with_input(
                 &serde_json::to_value(args)?,
                 &current_data,
-                &ctx.metadata.initial_input,
+                &task_input,
             )?
         } else {
             // No arguments specified
@@ -223,7 +224,7 @@ pub async fn exec_run_task(
             let evaluated = crate::expressions::evaluate_value_with_input(
                 &serde_json::Value::String(stdin_str.clone()),
                 &current_data,
-                &ctx.metadata.initial_input,
+                &task_input,
             )?;
             evaluated.as_str().map(String::from)
         } else {
@@ -237,7 +238,7 @@ pub async fn exec_run_task(
                 let evaluated = crate::expressions::evaluate_value_with_input(
                     &serde_json::Value::String(value.clone()),
                     &current_data,
-                    &ctx.metadata.initial_input,
+                    &task_input,
                 )?;
                 if let Some(s) = evaluated.as_str() {
                     evaluated_env.insert(key.clone(), serde_json::Value::String(s.to_string()));
@@ -293,7 +294,7 @@ pub async fn exec_run_task(
                 match crate::expressions::evaluate_value_with_input(
                     &serde_json::Value::String(arg.clone()),
                     &current_data,
-                    &ctx.metadata.initial_input,
+                    &task_input,
                 ) {
                     Ok(serde_json::Value::String(s)) => s,
                     _ => arg.clone(),

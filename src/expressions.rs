@@ -57,10 +57,79 @@ impl ExpressionPreprocessor {
         let mut result = expr.to_string();
 
         if self.null_safe_enabled {
-            result = self.apply_null_safe_field_access(&result);
-            result = self.apply_null_safe_array_ops(&result);
+            // Extract string literals to prevent transforming them
+            let (expr_without_strings, strings) = self.extract_strings(expr);
+
+            // Apply transformations only to non-string parts
+            let mut transformed = self.apply_null_safe_field_access(&expr_without_strings);
+            transformed = self.apply_null_safe_array_ops(&transformed);
+
+            // Restore string literals
+            result = self.restore_strings(&transformed, &strings);
         }
 
+        result
+    }
+
+    /// Extract string literals from expression, replacing them with placeholders
+    ///
+    /// Returns the expression with placeholders and a list of extracted strings
+    fn extract_strings(&self, expr: &str) -> (String, Vec<String>) {
+        let mut strings = Vec::new();
+        let mut result = String::new();
+        let mut chars = expr.chars().peekable();
+        let mut in_string = false;
+        let mut escape_next = false;
+        let mut current_string = String::new();
+
+        while let Some(ch) = chars.next() {
+            if escape_next {
+                if in_string {
+                    current_string.push('\\');
+                    current_string.push(ch);
+                } else {
+                    result.push('\\');
+                    result.push(ch);
+                }
+                escape_next = false;
+                continue;
+            }
+
+            if ch == '\\' {
+                escape_next = true;
+                continue;
+            }
+
+            if ch == '"' {
+                if in_string {
+                    // End of string
+                    strings.push(current_string.clone());
+                    result.push_str(&format!("__STRING_PLACEHOLDER_{}__", strings.len() - 1));
+                    current_string.clear();
+                    in_string = false;
+                } else {
+                    // Start of string
+                    in_string = true;
+                }
+            } else if in_string {
+                current_string.push(ch);
+            } else {
+                result.push(ch);
+            }
+        }
+
+        (result, strings)
+    }
+
+    /// Restore string literals from placeholders
+    fn restore_strings(&self, expr: &str, strings: &[String]) -> String {
+        let mut result = expr.to_string();
+        for (i, s) in strings.iter().enumerate() {
+            result = result.replace(
+                &format!("__STRING_PLACEHOLDER_{i}__"),
+                &format!("\"{s}\"")
+            );
+        }
         result
     }
 
@@ -144,20 +213,98 @@ pub fn evaluate_expression_with_input(
     let preprocessor = ExpressionPreprocessor::new();
     let mut jq_expr = preprocessor.preprocess(jq_expr_raw);
 
+    // According to spec: when input is provided, expressions evaluate against $input, not context
+    // This means . refers to $input in task contexts
+    let has_input = !input.is_null();
+
     // Build evaluation context and bind variables
     // We need to detect which $variables are used and bind them using jaq's 'as' syntax
-    let eval_context = if let Some(obj) = context.as_object() {
+    let eval_context = if has_input {
+        // When we have input, evaluate expressions against input
+        // But we still need to bind context variables like $workflow, $runtime, etc.
+        // Special handling: $input needs to reference the input itself
+        let stripped_input = strip_descriptors(input);
+
+        if let Some(context_obj) = context.as_object() {
+            let mut var_bindings: Vec<(String, Value)> = Vec::new();
+
+            // Detect all $varname references in the expression
+            let var_regex = Regex::new(r"\$([a-zA-Z_][a-zA-Z0-9_]*)").unwrap();
+            // Collect variable names first to avoid lifetime issues
+            let var_names: Vec<String> = var_regex
+                .captures_iter(&jq_expr)
+                .map(|cap| cap[1].to_string())
+                .collect();
+
+            let has_input_ref = var_names.contains(&"input".to_string());
+            let has_workflow_ref = var_names.contains(&"workflow".to_string());
+            let has_runtime_ref = var_names.contains(&"runtime".to_string());
+
+            // If $input is referenced, we need to wrap and bind it
+            // Otherwise, . already refers to input
+            if has_input_ref || has_workflow_ref || has_runtime_ref || var_names.iter().any(|v| v != "input" && v != "workflow" && v != "runtime" && context_obj.contains_key(v)) {
+                // Build wrapper object with all needed bindings
+                let mut wrapper = serde_json::Map::new();
+                wrapper.insert("__value".to_string(), stripped_input.clone());
+
+                if has_input_ref {
+                    wrapper.insert("input".to_string(), stripped_input.clone());
+                    var_bindings.push(("input".to_string(), Value::Null)); // Placeholder
+                }
+
+                if has_workflow_ref {
+                    if let Some(workflow_desc) = context_obj.get("__workflow").cloned() {
+                        wrapper.insert("workflow".to_string(), workflow_desc);
+                        var_bindings.push(("workflow".to_string(), Value::Null));
+                    }
+                }
+
+                if has_runtime_ref {
+                    if let Some(runtime_desc) = context_obj.get("__runtime").cloned() {
+                        wrapper.insert("runtime".to_string(), runtime_desc);
+                        var_bindings.push(("runtime".to_string(), Value::Null));
+                    }
+                }
+
+                // Bind other variables from context
+                for var_name in var_names {
+                    if var_name != "input" && var_name != "workflow" && var_name != "runtime" {
+                        if let Some(val) = context_obj.get(&var_name) {
+                            wrapper.insert(var_name.clone(), val.clone());
+                            if !var_bindings.iter().any(|(n, _)| n == &var_name) {
+                                var_bindings.push((var_name, Value::Null));
+                            }
+                        }
+                    }
+                }
+
+                // Build bindings and wrap expression
+                let binding_exprs: Vec<String> = var_bindings
+                    .iter()
+                    .map(|(name, _)| format!(".{name} as ${name}"))
+                    .collect();
+
+                jq_expr = format!("{} | .__value | {}", binding_exprs.join(" | "), jq_expr);
+                Value::Object(wrapper)
+            } else {
+                // No special variables, just evaluate against input
+                stripped_input
+            }
+        } else {
+            stripped_input
+        }
+    } else if let Some(obj) = context.as_object() {
+        // No input provided, fall back to old behavior (evaluate against context)
         let mut combined = obj.clone();
         let mut var_bindings = Vec::new();
 
         // Handle $input
         if jq_expr.contains("$input") {
-            // Strip internal descriptors from $input as they shouldn't be part of data flow
             combined.insert("input".to_string(), strip_descriptors(input));
             var_bindings.push("input".to_string());
         }
 
-        // Handle $workflow - check if workflow descriptor is in context
+        // Handle $workflow
         if jq_expr.contains("$workflow") {
             if let Some(workflow_desc) = combined.get("__workflow").cloned() {
                 combined.insert("workflow".to_string(), workflow_desc);
@@ -165,7 +312,7 @@ pub fn evaluate_expression_with_input(
             var_bindings.push("workflow".to_string());
         }
 
-        // Handle $runtime - check if runtime descriptor is in context
+        // Handle $runtime
         if jq_expr.contains("$runtime") {
             if let Some(runtime_desc) = combined.get("__runtime").cloned() {
                 combined.insert("runtime".to_string(), runtime_desc);
@@ -173,18 +320,16 @@ pub fn evaluate_expression_with_input(
             var_bindings.push("runtime".to_string());
         }
 
-        // Detect all $varname references in the expression
+        // Detect all $varname references
         let var_regex = Regex::new(r"\$([a-zA-Z_][a-zA-Z0-9_]*)").unwrap();
         for cap in var_regex.captures_iter(&jq_expr.clone()) {
             let var_name = &cap[1];
-            // Only bind if the variable exists in context and we haven't already added it
             if combined.contains_key(var_name) && !var_bindings.contains(&var_name.to_string()) {
                 var_bindings.push(var_name.to_string());
             }
         }
 
-        // Build the variable bindings at the start of the expression
-        // Format: .varname as $varname | .var2 as $var2 | <original expression>
+        // Build the variable bindings
         if !var_bindings.is_empty() {
             let bindings: Vec<String> = var_bindings
                 .iter()
@@ -195,8 +340,6 @@ pub fn evaluate_expression_with_input(
 
         Value::Object(combined)
     } else {
-        // Context is not an object (e.g., a string after input filtering)
-        // Keep it as-is and special variables will be handled via jaq vars if needed
         context.clone()
     };
 

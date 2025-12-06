@@ -42,15 +42,14 @@ impl DurableEngine {
         output::format_task_context(&current_context);
 
         // Apply input filtering if specified
-        let _has_input_filter = self.apply_input_filter(task, ctx).await?;
+        // This sets $input (task_input) but does NOT modify workflow context
+        self.apply_input_filter(task, ctx).await?;
 
         // Show input after filtering
-        let input_data = ctx.state.data.read().await.clone();
+        let input_data = ctx.state.task_input.read().await.clone();
         output::format_task_input(&input_data);
 
         // Execute the task
-        // Note: We don't restore the original context after input filtering
-        // because task outputs (via ctx.merge) should be preserved
         match task {
             TaskDefinition::Call(call_task) => {
                 exec_call_task(self, task_name, call_task, ctx).await
@@ -83,6 +82,8 @@ impl DurableEngine {
     }
 
     /// Apply input filter to task
+    /// According to spec: "The result of this expression will be set as the $input
+    /// runtime expression argument and be passed to the task"
     pub(super) async fn apply_input_filter(
         &self,
         task: &TaskDefinition,
@@ -92,10 +93,12 @@ impl DurableEngine {
             && let Some(from_expr) = &input.from
             && let Some(expr_str) = from_expr.as_str()
         {
-            let current_data = ctx.state.data.read().await.clone();
+            // Get the raw task input (either workflow input or previous task output)
+            let raw_input = ctx.state.task_input.read().await.clone();
             // Input filtering uses jq expressions directly (not wrapped in ${ })
-            let filtered = crate::expressions::evaluate_jq(expr_str, &current_data)?;
-            *ctx.state.data.write().await = filtered;
+            let filtered = crate::expressions::evaluate_jq(expr_str, &raw_input)?;
+            // Set the filtered value as $input for this task
+            *ctx.state.task_input.write().await = filtered;
             return Ok(true);
         }
 
