@@ -191,7 +191,11 @@ impl Context {
             obj.insert(key.to_string(), value);
             *self.tracking.data_modified.write().await = true;
             // Track that this key was set by a task
-            self.tracking.task_output_keys.write().await.insert(key.to_string());
+            self.tracking
+                .task_output_keys
+                .write()
+                .await
+                .insert(key.to_string());
         } else {
             // If data is not an object (e.g., after input filtering to a scalar),
             // replace it with a new object containing the key-value pair
@@ -199,7 +203,11 @@ impl Context {
             new_obj.insert(key.to_string(), value);
             *data = serde_json::Value::Object(new_obj);
             *self.tracking.data_modified.write().await = true;
-            self.tracking.task_output_keys.write().await.insert(key.to_string());
+            self.tracking
+                .task_output_keys
+                .write()
+                .await
+                .insert(key.to_string());
         }
     }
 
@@ -210,7 +218,8 @@ impl Context {
     /// Returns an error if there is a persistence error when saving the checkpoint.
     pub async fn save_checkpoint(&self, task_name: &str) -> Result<()> {
         let data = self.state.data.read().await;
-        self.services.persistence
+        self.services
+            .persistence
             .save_checkpoint(WorkflowCheckpoint {
                 instance_id: self.metadata.instance_id.clone(),
                 current_task: task_name.to_string(),

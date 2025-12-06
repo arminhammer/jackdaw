@@ -202,7 +202,11 @@ pub fn format_run_task_params(
     }
 
     if let Some(stdin_val) = stdin {
-        println!("  {} {}", style("Stdin:").cyan(), style(format!("\"{}\"", stdin_val)).cyan());
+        println!(
+            "  {} {}",
+            style("Stdin:").cyan(),
+            style(format!("\"{}\"", stdin_val)).cyan()
+        );
     }
 
     if let Some(args) = arguments {
@@ -224,7 +228,11 @@ pub fn format_run_task_params(
                 println!("  {}", style("Environment:").cyan());
                 for (key, value) in obj {
                     if let Some(s) = value.as_str() {
-                        println!("    {} {}", style(format!("{}:", key)).cyan(), style(s).cyan());
+                        println!(
+                            "    {} {}",
+                            style(format!("{}:", key)).cyan(),
+                            style(s).cyan()
+                        );
                     }
                 }
             }
@@ -240,9 +248,16 @@ pub fn format_task_output(output: &Value) {
     let filtered = filter_internal_fields(output);
 
     // For streamed output, show stdout/stderr based on exit code
-    if output.get("__streamed").and_then(serde_json::Value::as_bool).unwrap_or(false) {
+    if output
+        .get("__streamed")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
         if let Some(obj) = filtered.as_object() {
-            let exit_code = obj.get("exitCode").and_then(serde_json::Value::as_i64).unwrap_or(0);
+            let exit_code = obj
+                .get("exitCode")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(0);
 
             if exit_code == 0 {
                 // Success: Only show stdout value (no stderr, no exitCode)

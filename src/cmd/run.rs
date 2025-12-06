@@ -134,7 +134,11 @@ impl RunArgs {
             parallel: if self.parallel { true } else { config.parallel },
             verbose: if self.verbose { true } else { config.verbose },
             no_cache: if self.no_cache { true } else { config.no_cache },
-            visualize: if self.visualize { true } else { config.visualize },
+            visualize: if self.visualize {
+                true
+            } else {
+                config.visualize
+            },
             viz_tool: self.viz_tool.or(config.viz_tool),
             viz_format: self.viz_format.or(config.viz_format),
             viz_output: self.viz_output.or(config.viz_output),
@@ -243,7 +247,11 @@ fn parse_diagram_format(format_str: &str) -> Result<DiagramFormat> {
 }
 
 /// Handle the run subcommand
-pub async fn handle_run(workflows: Vec<PathBuf>, config: RunConfig, multi_progress: MultiProgress) -> Result<()> {
+pub async fn handle_run(
+    workflows: Vec<PathBuf>,
+    config: RunConfig,
+    multi_progress: MultiProgress,
+) -> Result<()> {
     // Print banner
     println!(
         "{}\n",
@@ -268,7 +276,10 @@ pub async fn handle_run(workflows: Vec<PathBuf>, config: RunConfig, multi_progre
     }
 
     // Get durable_db path, defaulting to "workflow.db" if not set
-    let durable_db = config.durable_db.clone().unwrap_or_else(|| PathBuf::from("workflow.db"));
+    let durable_db = config
+        .durable_db
+        .clone()
+        .unwrap_or_else(|| PathBuf::from("workflow.db"));
 
     // Initialize persistence and cache
     if config.verbose {
@@ -407,7 +418,8 @@ pub async fn handle_run(workflows: Vec<PathBuf>, config: RunConfig, multi_progre
         );
 
         for workflow_path in workflow_files {
-            match execute_workflow(&workflow_path, engine.clone(), Some(&pb), config.verbose).await {
+            match execute_workflow(&workflow_path, engine.clone(), Some(&pb), config.verbose).await
+            {
                 Ok((instance_id, result, workflow)) => {
                     if config.verbose {
                         let filtered = filter_internal_fields(&result);

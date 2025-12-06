@@ -21,8 +21,11 @@ pub async fn exec_run_task(
     // This ensures that expressions like $workflow.id are evaluated to their actual values
     let current_data = ctx.state.data.read().await.clone();
     let params = serde_json::to_value(&run_task.run)?;
-    let evaluated_params =
-        crate::expressions::evaluate_value_with_input(&params, &current_data, &ctx.metadata.initial_input)?;
+    let evaluated_params = crate::expressions::evaluate_value_with_input(
+        &params,
+        &current_data,
+        &ctx.metadata.initial_input,
+    )?;
 
     // Combine task definition with current context data for cache key
     // This ensures that input.from filters affect caching
@@ -44,7 +47,8 @@ pub async fn exec_run_task(
 
     output::format_cache_miss(task_name, &cache_key);
 
-    ctx.services.persistence
+    ctx.services
+        .persistence
         .save_event(WorkflowEvent::TaskStarted {
             instance_id: ctx.metadata.instance_id.clone(),
             task_name: task_name.to_string(),
@@ -143,9 +147,12 @@ pub async fn exec_run_task(
             environment_display.as_ref(),
         );
 
-        let executor = engine.executors.get(&language).ok_or(Error::TaskExecution {
-            message: format!("No executor found for language: {}", language),
-        })?;
+        let executor = engine
+            .executors
+            .get(&language)
+            .ok_or(Error::TaskExecution {
+                message: format!("No executor found for language: {}", language),
+            })?;
 
         // Get script code - either inline or from external source
         let script_code = if let Some(source) = script.source.as_ref() {
@@ -260,7 +267,9 @@ pub async fn exec_run_task(
         let streamer = TaskOutputStreamer::new(task_name.to_string(), task_index);
 
         // Pass streamer directly to executor for real-time streaming
-        let script_result = executor.exec(task_name, &script_params, ctx, Some(streamer)).await?;
+        let script_result = executor
+            .exec(task_name, &script_params, ctx, Some(streamer))
+            .await?;
 
         // Output has already been streamed in real-time by the executor!
         // Mark it as streamed so we don't print it again

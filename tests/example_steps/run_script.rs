@@ -11,7 +11,10 @@ async fn then_output_contains_stdout(world: &mut ExampleWorld, expected_text: St
         "Expected workflow to complete"
     );
 
-    let output = world.workflow_output.as_ref().expect("No workflow output found");
+    let output = world
+        .workflow_output
+        .as_ref()
+        .expect("No workflow output found");
 
     // The output should be a JSON object with stdout field
     let stdout = output

@@ -90,8 +90,7 @@ impl PersistenceProvider for PostgresPersistence {
     async fn save_event(&self, event: WorkflowEvent) -> Result<()> {
         let instance_id = event.instance_id().to_string();
         let event_type = Self::get_event_type(&event);
-        let event_data =
-            serde_json::to_value(&event).context(SerializationSnafu)?;
+        let event_data = serde_json::to_value(&event).context(SerializationSnafu)?;
         let timestamp = chrono::Utc::now();
 
         // Get the next sequence number for this instance
@@ -129,8 +128,8 @@ impl PersistenceProvider for PostgresPersistence {
 
         let mut events = Vec::new();
         for (event_data,) in rows {
-            let event: WorkflowEvent = serde_json::from_value(event_data)
-                .context(SerializationSnafu)?;
+            let event: WorkflowEvent =
+                serde_json::from_value(event_data).context(SerializationSnafu)?;
             events.push(event);
         }
 
@@ -138,8 +137,7 @@ impl PersistenceProvider for PostgresPersistence {
     }
 
     async fn save_checkpoint(&self, checkpoint: WorkflowCheckpoint) -> Result<()> {
-        let data_json = serde_json::to_value(&checkpoint.data)
-            .context(SerializationSnafu)?;
+        let data_json = serde_json::to_value(&checkpoint.data).context(SerializationSnafu)?;
 
         sqlx::query(
             r"

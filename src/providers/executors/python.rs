@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyModule};
 use std::collections::HashMap;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 
 use crate::{
     context::Context,
@@ -271,25 +271,25 @@ impl PythonExecutor {
                             message: format!("Failed to append argument to argv: {e}"),
                         })?;
                     }
-                    sys.setattr("argv", argv_list).map_err(|e| Error::Execution {
-                        message: format!("Failed to set sys.argv: {e}"),
-                    })?;
+                    sys.setattr("argv", argv_list)
+                        .map_err(|e| Error::Execution {
+                            message: format!("Failed to set sys.argv: {e}"),
+                        })?;
                 }
 
                 // Set up environment variables in os.environ
                 if let Some(env) = &environment {
-                    let os_module = PyModule::import_bound(py, "os").map_err(|e| Error::Execution {
-                        message: format!("Failed to import os module: {e}"),
-                    })?;
+                    let os_module =
+                        PyModule::import_bound(py, "os").map_err(|e| Error::Execution {
+                            message: format!("Failed to import os module: {e}"),
+                        })?;
                     let environ = os_module.getattr("environ").map_err(|e| Error::Execution {
                         message: format!("Failed to get os.environ: {e}"),
                     })?;
                     for (key, value) in env {
-                        environ
-                            .set_item(key, value)
-                            .map_err(|e| Error::Execution {
-                                message: format!("Failed to set environment variable: {e}"),
-                            })?;
+                        environ.set_item(key, value).map_err(|e| Error::Execution {
+                            message: format!("Failed to set environment variable: {e}"),
+                        })?;
                     }
                 }
 
@@ -304,9 +304,10 @@ impl PythonExecutor {
                         .map_err(|e| Error::Execution {
                             message: format!("Failed to create StringIO for stdin: {e}"),
                         })?;
-                    sys.setattr("stdin", stdin_io).map_err(|e| Error::Execution {
-                        message: format!("Failed to set sys.stdin: {e}"),
-                    })?;
+                    sys.setattr("stdin", stdin_io)
+                        .map_err(|e| Error::Execution {
+                            message: format!("Failed to set sys.stdin: {e}"),
+                        })?;
                 }
 
                 // Redirect stdout and stderr to our StreamWriters
@@ -390,10 +391,9 @@ impl PythonExecutor {
         });
 
         // Wait for Python thread to complete
-        let exit_code = python_handle.join()
-            .map_err(|_| Error::Execution {
-                message: "Python thread panicked".to_string(),
-            })??;
+        let exit_code = python_handle.join().map_err(|_| Error::Execution {
+            message: "Python thread panicked".to_string(),
+        })??;
 
         // Wait for streaming to complete
         streaming_task.await.map_err(|e| Error::Execution {
@@ -453,11 +453,14 @@ impl Executor for PythonExecutor {
                         .filter_map(|v| v.as_str().map(String::from))
                         .collect::<Vec<_>>()
                 });
-            let environment = params.get("environment").and_then(|e| e.as_object()).map(|obj| {
-                obj.iter()
-                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-                    .collect::<HashMap<_, _>>()
-            });
+            let environment = params
+                .get("environment")
+                .and_then(|e| e.as_object())
+                .map(|obj| {
+                    obj.iter()
+                        .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                        .collect::<HashMap<_, _>>()
+                });
 
             self.exec_script(
                 script,

@@ -42,7 +42,8 @@ impl DurableEngine {
 
             // Look up in catalogs
             let Some(catalogs) = ctx
-                .metadata.workflow
+                .metadata
+                .workflow
                 .use_
                 .as_ref()
                 .and_then(|use_| use_.catalogs.as_ref())
@@ -95,9 +96,7 @@ impl DurableEngine {
         let function_content = if function_url.starts_with("file://") {
             // Local file
             let path = function_url.strip_prefix("file://").unwrap();
-            tokio::fs::read_to_string(path)
-                .await
-                .context(IoSnafu)?
+            tokio::fs::read_to_string(path).await.context(IoSnafu)?
         } else {
             // HTTP(S) URL
             let response = reqwest::get(&function_url)

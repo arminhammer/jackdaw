@@ -110,9 +110,10 @@ impl TypeScriptExecutor {
 
             // Create a mock stdin object if stdin is provided
             if let Some(stdin_data) = &stdin {
-                let stdin_json = serde_json::to_string(stdin_data).map_err(|e| Error::Execution {
-                    message: format!("Failed to serialize stdin: {e}"),
-                })?;
+                let stdin_json =
+                    serde_json::to_string(stdin_data).map_err(|e| Error::Execution {
+                        message: format!("Failed to serialize stdin: {e}"),
+                    })?;
                 wrapper_script.push_str(&format!(
                     r#"
 // Mock stdin with readFileSync-like behavior
@@ -245,11 +246,12 @@ export default { stdout: capturedStdout, stderr: capturedStderr, exitCode: 0 };
             })?;
 
             // Get the default export
-            let result: Value = runtime
-                .get_value(Some(&module_handle), "default")
-                .map_err(|e| Error::Execution {
-                    message: format!("Failed to get script result: {e}"),
-                })?;
+            let result: Value =
+                runtime
+                    .get_value(Some(&module_handle), "default")
+                    .map_err(|e| Error::Execution {
+                        message: format!("Failed to get script result: {e}"),
+                    })?;
 
             Ok(result)
         })
@@ -315,19 +317,17 @@ impl crate::executor::Executor for TypeScriptExecutor {
                         .filter_map(|v| v.as_str().map(String::from))
                         .collect::<Vec<_>>()
                 });
-            let environment = params.get("environment").and_then(|e| e.as_object()).map(|obj| {
-                obj.iter()
-                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-                    .collect::<HashMap<_, _>>()
-            });
+            let environment = params
+                .get("environment")
+                .and_then(|e| e.as_object())
+                .map(|obj| {
+                    obj.iter()
+                        .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                        .collect::<HashMap<_, _>>()
+                });
 
-            self.exec_script(
-                script,
-                stdin,
-                arguments.as_deref(),
-                environment.as_ref(),
-            )
-            .await
+            self.exec_script(script, stdin, arguments.as_deref(), environment.as_ref())
+                .await
         } else {
             Err(Error::Execution {
                 message:

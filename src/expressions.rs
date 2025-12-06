@@ -99,8 +99,7 @@ impl ExpressionPreprocessor {
         // Transform: (.field + [...]) -> ((.field // []) + [...])
         // This ensures that if .field is null/missing, we treat it as an empty array
         // before appending new elements
-        let re = Regex::new(r"\((\.[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]*)*)\s*\+\s*\[")
-            .unwrap();
+        let re = Regex::new(r"\((\.[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]*)*)\s*\+\s*\[").unwrap();
         re.replace_all(expr, |caps: &regex::Captures| {
             format!("(({} // []) + [", &caps[1])
         })

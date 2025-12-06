@@ -95,7 +95,9 @@ async fn main() -> Result<(), Error> {
             // Initialize MultiProgress for coordinating progress bars and logs/traces
             let multi_progress = MultiProgress::new();
 
-            handle_run(workflows, config, multi_progress).await.context(RunSnafu)
+            handle_run(workflows, config, multi_progress)
+                .await
+                .context(RunSnafu)
         }
         Commands::Validate(args) => {
             // Initialize tracing/logging with indicatif bridge

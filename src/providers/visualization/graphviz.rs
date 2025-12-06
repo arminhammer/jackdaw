@@ -97,20 +97,11 @@ impl GraphvizProvider {
 
             // Sequential flow between tasks
             for i in 0..task_names.len() - 1 {
-                writeln!(
-                    dot,
-                    "  \"{}\" -> \"{}\";",
-                    task_names[i],
-                    task_names[i + 1]
-                ).unwrap();
+                writeln!(dot, "  \"{}\" -> \"{}\";", task_names[i], task_names[i + 1]).unwrap();
             }
 
             // Last task to end
-            writeln!(
-                dot,
-                "  \"{}\" -> end;",
-                task_names[task_names.len() - 1]
-            ).unwrap();
+            writeln!(dot, "  \"{}\" -> end;", task_names[task_names.len() - 1]).unwrap();
         }
 
         dot.push_str("}\n");
