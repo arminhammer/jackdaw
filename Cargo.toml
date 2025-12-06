@@ -10,6 +10,7 @@ serde_bytes = "=0.11.15"
 serde_yaml = "0.9"
 tokio = { version = "1", features = ["full"] }
 clap = { version = "4", features = ["derive"] }
+config = "0.15.15"
 tracing-indicatif = "0.3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -74,3 +75,21 @@ harness = false
 [[test]]
 name = "nested_workflow_tests"
 harness = false
+
+[[test]]
+name = "example_tests"
+harness = false
+
+# Optimized release profile for smaller, faster binaries
+[profile.release]
+opt-level = "z"          # Optimize for size
+lto = true               # Enable Link Time Optimization
+codegen-units = 1        # Better optimization, slower compile
+strip = true             # Strip symbols from binary
+panic = "abort"          # Smaller binary, no unwinding
+
+# Profile for release with debug info (useful for profiling production issues)
+[profile.release-with-debug]
+inherits = "release"
+strip = false
+debug = true

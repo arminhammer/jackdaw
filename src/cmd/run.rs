@@ -6,6 +6,7 @@ use snafu::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::config::RunConfig;
 use crate::durableengine::DurableEngine;
 use crate::output::filter_internal_fields;
 use crate::providers::cache::RedbCache;
@@ -87,8 +88,8 @@ pub struct RunArgs {
     pub workflows: Vec<PathBuf>,
 
     /// Path to the durable persistence database
-    #[arg(short = 'd', long, default_value = "workflow.db", value_name = "PATH")]
-    pub durable_db: PathBuf,
+    #[arg(short = 'd', long, value_name = "PATH")]
+    pub durable_db: Option<PathBuf>,
 
     /// Path to the cache database (if different from durable db)
     #[arg(short = 'c', long, value_name = "PATH")]
@@ -111,16 +112,38 @@ pub struct RunArgs {
     pub visualize: bool,
 
     /// Visualization tool to use (graphviz or d2)
-    #[arg(long, default_value = "d2", value_name = "VIZTOOL")]
-    pub viz_tool: String,
+    #[arg(long, value_name = "VIZTOOL")]
+    pub viz_tool: Option<String>,
 
     /// Visualization output format (svg, png, pdf, ascii)
-    #[arg(long, default_value = "svg", value_name = "FORMAT")]
-    pub viz_format: String,
+    #[arg(long, value_name = "FORMAT")]
+    pub viz_format: Option<String>,
 
     /// Visualization output path (optional, defaults to stdout for ascii)
     #[arg(long, value_name = "PATH")]
     pub viz_output: Option<PathBuf>,
+}
+
+impl RunArgs {
+    /// Merge CLI arguments with config file settings
+    /// CLI arguments take precedence over config file settings
+    pub fn merge_with_config(self, config: RunConfig) -> RunConfig {
+        RunConfig {
+            durable_db: self.durable_db.or(config.durable_db),
+            cache_db: self.cache_db.or(config.cache_db),
+            parallel: if self.parallel { true } else { config.parallel },
+            verbose: if self.verbose { true } else { config.verbose },
+            no_cache: if self.no_cache { true } else { config.no_cache },
+            visualize: if self.visualize {
+                true
+            } else {
+                config.visualize
+            },
+            viz_tool: self.viz_tool.or(config.viz_tool),
+            viz_format: self.viz_format.or(config.viz_format),
+            viz_output: self.viz_output.or(config.viz_output),
+        }
+    }
 }
 
 /// Discover all workflow files from the provided paths
@@ -142,7 +165,7 @@ fn discover_workflow_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
             }
         } else if path.is_dir() {
             // Directory - recursively find all workflow files
-            let entries = std::fs::read_dir(path).map_err(|e| Error::Io { source: e })?;
+            let entries = std::fs::read_dir(path).context(IoSnafu)?;
 
             for entry in entries {
                 let entry = entry?;
@@ -180,7 +203,7 @@ async fn execute_workflow(
     workflow_path: &PathBuf,
     engine: Arc<DurableEngine>,
     progress: Option<&ProgressBar>,
-    verbose: bool,
+    _verbose: bool,
 ) -> Result<(String, serde_json::Value, WorkflowDefinition)> {
     if let Some(pb) = progress {
         pb.set_message(format!("Loading {}", workflow_path.display()));
@@ -199,15 +222,6 @@ async fn execute_workflow(
     let (instance_id, result) = engine
         .start_with_input(workflow.clone(), serde_json::json!({}))
         .await?;
-
-    if verbose {
-        println!(
-            "{} Workflow '{}' started with instance ID: {}",
-            style("✓").green(),
-            workflow.document.name,
-            instance_id
-        );
-    }
 
     if let Some(pb) = progress {
         pb.finish_with_message(format!("Completed {}", workflow_path.display()));
@@ -233,7 +247,11 @@ fn parse_diagram_format(format_str: &str) -> Result<DiagramFormat> {
 }
 
 /// Handle the run subcommand
-pub async fn handle_run(args: RunArgs, multi_progress: MultiProgress) -> Result<()> {
+pub async fn handle_run(
+    workflows: Vec<PathBuf>,
+    config: RunConfig,
+    multi_progress: MultiProgress,
+) -> Result<()> {
     // Print banner
     println!(
         "{}\n",
@@ -243,9 +261,9 @@ pub async fn handle_run(args: RunArgs, multi_progress: MultiProgress) -> Result<
     );
 
     // Discover workflow files
-    let workflow_files = discover_workflow_files(&args.workflows)?;
+    let workflow_files = discover_workflow_files(&workflows)?;
 
-    if args.verbose {
+    if config.verbose {
         println!(
             "{} Found {} workflow file(s):",
             style("→").cyan(),
@@ -257,23 +275,29 @@ pub async fn handle_run(args: RunArgs, multi_progress: MultiProgress) -> Result<
         println!();
     }
 
+    // Get durable_db path, defaulting to "workflow.db" if not set
+    let durable_db = config
+        .durable_db
+        .clone()
+        .unwrap_or_else(|| PathBuf::from("workflow.db"));
+
     // Initialize persistence and cache
-    if args.verbose {
+    if config.verbose {
         println!("{} Initializing databases...", style("→").cyan());
-        println!("  • Durable DB: {}", args.durable_db.display());
-        if let Some(ref cache_db) = args.cache_db {
+        println!("  • Durable DB: {}", durable_db.display());
+        if let Some(ref cache_db) = config.cache_db {
             println!("  • Cache DB: {}", cache_db.display());
         } else {
-            println!("  • Cache DB: {} (shared)", args.durable_db.display());
+            println!("  • Cache DB: {} (shared)", durable_db.display());
         }
         println!();
     }
 
     let persistence = Arc::new(RedbPersistence::new(
-        args.durable_db.to_str().unwrap_or("workflow.db"),
+        durable_db.to_str().unwrap_or("workflow.db"),
     )?);
 
-    let cache = if let Some(cache_db_path) = args.cache_db {
+    let cache = if let Some(cache_db_path) = config.cache_db {
         // Separate cache database
         let cache_persistence = Arc::new(RedbPersistence::new(
             cache_db_path.to_str().unwrap_or("cache.db"),
@@ -287,7 +311,7 @@ pub async fn handle_run(args: RunArgs, multi_progress: MultiProgress) -> Result<
     let engine = Arc::new(DurableEngine::new(persistence.clone(), cache.clone())?);
 
     // Execute workflows
-    if args.parallel && workflow_files.len() > 1 {
+    if config.parallel && workflow_files.len() > 1 {
         // Parallel execution using futures::join_all
         multi_progress.println(format!(
             "{} Executing {} workflows in parallel...\n",
@@ -299,7 +323,7 @@ pub async fn handle_run(args: RunArgs, multi_progress: MultiProgress) -> Result<
             .iter()
             .map(|workflow_path| {
                 let engine_clone = engine.clone();
-                let verbose = args.verbose;
+                let verbose = config.verbose;
                 let path = workflow_path.clone();
                 let pb = multi_progress.add(ProgressBar::new_spinner());
                 pb.set_style(
@@ -329,28 +353,30 @@ pub async fn handle_run(args: RunArgs, multi_progress: MultiProgress) -> Result<
                         style("✓").green(),
                         style(path.display()).bold()
                     ))?;
-                    if args.verbose {
+                    if config.verbose {
                         let filtered = filter_internal_fields(&output);
                         multi_progress.println(serde_json::to_string_pretty(&filtered)?)?;
                     }
 
                     // Visualization if requested
-                    if args.visualize {
-                        let format = parse_diagram_format(&args.viz_format)?;
-                        let output_path = args.viz_output.as_deref();
+                    if config.visualize {
+                        let viz_format = config.viz_format.as_deref().unwrap_or("svg");
+                        let format = parse_diagram_format(viz_format)?;
+                        let output_path = config.viz_output.as_deref();
 
                         multi_progress.println(format!(
                             "\n{} Generating visualization...",
                             style("→").cyan()
                         ))?;
 
+                        let viz_tool = config.viz_tool.as_deref().unwrap_or("d2");
                         engine
                             .visualize_execution(
                                 &workflow,
                                 &instance_id,
                                 output_path,
                                 format,
-                                &args.viz_tool,
+                                viz_tool,
                             )
                             .await?;
 
@@ -392,35 +418,33 @@ pub async fn handle_run(args: RunArgs, multi_progress: MultiProgress) -> Result<
         );
 
         for workflow_path in workflow_files {
-            match execute_workflow(&workflow_path, engine.clone(), Some(&pb), args.verbose).await {
+            match execute_workflow(&workflow_path, engine.clone(), Some(&pb), config.verbose).await
+            {
                 Ok((instance_id, result, workflow)) => {
-                    multi_progress.println(format!(
-                        "{} Completed: {}",
-                        style("✓").green(),
-                        style(workflow_path.display()).bold()
-                    ))?;
-                    if args.verbose {
+                    if config.verbose {
                         let filtered = filter_internal_fields(&result);
                         multi_progress.println(serde_json::to_string_pretty(&filtered)?)?;
                     }
 
                     // Visualization if requested
-                    if args.visualize {
-                        let format = parse_diagram_format(&args.viz_format)?;
-                        let output_path = args.viz_output.as_deref();
+                    if config.visualize {
+                        let viz_format = config.viz_format.as_deref().unwrap_or("svg");
+                        let format = parse_diagram_format(viz_format)?;
+                        let output_path = config.viz_output.as_deref();
 
                         multi_progress.println(format!(
                             "\n{} Generating visualization...",
                             style("→").cyan()
                         ))?;
 
+                        let viz_tool = config.viz_tool.as_deref().unwrap_or("d2");
                         engine
                             .visualize_execution(
                                 &workflow,
                                 &instance_id,
                                 output_path,
                                 format,
-                                &args.viz_tool,
+                                viz_tool,
                             )
                             .await?;
 
@@ -448,12 +472,6 @@ pub async fn handle_run(args: RunArgs, multi_progress: MultiProgress) -> Result<
 
         pb.finish_with_message("All workflows completed");
     }
-
-    println!(
-        "\n{} {}",
-        style("✓").green().bold(),
-        style("All workflows executed successfully").bold()
-    );
 
     Ok(())
 }

@@ -2,6 +2,7 @@ use serverless_workflow_core::models::task::TaskDefinition;
 
 use crate::context::Context;
 use crate::output;
+use crate::task_ext::TaskDefinitionExt;
 
 use super::{DurableEngine, Result};
 
@@ -33,34 +34,18 @@ impl DurableEngine {
         task: &TaskDefinition,
         ctx: &Context,
     ) -> Result<serde_json::Value> {
-        // Determine task type for display
-        let task_type = match task {
-            TaskDefinition::Call(_) => "Call",
-            TaskDefinition::Set(_) => "Set",
-            TaskDefinition::Fork(_) => "Fork",
-            TaskDefinition::Run(_) => "Run",
-            TaskDefinition::Do(_) => "Do",
-            TaskDefinition::For(_) => "For",
-            TaskDefinition::Switch(_) => "Switch",
-            TaskDefinition::Try(_) => "Try",
-            TaskDefinition::Emit(_) => "Emit",
-            TaskDefinition::Raise(_) => "Raise",
-            TaskDefinition::Wait(_) => "Wait",
-            TaskDefinition::Listen(_) => "Listen",
-        };
-
         // Format task start
-        output::format_task_start(task_name, task_type);
+        output::format_task_start(task_name, task.type_name());
 
         // Show current context
-        let current_context = ctx.data.read().await.clone();
+        let current_context = ctx.state.data.read().await.clone();
         output::format_task_context(&current_context);
 
         // Apply input filtering if specified
         let _has_input_filter = self.apply_input_filter(task, ctx).await?;
 
         // Show input after filtering
-        let input_data = ctx.data.read().await.clone();
+        let input_data = ctx.state.data.read().await.clone();
         output::format_task_input(&input_data);
 
         // Execute the task
@@ -103,29 +88,14 @@ impl DurableEngine {
         task: &TaskDefinition,
         ctx: &Context,
     ) -> Result<bool> {
-        // Get the common task fields to check for input.from
-        let input_config = match task {
-            TaskDefinition::Call(t) => t.common.input.as_ref(),
-            TaskDefinition::Set(t) => t.common.input.as_ref(),
-            TaskDefinition::Fork(t) => t.common.input.as_ref(),
-            TaskDefinition::Run(t) => t.common.input.as_ref(),
-            TaskDefinition::Do(t) => t.common.input.as_ref(),
-            TaskDefinition::For(t) => t.common.input.as_ref(),
-            TaskDefinition::Switch(t) => t.common.input.as_ref(),
-            TaskDefinition::Try(t) => t.common.input.as_ref(),
-            TaskDefinition::Emit(t) => t.common.input.as_ref(),
-            TaskDefinition::Raise(t) => t.common.input.as_ref(),
-            _ => None,
-        };
-
-        if let Some(input) = input_config
+        if let Some(input) = task.input()
             && let Some(from_expr) = &input.from
             && let Some(expr_str) = from_expr.as_str()
         {
-            let current_data = ctx.data.read().await.clone();
+            let current_data = ctx.state.data.read().await.clone();
             // Input filtering uses jq expressions directly (not wrapped in ${ })
             let filtered = crate::expressions::evaluate_jq(expr_str, &current_data)?;
-            *ctx.data.write().await = filtered;
+            *ctx.state.data.write().await = filtered;
             return Ok(true);
         }
 
@@ -143,9 +113,9 @@ async fn exec_set_task(
     use serverless_workflow_core::models::task::SetValue;
 
     // Get current context data for expression evaluation
-    let current_data = ctx.data.read().await.clone();
+    let current_data = ctx.state.data.read().await.clone();
 
-    let task_input = ctx.task_input.read().await.clone();
+    let task_input = ctx.state.task_input.read().await.clone();
 
     match &set_task.set {
         SetValue::Map(map) => {
@@ -189,42 +159,10 @@ async fn exec_do_task(
             let result = Box::pin(engine.exec_task(subtask_name, subtask, ctx)).await?;
 
             // Update task_input for the next subtask
-            *ctx.task_input.write().await = result.clone();
+            *ctx.state.task_input.write().await = result.clone();
 
             // Handle export.as for subtasks (same logic as main execution loop)
-            let export_config = match subtask {
-                TaskDefinition::Call(t) => t.common.export.as_ref(),
-                TaskDefinition::Do(t) => t.common.export.as_ref(),
-                TaskDefinition::Emit(t) => t.common.export.as_ref(),
-                TaskDefinition::For(t) => t.common.export.as_ref(),
-                TaskDefinition::Fork(t) => t.common.export.as_ref(),
-                TaskDefinition::Listen(t) => t.common.export.as_ref(),
-                TaskDefinition::Raise(t) => t.common.export.as_ref(),
-                TaskDefinition::Run(t) => t.common.export.as_ref(),
-                TaskDefinition::Set(t) => t.common.export.as_ref(),
-                TaskDefinition::Switch(t) => t.common.export.as_ref(),
-                TaskDefinition::Try(t) => t.common.export.as_ref(),
-                TaskDefinition::Wait(t) => t.common.export.as_ref(),
-            };
-
-            if let Some(export_def) = export_config {
-                if let Some(export_expr) = &export_def.as_
-                    && let Some(expr_str) = export_expr.as_str()
-                {
-                    let new_context = crate::expressions::evaluate_expression(expr_str, &result)?;
-                    *ctx.data.write().await = new_context;
-                }
-            } else {
-                // No explicit export.as - apply default behavior (merge into context)
-                let mut current_context = ctx.data.write().await;
-                if let serde_json::Value::Object(result_obj) = &result
-                    && let Some(context_obj) = (*current_context).as_object_mut()
-                {
-                    for (key, value) in result_obj {
-                        context_obj.insert(key.clone(), value.clone());
-                    }
-                }
-            }
+            super::export::apply_export_to_context(subtask, &result, ctx).await?;
 
             last_result = result;
         }

@@ -13,6 +13,7 @@ impl Executor for OpenApiExecutor {
         task_name: &str,
         params: &serde_json::Value,
         ctx: &Context,
+        _streamer: Option<crate::task_output::TaskOutputStreamer>,
     ) -> Result<serde_json::Value> {
         // Extract document endpoint
         let doc_endpoint = params
@@ -558,13 +559,13 @@ async fn evaluate_parameters(
 ) -> Result<serde_json::Value> {
     if let Some(obj) = parameters.as_object() {
         let mut result = serde_json::Map::new();
-        let current_data = ctx.data.read().await.clone();
+        let current_data = ctx.state.data.read().await.clone();
 
         for (key, value) in obj {
             let evaluated = crate::expressions::evaluate_value_with_input(
                 value,
                 &current_data,
-                &ctx.initial_input,
+                &ctx.metadata.initial_input,
             )
             .map_err(|e| Error::Execution {
                 message: format!("Failed to evaluate parameter '{key}': {e}"),
