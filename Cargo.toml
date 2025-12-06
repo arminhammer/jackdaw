@@ -45,7 +45,7 @@ http-body-util = "0.1"
 openapiv3-extended = { version = "6.0", features = ["v2"] }
 redb = "2"
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "postgres", "chrono", "json", "uuid"] }
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls"] }
 
 # Python execution with pyo3
 # Using abi3 for stable ABI compatibility, avoiding need for specific libpython version

@@ -140,12 +140,14 @@ build-release-optimized:
     cargo build --release
 
 # Build static Linux binary (x86_64, musl)
+# Note: Builds V8 from source (takes 30-60 minutes on first build)
 build-linux-amd64:
-    cargo zigbuild --release --target x86_64-unknown-linux-musl
+    V8_FROM_SOURCE=1 cargo zigbuild --release --target x86_64-unknown-linux-musl
 
 # Build static Linux binary (ARM64, musl)
+# Note: Builds V8 from source (takes 30-60 minutes on first build)
 build-linux-arm64:
-    cargo zigbuild --release --target aarch64-unknown-linux-musl
+    V8_FROM_SOURCE=1 cargo zigbuild --release --target aarch64-unknown-linux-musl
 
 # Build macOS binary (Intel)
 build-macos-amd64:
@@ -205,3 +207,32 @@ show-binary-sizes:
     @ls -lh target/x86_64-unknown-linux-musl/release/jackdaw 2>/dev/null || echo "  x86_64-linux-musl: not built"
     @ls -lh target/aarch64-unknown-linux-musl/release/jackdaw 2>/dev/null || echo "  aarch64-linux-musl: not built"
     @ls -lh target/universal-apple-darwin/release/jackdaw 2>/dev/null || echo "  universal-apple-darwin: not built"
+
+# ============================================================================
+# Docker Builds
+# ============================================================================
+
+# Build static Linux binary in Docker (includes V8 from source)
+docker-build-linux-amd64:
+    docker build -f Dockerfile.build -t jackdaw-builder:latest .
+    docker create --name jackdaw-extract jackdaw-builder:latest
+    docker cp jackdaw-extract:/jackdaw ./target/jackdaw-linux-amd64
+    docker rm jackdaw-extract
+    @echo "✓ Static binary extracted to: ./target/jackdaw-linux-amd64"
+    @ls -lh ./target/jackdaw-linux-amd64
+
+# Build and extract binary in one command
+docker-build-extract:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Building static binary in Docker (this will take 30-60 minutes on first build)..."
+    docker build -f Dockerfile.build -t jackdaw-builder:latest .
+    echo "Extracting binary..."
+    mkdir -p dist
+    docker create --name jackdaw-extract jackdaw-builder:latest
+    docker cp jackdaw-extract:/jackdaw ./dist/jackdaw-linux-amd64
+    docker rm jackdaw-extract
+    echo "✓ Static binary ready: ./dist/jackdaw-linux-amd64"
+    ls -lh ./dist/jackdaw-linux-amd64
+    echo "Verifying static binary..."
+    file ./dist/jackdaw-linux-amd64

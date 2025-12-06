@@ -51,16 +51,6 @@ do:
             - fmt
             - --check
 
-  - formatCheck2:
-      input:
-        from: .computed_hash
-      run:
-        shell:
-          command: cargo
-          arguments:
-            - fmt
-            - --check
-
   # - clippyCheck:
   #     input:
   #       from: .computed_hash
@@ -71,4 +61,26 @@ do:
   #           - clippy
   #           - --
   #           - -D
-  #           - warnings
+  #           - warning
+
+  - runTests:
+      input:
+        from: .computed_hash
+      run:
+        shell:
+          command: cargo
+          arguments:
+            - test
+            - --workspace
+            - --all-features
+            - --verbose
+
+  - buildRelease:
+      input:
+        from: .computed_hash
+      run:
+        shell:
+          command: cargo
+          arguments:
+            - build
+            - --release
