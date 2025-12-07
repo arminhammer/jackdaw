@@ -428,7 +428,15 @@ impl Service<http::Request<BoxBody>> for MultiMethodServiceWrapper {
                 let body = Full::new(Bytes::new())
                     .map_err(|_: std::convert::Infallible| Status::internal("unreachable"));
                 let boxed = BoxBody::new(body);
-                let response = http::Response::builder().status(404).body(boxed).unwrap();
+                let response = http::Response::builder()
+                    .status(404)
+                    .body(boxed)
+                    .unwrap_or_else(|_| {
+                        let body = Full::new(Bytes::new())
+                            .map_err(|_: std::convert::Infallible| Status::internal("unreachable"));
+                        let boxed = BoxBody::new(body);
+                        http::Response::new(boxed)
+                    });
                 return Ok(response);
             }
 
@@ -449,12 +457,10 @@ impl Service<http::Request<BoxBody>> for MultiMethodServiceWrapper {
                         .header("grpc-message", "Failed to read request body")
                         .body(boxed)
                         .unwrap_or_else(|_| {
-                            let body =
-                                Full::new(Bytes::new()).map_err(|_: std::convert::Infallible| {
-                                    Status::internal("unreachable")
-                                });
+                            let body = Full::new(Bytes::new())
+                                .map_err(|_: std::convert::Infallible| Status::internal("unreachable"));
                             let boxed = BoxBody::new(body);
-                            http::Response::builder().status(500).body(boxed).unwrap()
+                            http::Response::new(boxed)
                         });
                     return Ok(response);
                 }
@@ -462,8 +468,8 @@ impl Service<http::Request<BoxBody>> for MultiMethodServiceWrapper {
             let mut request_bytes = body_bytes.to_bytes();
 
             println!("  Raw body length: {}", request_bytes.len());
-            if request_bytes.len() > 5 {
-                println!("  First 5 bytes: {:?}", &request_bytes[0..5]);
+            if let Some(first_bytes) = request_bytes.get(0..5) {
+                println!("  First 5 bytes: {:?}", first_bytes);
             }
 
             // gRPC uses a 5-byte frame: [compressed flag (1 byte)][message length (4 bytes)][message]
@@ -491,12 +497,10 @@ impl Service<http::Request<BoxBody>> for MultiMethodServiceWrapper {
                         .header("grpc-status", "0")
                         .body(boxed)
                         .unwrap_or_else(|_| {
-                            let body =
-                                Full::new(Bytes::new()).map_err(|_: std::convert::Infallible| {
-                                    Status::internal("unreachable")
-                                });
+                            let body = Full::new(Bytes::new())
+                                .map_err(|_: std::convert::Infallible| Status::internal("unreachable"));
                             let boxed = BoxBody::new(body);
-                            http::Response::builder().status(500).body(boxed).unwrap()
+                            http::Response::new(boxed)
                         });
                     Ok(response)
                 }
@@ -511,12 +515,10 @@ impl Service<http::Request<BoxBody>> for MultiMethodServiceWrapper {
                         .header("grpc-message", status.message())
                         .body(boxed)
                         .unwrap_or_else(|_| {
-                            let body =
-                                Full::new(Bytes::new()).map_err(|_: std::convert::Infallible| {
-                                    Status::internal("unreachable")
-                                });
+                            let body = Full::new(Bytes::new())
+                                .map_err(|_: std::convert::Infallible| Status::internal("unreachable"));
                             let boxed = BoxBody::new(body);
-                            http::Response::builder().status(500).body(boxed).unwrap()
+                            http::Response::new(boxed)
                         });
                     Ok(response)
                 }

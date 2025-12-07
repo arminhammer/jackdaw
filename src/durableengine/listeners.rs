@@ -110,7 +110,12 @@ impl DurableEngine {
                             })?;
 
                         let parts: Vec<&str> = without_scheme.splitn(2, '/').collect();
-                        let mut bind_addr = parts[0].to_string();
+                        let mut bind_addr = parts
+                            .first()
+                            .ok_or_else(|| Error::Listener {
+                                message: "Invalid gRPC URI: missing bind address".to_string(),
+                            })?
+                            .to_string();
 
                         // Convert localhost to 127.0.0.1 for SocketAddr parsing
                         if bind_addr.starts_with("localhost:") {
