@@ -306,7 +306,10 @@ impl DurableEngine {
                             message: format!("Workflow failed: {error}"),
                         });
                     }
-                    _ => {}
+                    WorkflowEvent::WorkflowStarted { .. }
+                    | WorkflowEvent::TaskStarted { .. }
+                    | WorkflowEvent::TaskEntered { .. }
+                    | WorkflowEvent::TaskCompleted { .. } => {}
                 }
             }
 
@@ -440,7 +443,12 @@ impl DurableEngine {
                     message: format!("Next task not found: {next_name}"),
                 })?;
             } else if has_next_edge {
-                current = graph.neighbors(current).next().unwrap();
+                current = graph
+                    .neighbors(current)
+                    .next()
+                    .ok_or(Error::TaskExecution {
+                        message: format!("Next task edge missing after task: {task_name}"),
+                    })?;
             } else {
                 break;
             }

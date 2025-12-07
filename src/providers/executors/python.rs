@@ -24,7 +24,9 @@ struct StreamWriter {
 impl StreamWriter {
     fn write(&self, s: &str) -> PyResult<usize> {
         let len = s.len();
-        let mut buffer = self.buffer.lock().unwrap();
+        let mut buffer = self.buffer.lock().map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!("Lock poisoned: {e}"))
+        })?;
         buffer.push_str(s);
 
         // Send complete lines immediately through the channel
@@ -40,7 +42,9 @@ impl StreamWriter {
 
     fn flush(&self) -> PyResult<()> {
         // Flush any remaining buffered content as a final line
-        let mut buffer = self.buffer.lock().unwrap();
+        let mut buffer = self.buffer.lock().map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!("Lock poisoned: {e}"))
+        })?;
         if !buffer.is_empty() {
             let _ = self.sender.send(buffer.clone());
             buffer.clear();
@@ -100,7 +104,9 @@ impl PythonExecutor {
         // Check cache first - need to acquire GIL for clone_ref
         Python::with_gil(|py| {
             {
-                let cache = self.function_cache.lock().unwrap();
+                let cache = self.function_cache.lock().map_err(|e| Error::Execution {
+                    message: format!("Failed to acquire function cache lock: {e}"),
+                })?;
                 if let Some(func) = cache.get(&cache_key) {
                     return Ok(func.clone_ref(py));
                 }
@@ -128,7 +134,9 @@ impl PythonExecutor {
 
             // Cache and return the unbound function object
             let func_obj = function.unbind();
-            let mut cache = self.function_cache.lock().unwrap();
+            let mut cache = self.function_cache.lock().map_err(|e| Error::Execution {
+                message: format!("Failed to acquire function cache lock: {e}"),
+            })?;
             cache.insert(cache_key, func_obj.clone_ref(py));
 
             Ok(func_obj)
@@ -365,7 +373,10 @@ impl PythonExecutor {
                                 });
                             });
                         }
-                        stdout_lines.lock().unwrap().push(line);
+                        stdout_lines
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .push(line);
                     }
                 })
             };
@@ -382,7 +393,10 @@ impl PythonExecutor {
                                 });
                             });
                         }
-                        stderr_lines.lock().unwrap().push(line);
+                        stderr_lines
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .push(line);
                     }
                 })
             };
@@ -401,8 +415,18 @@ impl PythonExecutor {
         })?;
 
         // Collect final output
-        let stdout_str = stdout_lines.lock().unwrap().join("\n");
-        let stderr_str = stderr_lines.lock().unwrap().join("\n");
+        let stdout_str = stdout_lines
+            .lock()
+            .map_err(|e| Error::Execution {
+                message: format!("Mutex poisoned: {e}"),
+            })?
+            .join("\n");
+        let stderr_str = stderr_lines
+            .lock()
+            .map_err(|e| Error::Execution {
+                message: format!("Mutex poisoned: {e}"),
+            })?
+            .join("\n");
 
         Ok(serde_json::json!({
             "stdout": stdout_str,
