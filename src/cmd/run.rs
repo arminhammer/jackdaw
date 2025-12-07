@@ -6,7 +6,7 @@ use snafu::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::config::RunConfig;
+use crate::config::JackdawConfig;
 use crate::durableengine::DurableEngine;
 use crate::output::filter_internal_fields;
 use crate::providers::cache::RedbCache;
@@ -127,8 +127,8 @@ pub struct RunArgs {
 impl RunArgs {
     /// Merge CLI arguments with config file settings
     /// CLI arguments take precedence over config file settings
-    pub fn merge_with_config(self, config: RunConfig) -> RunConfig {
-        RunConfig {
+    pub fn merge_with_config(self, config: JackdawConfig) -> JackdawConfig {
+        JackdawConfig {
             durable_db: self.durable_db.or(config.durable_db),
             cache_db: self.cache_db.or(config.cache_db),
             parallel: if self.parallel { true } else { config.parallel },
@@ -249,7 +249,7 @@ fn parse_diagram_format(format_str: &str) -> Result<DiagramFormat> {
 /// Handle the run subcommand
 pub async fn handle_run(
     workflows: Vec<PathBuf>,
-    config: RunConfig,
+    config: JackdawConfig,
     multi_progress: MultiProgress,
 ) -> Result<()> {
     // Print banner

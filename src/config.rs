@@ -2,19 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// Global configuration for Jackdaw
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct JackdawConfig {
-    #[serde(default)]
-    pub run: RunConfig,
-    #[serde(default)]
-    pub validate: ValidateConfig,
-    #[serde(default)]
-    pub visualize: VisualizeConfig,
-}
-
-/// Configuration for the 'run' command
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RunConfig {
+pub struct JackdawConfig {
     /// Path to the durable persistence database
     pub durable_db: Option<PathBuf>,
 
@@ -47,7 +36,7 @@ pub struct RunConfig {
     pub viz_output: Option<PathBuf>,
 }
 
-impl Default for RunConfig {
+impl Default for JackdawConfig {
     fn default() -> Self {
         Self {
             durable_db: Some(PathBuf::from("workflow.db")),
@@ -59,37 +48,6 @@ impl Default for RunConfig {
             viz_tool: Some("d2".to_string()),
             viz_format: Some("svg".to_string()),
             viz_output: None,
-        }
-    }
-}
-
-/// Configuration for the 'validate' command
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ValidateConfig {
-    /// Show verbose output including all expressions checked
-    #[serde(default)]
-    pub verbose: bool,
-}
-
-/// Configuration for the 'visualize' command
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VisualizeConfig {
-    /// Path to the durable persistence database
-    pub durable_db: Option<PathBuf>,
-
-    /// Visualization tool to use (graphviz or d2)
-    pub tool: Option<String>,
-
-    /// Output format (svg, png, pdf, ascii)
-    pub format: Option<String>,
-}
-
-impl Default for VisualizeConfig {
-    fn default() -> Self {
-        Self {
-            durable_db: Some(PathBuf::from("workflow.db")),
-            tool: Some("graphviz".to_string()),
-            format: Some("svg".to_string()),
         }
     }
 }
