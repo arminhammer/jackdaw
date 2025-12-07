@@ -38,7 +38,14 @@ impl DurableEngine {
                     message: format!("Invalid catalog function reference: {function_name}"),
                 });
             }
-            let (name, version) = (parts[0], parts[1]);
+            let (name, version) = (
+                parts.first().ok_or_else(|| Error::Configuration {
+                    message: format!("Invalid catalog function reference: {function_name}"),
+                })?,
+                parts.get(1).ok_or_else(|| Error::Configuration {
+                    message: format!("Invalid catalog function reference: {function_name}"),
+                })?,
+            );
 
             // Look up in catalogs
             let Some(catalogs) = ctx
@@ -99,7 +106,12 @@ impl DurableEngine {
         // Load the function definition
         let function_content = if function_url.starts_with("file://") {
             // Local file
-            let path = function_url.strip_prefix("file://").unwrap();
+            let path =
+                function_url
+                    .strip_prefix("file://")
+                    .ok_or_else(|| Error::Configuration {
+                        message: format!("Invalid file:// URI: {function_url}"),
+                    })?;
             tokio::fs::read_to_string(path).await.context(IoSnafu)?
         } else {
             // HTTP(S) URL

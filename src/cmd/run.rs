@@ -82,6 +82,7 @@ impl From<serde_json::Error> for Error {
 }
 
 #[derive(Parser, Debug)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct RunArgs {
     /// Workflow file(s) to execute. Can be a single file, multiple files, or a directory
     #[arg(required = true, value_name = "WORKFLOW")]
@@ -158,8 +159,8 @@ fn discover_workflow_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
             } else {
                 return Err(Error::InvalidWorkflowFile {
                     message: format!(
-                        "File {:?} is not a valid workflow file (.yaml or .yml)",
-                        path
+                        "File {} is not a valid workflow file (.yaml or .yml)",
+                        path.display()
                     ),
                 });
             }
@@ -176,7 +177,7 @@ fn discover_workflow_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
             }
         } else {
             return Err(Error::Path {
-                message: format!("Path {:?} does not exist", path),
+                message: format!("Path {} does not exist", path.display()),
             });
         }
     }
@@ -194,8 +195,7 @@ fn discover_workflow_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
 fn is_workflow_file(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
-        .map(|ext| ext == "yaml" || ext == "yml")
-        .unwrap_or(false)
+        .is_some_and(|ext| ext == "yaml" || ext == "yml")
 }
 
 /// Execute a single workflow with progress indication
@@ -238,10 +238,7 @@ fn parse_diagram_format(format_str: &str) -> Result<DiagramFormat> {
         "pdf" => Ok(DiagramFormat::Pdf),
         "ascii" => Ok(DiagramFormat::Ascii),
         _ => Err(Error::InvalidWorkflowFile {
-            message: format!(
-                "Invalid format '{}'. Valid formats: svg, png, pdf, ascii",
-                format_str
-            ),
+            message: format!("Invalid format '{format_str}'. Valid formats: svg, png, pdf, ascii"),
         }),
     }
 }
@@ -326,14 +323,20 @@ pub async fn handle_run(
                 let verbose = config.verbose;
                 let path = workflow_path.clone();
                 let pb = multi_progress.add(ProgressBar::new_spinner());
-                pb.set_style(
-                    ProgressStyle::default_spinner()
-                        .template("{spinner:.cyan} {msg}")
-                        .unwrap(),
-                );
-                pb.enable_steady_tick(std::time::Duration::from_millis(100));
+                let style_result = ProgressStyle::default_spinner()
+                    .template("{spinner:.cyan} {msg}")
+                    .map_err(|e| Error::Progress {
+                        source: std::io::Error::other(e.to_string()),
+                    });
 
                 async move {
+                    let style = match style_result {
+                        Ok(s) => s,
+                        Err(e) => return (path, Err(e)),
+                    };
+                    pb.set_style(style);
+                    pb.enable_steady_tick(std::time::Duration::from_millis(100));
+
                     let result = execute_workflow(&path, engine_clone, Some(&pb), verbose).await;
                     pb.finish_and_clear();
                     (path, result)
@@ -390,7 +393,7 @@ pub async fn handle_run(
                     }
                 }
                 Err(e) => {
-                    let error_msg = format!("{}", e);
+                    let error_msg = format!("{e}");
                     multi_progress.println(format!(
                         "\n{} {} - {}",
                         style("✗").red(),
@@ -413,7 +416,9 @@ pub async fn handle_run(
         pb.set_style(
             ProgressStyle::default_bar()
                 .template("{spinner:.cyan} [{bar:40.cyan/blue}] {pos}/{len} {msg}")
-                .unwrap()
+                .map_err(|e| Error::Progress {
+                    source: std::io::Error::other(e.to_string()),
+                })?
                 .progress_chars("#>-"),
         );
 

@@ -69,15 +69,20 @@ impl DurableEngine {
                             })?;
 
                         let parts: Vec<&str> = without_scheme.splitn(2, '/').collect();
-                        let mut bind_addr = parts[0].to_string();
+                        let mut bind_addr = parts
+                            .first()
+                            .ok_or_else(|| Error::Listener {
+                                message: "Invalid gRPC URI: missing bind address".to_string(),
+                            })?
+                            .to_string();
 
                         // Convert localhost to 127.0.0.1 for SocketAddr parsing
                         if bind_addr.starts_with("localhost:") {
                             bind_addr = bind_addr.replace("localhost:", "127.0.0.1:");
                         }
 
-                        let path = if parts.len() > 1 {
-                            format!("/{}", parts[1])
+                        let path = if let Some(path_part) = parts.get(1) {
+                            format!("/{path_part}")
                         } else {
                             "/".to_string()
                         };
@@ -113,13 +118,9 @@ impl DurableEngine {
                         }
 
                         // Extract service and method from the path (e.g., "calculator.Calculator/Add")
-                        let method_path = if parts.len() > 1 {
-                            parts[1]
-                        } else {
-                            return Err(Error::Listener {
-                                message: "gRPC URI must include service/method path".to_string(),
-                            });
-                        };
+                        let method_path = parts.get(1).ok_or_else(|| Error::Listener {
+                            message: "gRPC URI must include service/method path".to_string(),
+                        })?;
 
                         let method_parts: Vec<&str> = method_path.split('/').collect();
                         if method_parts.len() != 2 {
@@ -128,8 +129,16 @@ impl DurableEngine {
                                     .to_string(),
                             });
                         }
-                        let service_name = method_parts[0].to_string();
-                        let method_name = method_parts[1].to_string();
+                        let service_name =
+                            (*method_parts.first().ok_or_else(|| Error::Listener {
+                                message: "Missing service name in gRPC method path".to_string(),
+                            })?)
+                            .to_string();
+                        let method_name =
+                            (*method_parts.get(1).ok_or_else(|| Error::Listener {
+                                message: "Missing method name in gRPC method path".to_string(),
+                            })?)
+                            .to_string();
 
                         let proto_path = schema_path_opt.ok_or_else(|| Error::Listener {
                             message: "gRPC listener requires proto schema".to_string(),
@@ -464,7 +473,12 @@ fn dynamic_message_to_json(msg: &prost_reflect::DynamicMessage) -> serde_json::V
             Value::Bool(b) => serde_json::json!(b),
             Value::String(s) => serde_json::json!(s),
             Value::Bytes(b) => serde_json::json!(BASE64_STANDARD.encode(b)),
-            _ => serde_json::Value::Null,
+            Value::F32(_)
+            | Value::F64(_)
+            | Value::EnumNumber(_)
+            | Value::Message(_)
+            | Value::List(_)
+            | Value::Map(_) => serde_json::Value::Null,
         };
         json_map.insert(field.name().to_string(), json_value);
     }
@@ -497,7 +511,9 @@ fn json_to_dynamic_message(
                     }
                     serde_json::Value::String(s) => Value::String(s.clone()),
                     serde_json::Value::Bool(b) => Value::Bool(*b),
-                    _ => continue,
+                    serde_json::Value::Null
+                    | serde_json::Value::Array(_)
+                    | serde_json::Value::Object(_) => continue,
                 };
                 msg.set_field(&field, field_value);
             }
