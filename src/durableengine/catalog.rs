@@ -63,7 +63,11 @@ impl DurableEngine {
 
                 // Build function URL based on catalog structure
                 let url = if catalog_uri.starts_with("file://") {
-                    let base_path = catalog_uri.strip_prefix("file://").unwrap();
+                    let base_path = catalog_uri.strip_prefix("file://").ok_or_else(|| {
+                        Error::Configuration {
+                            message: format!("Invalid file:// URI: {catalog_uri}"),
+                        }
+                    })?;
                     format!("file://{base_path}/{name}/{version}/function.yaml")
                 } else if catalog_uri.starts_with("http://") || catalog_uri.starts_with("https://")
                 {

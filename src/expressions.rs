@@ -343,6 +343,6 @@ pub fn evaluate_value_with_input(value: &Value, context: &Value, input: &Value) 
             }
             Ok(Value::Array(result))
         }
-        other => Ok(other.clone()),
+        Value::Null | Value::Bool(_) | Value::Number(_) => Ok(value.clone()),
     }
 }

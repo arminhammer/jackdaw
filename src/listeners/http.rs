@@ -135,19 +135,25 @@ impl Listener for HttpListener {
 
         // Spawn server in background
         let server_handle = tokio::spawn(async move {
-            let listener = tokio::net::TcpListener::bind(addr)
-                .await
-                .expect("Failed to bind");
+            let listener = match tokio::net::TcpListener::bind(addr).await {
+                Ok(l) => l,
+                Err(e) => {
+                    tracing::error!("Failed to bind to {}: {}", addr, e);
+                    return;
+                }
+            };
 
             tracing::info!("HTTP server listening on {}", addr);
 
             // Convert the stateless router into a make_service
-            axum::serve(listener, app.into_make_service())
+            if let Err(e) = axum::serve(listener, app.into_make_service())
                 .with_graceful_shutdown(async {
                     shutdown_rx.await.ok();
                 })
                 .await
-                .expect("Server error");
+            {
+                tracing::error!("Server error: {}", e);
+            }
         });
 
         // Store server handle
