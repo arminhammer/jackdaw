@@ -123,14 +123,15 @@ pub async fn exec_run_task(
         let environment_display = script.environment.as_ref().and_then(|env| {
             let mut evaluated_env = serde_json::Map::new();
             for (key, value) in env {
-                if let Ok(evaluated) = crate::expressions::evaluate_value_with_input(
+                if let Some(evaluated) = crate::expressions::evaluate_value_with_input(
                     &serde_json::Value::String(value.clone()),
                     &current_data,
                     &ctx.metadata.initial_input,
-                ) {
-                    if let Some(s) = evaluated.as_str() {
-                        evaluated_env.insert(key.clone(), serde_json::Value::String(s.to_string()));
-                    }
+                )
+                .ok()
+                .and_then(|v| v.as_str().map(|s| (key.clone(), s.to_string())))
+                {
+                    evaluated_env.insert(evaluated.0, serde_json::Value::String(evaluated.1));
                 }
             }
             if evaluated_env.is_empty() {
@@ -151,7 +152,7 @@ pub async fn exec_run_task(
             .executors
             .get(&language)
             .ok_or(Error::TaskExecution {
-                message: format!("No executor found for language: {}", language),
+                message: format!("No executor found for language: {language}"),
             })?;
 
         // Get script code - either inline or from external source
@@ -165,7 +166,12 @@ pub async fn exec_run_task(
 
             if source_uri.starts_with("file://") {
                 // Load from local file
-                let file_path = source_uri.strip_prefix("file://").unwrap();
+                let file_path =
+                    source_uri
+                        .strip_prefix("file://")
+                        .ok_or_else(|| Error::Configuration {
+                            message: format!("Invalid file URI format: {source_uri}"),
+                        })?;
                 tokio::fs::read_to_string(file_path)
                     .await
                     .context(IoSnafu)?
@@ -254,12 +260,12 @@ pub async fn exec_run_task(
             "arguments": arguments
         });
 
-        if let Some(stdin_val) = stdin {
-            script_params["stdin"] = serde_json::Value::String(stdin_val);
+        if let (Some(stdin_val), Some(obj)) = (stdin, script_params.as_object_mut()) {
+            obj.insert("stdin".to_string(), serde_json::Value::String(stdin_val));
         }
 
-        if let Some(env_val) = environment {
-            script_params["environment"] = env_val;
+        if let (Some(env_val), Some(obj)) = (environment, script_params.as_object_mut()) {
+            obj.insert("environment".to_string(), env_val);
         }
 
         // Create streamer for real-time output streaming (before execution)

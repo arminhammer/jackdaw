@@ -30,10 +30,15 @@ pub async fn exec_raise_task(
 
     // Add optional fields if present
     if let Some(detail) = &error_def.detail {
-        error_obj.as_object_mut().unwrap().insert(
-            "detail".to_string(),
-            serde_json::Value::String(detail.clone()),
-        );
+        error_obj
+            .as_object_mut()
+            .ok_or_else(|| Error::Configuration {
+                message: "Error object is not a valid JSON object".to_string(),
+            })?
+            .insert(
+                "detail".to_string(),
+                serde_json::Value::String(detail.clone()),
+            );
     }
 
     // Add the instance field - this should be the path to the task in the workflow
@@ -41,7 +46,9 @@ pub async fn exec_raise_task(
     let task_path = format!("/do/0/{task_name}");
     error_obj
         .as_object_mut()
-        .unwrap()
+        .ok_or_else(|| Error::Configuration {
+            message: "Error object is not a valid JSON object".to_string(),
+        })?
         .insert("instance".to_string(), serde_json::Value::String(task_path));
 
     // Serialize the error to a JSON string for the error message

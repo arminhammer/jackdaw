@@ -73,7 +73,17 @@ pub async fn exec_call_task(
                 TaskDefinition::Call(call_def) => {
                     (&call_def.call, call_def.with.clone().unwrap_or_default())
                 }
-                _ => {
+                TaskDefinition::Do(_)
+                | TaskDefinition::Fork(_)
+                | TaskDefinition::Emit(_)
+                | TaskDefinition::For(_)
+                | TaskDefinition::Listen(_)
+                | TaskDefinition::Raise(_)
+                | TaskDefinition::Run(_)
+                | TaskDefinition::Set(_)
+                | TaskDefinition::Switch(_)
+                | TaskDefinition::Try(_)
+                | TaskDefinition::Wait(_) => {
                     return Err(super::super::Error::Configuration {
                         message: format!("Function {function_name} is not a call task"),
                     });

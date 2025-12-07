@@ -22,11 +22,8 @@ struct StreamWriter {
 
 #[pymethods]
 impl StreamWriter {
-    fn write(&self, s: &str) -> PyResult<usize> {
-        let len = s.len();
-        let mut buffer = self.buffer.lock().map_err(|e| {
-            pyo3::exceptions::PyRuntimeError::new_err(format!("Lock poisoned: {e}"))
-        })?;
+    fn write(&self, s: &str) {
+        let mut buffer = self.buffer.lock().unwrap_or_else(|e| e.into_inner());
         buffer.push_str(s);
 
         // Send complete lines immediately through the channel
@@ -36,20 +33,15 @@ impl StreamWriter {
             // Ignore send errors (receiver might be dropped if cancelled)
             let _ = self.sender.send(line);
         }
-
-        Ok(len)
     }
 
-    fn flush(&self) -> PyResult<()> {
+    fn flush(&self) {
         // Flush any remaining buffered content as a final line
-        let mut buffer = self.buffer.lock().map_err(|e| {
-            pyo3::exceptions::PyRuntimeError::new_err(format!("Lock poisoned: {e}"))
-        })?;
+        let mut buffer = self.buffer.lock().unwrap_or_else(|e| e.into_inner());
         if !buffer.is_empty() {
             let _ = self.sender.send(buffer.clone());
             buffer.clear();
         }
-        Ok(())
     }
 
     fn isatty(&self) -> bool {
@@ -375,7 +367,7 @@ impl PythonExecutor {
                         }
                         stdout_lines
                             .lock()
-                            .unwrap_or_else(|e| e.into_inner())
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
                             .push(line);
                     }
                 })
@@ -395,7 +387,7 @@ impl PythonExecutor {
                         }
                         stderr_lines
                             .lock()
-                            .unwrap_or_else(|e| e.into_inner())
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
                             .push(line);
                     }
                 })
