@@ -1,9 +1,30 @@
 use regex::Regex;
 use serde_json::Value;
 use snafu::prelude::*;
+use std::sync::LazyLock;
 
 use jaq_core::Ctx;
 use tracing::debug;
+
+/// Regex for null-safe field access transformation
+#[allow(clippy::expect_used)]
+static RE_FIELD_ACCESS: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(\.[a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)")
+        .expect("hardcoded regex should be valid")
+});
+
+/// Regex for null-safe array operations transformation
+#[allow(clippy::expect_used)]
+static RE_ARRAY_OPS: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\((\.[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]*)*)\s*\+\s*\[")
+        .expect("hardcoded regex should be valid")
+});
+
+/// Regex for variable references in expressions
+#[allow(clippy::expect_used)]
+static RE_VAR_REFERENCE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\$([a-zA-Z_][a-zA-Z0-9_]*)").expect("hardcoded regex should be valid")
+});
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -68,18 +89,12 @@ impl ExpressionPreprocessor {
     ///
     /// Transforms `.parent.child` into `(.parent // {}).child` to prevent
     /// errors when parent is null/missing.
-    ///
-    /// # Panics
-    ///
-    /// Panics if regex compilation fails (should not happen with hardcoded valid regex patterns).
     #[must_use]
     fn apply_null_safe_field_access(&self, expr: &str) -> String {
         // Transform: .parent.child -> (.parent // {}).child
         // This ensures that if .parent is null/missing, we get an empty object
         // instead of a jq error
-        let re_parent =
-            Regex::new(r"(\.[a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)").unwrap();
-        re_parent
+        RE_FIELD_ACCESS
             .replace_all(expr, |caps: &regex::Captures| {
                 format!("({} // {}).{}", &caps[1], "{}", &caps[2])
             })
@@ -90,20 +105,16 @@ impl ExpressionPreprocessor {
     ///
     /// Transforms `(.field + [x])` into `((.field // []) + [x])` to prevent
     /// errors when the field is null/missing.
-    ///
-    /// # Panics
-    ///
-    /// Panics if regex compilation fails (should not happen with hardcoded valid regex patterns).
     #[must_use]
     fn apply_null_safe_array_ops(&self, expr: &str) -> String {
         // Transform: (.field + [...]) -> ((.field // []) + [...])
         // This ensures that if .field is null/missing, we treat it as an empty array
         // before appending new elements
-        let re = Regex::new(r"\((\.[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z0-9_]*)*)\s*\+\s*\[").unwrap();
-        re.replace_all(expr, |caps: &regex::Captures| {
-            format!("(({} // []) + [", &caps[1])
-        })
-        .to_string()
+        RE_ARRAY_OPS
+            .replace_all(expr, |caps: &regex::Captures| {
+                format!("(({} // []) + [", &caps[1])
+            })
+            .to_string()
     }
 }
 
@@ -174,8 +185,7 @@ pub fn evaluate_expression_with_input(
         }
 
         // Detect all $varname references in the expression
-        let var_regex = Regex::new(r"\$([a-zA-Z_][a-zA-Z0-9_]*)").unwrap();
-        for cap in var_regex.captures_iter(&jq_expr.clone()) {
+        for cap in RE_VAR_REFERENCE.captures_iter(&jq_expr.clone()) {
             let var_name = &cap[1];
             // Only bind if the variable exists in context and we haven't already added it
             if combined.contains_key(var_name) && !var_bindings.contains(&var_name.to_string()) {
@@ -343,6 +353,6 @@ pub fn evaluate_value_with_input(value: &Value, context: &Value, input: &Value) 
             }
             Ok(Value::Array(result))
         }
-        other => Ok(other.clone()),
+        Value::Null | Value::Bool(_) | Value::Number(_) => Ok(value.clone()),
     }
 }

@@ -205,36 +205,34 @@ pub fn format_run_task_params(
         println!(
             "  {} {}",
             style("Stdin:").cyan(),
-            style(format!("\"{}\"", stdin_val)).cyan()
+            style(format!("\"{stdin_val}\"")).cyan()
         );
     }
 
-    if let Some(args) = arguments {
-        if let Some(arr) = args.as_array() {
-            if !arr.is_empty() {
-                println!("  {}", style("Arguments:").cyan());
-                for arg in arr {
-                    if let Some(s) = arg.as_str() {
-                        println!("    {}", style(format!("- {}", s)).cyan());
-                    }
-                }
+    if let Some(arr) = arguments
+        .and_then(|args| args.as_array())
+        .filter(|a| !a.is_empty())
+    {
+        println!("  {}", style("Arguments:").cyan());
+        for arg in arr {
+            if let Some(s) = arg.as_str() {
+                println!("    {}", style(format!("- {s}")).cyan());
             }
         }
     }
 
-    if let Some(env) = environment {
-        if let Some(obj) = env.as_object() {
-            if !obj.is_empty() {
-                println!("  {}", style("Environment:").cyan());
-                for (key, value) in obj {
-                    if let Some(s) = value.as_str() {
-                        println!(
-                            "    {} {}",
-                            style(format!("{}:", key)).cyan(),
-                            style(s).cyan()
-                        );
-                    }
-                }
+    if let Some(obj) = environment
+        .and_then(|env| env.as_object())
+        .filter(|o| !o.is_empty())
+    {
+        println!("  {}", style("Environment:").cyan());
+        for (key, value) in obj {
+            if let Some(s) = value.as_str() {
+                println!(
+                    "    {} {}",
+                    style(format!("{key}:")).cyan(),
+                    style(s).cyan()
+                );
             }
         }
     }
@@ -262,27 +260,31 @@ pub fn format_task_output(output: &Value) {
             if exit_code == 0 {
                 // Success: Only show stdout value (no stderr, no exitCode)
                 if let Some(stdout) = obj.get("stdout").and_then(serde_json::Value::as_str) {
-                    if !stdout.is_empty() {
-                        println!("    {}", style(format!("\"{stdout}\"")).green());
-                    } else {
+                    if stdout.is_empty() {
                         println!("    {}", style("(empty)").dim());
+                    } else {
+                        println!("    {}", style(format!("\"{stdout}\"")).green());
                     }
                 } else {
                     println!("    {}", style("(empty)").dim());
                 }
             } else {
                 // Failure: Show both stdout and stderr for debugging (no exitCode)
-                if let Some(stdout) = obj.get("stdout").and_then(serde_json::Value::as_str) {
-                    if !stdout.is_empty() {
-                        println!("    {}", style("stdout:").green());
-                        println!("      {}", style(format!("\"{stdout}\"")).green());
-                    }
+                if let Some(stdout) = obj
+                    .get("stdout")
+                    .and_then(serde_json::Value::as_str)
+                    .filter(|s| !s.is_empty())
+                {
+                    println!("    {}", style("stdout:").green());
+                    println!("      {}", style(format!("\"{stdout}\"")).green());
                 }
-                if let Some(stderr) = obj.get("stderr").and_then(serde_json::Value::as_str) {
-                    if !stderr.is_empty() {
-                        println!("    {}", style("stderr:").green());
-                        println!("      {}", style(format!("\"{stderr}\"")).green());
-                    }
+                if let Some(stderr) = obj
+                    .get("stderr")
+                    .and_then(serde_json::Value::as_str)
+                    .filter(|s| !s.is_empty())
+                {
+                    println!("    {}", style("stderr:").green());
+                    println!("      {}", style(format!("\"{stderr}\"")).green());
                 }
             }
         }

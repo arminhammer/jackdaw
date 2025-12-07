@@ -43,7 +43,7 @@ impl GraphvizProvider {
         let mut dot = String::new();
 
         // Graph header
-        writeln!(&mut dot, "digraph \"{}\" {{", workflow.document.name).unwrap();
+        let _ = writeln!(&mut dot, "digraph \"{}\" {{", workflow.document.name);
         dot.push_str("  rankdir=TB;\n");
         dot.push_str("  node [shape=box, style=\"rounded,filled\", fontname=\"Helvetica\"];\n");
         dot.push_str("  edge [fontname=\"Helvetica\", fontsize=10];\n\n");
@@ -76,11 +76,10 @@ impl GraphvizProvider {
                         TaskExecutionState::NotExecuted => color, // Default
                     };
                 }
-                writeln!(
+                let _ = writeln!(
                     &mut dot,
                     "  \"{name}\" [label=\"{label}\", shape={shape}, fillcolor=\"{color}\"];"
-                )
-                .unwrap();
+                );
             }
         }
 
@@ -93,15 +92,22 @@ impl GraphvizProvider {
             dot.push_str("  start -> end;\n");
         } else {
             // Start to first task
-            writeln!(dot, "  start -> \"{}\";", task_names[0]).unwrap();
-
-            // Sequential flow between tasks
-            for i in 0..task_names.len() - 1 {
-                writeln!(dot, "  \"{}\" -> \"{}\";", task_names[i], task_names[i + 1]).unwrap();
+            // Start to first task
+            if let Some(first) = task_names.first() {
+                let _ = writeln!(&mut dot, "  start -> \"{first}\";");
             }
-
+            // Sequential flow between tasks
+            // Sequential flow between tasks
+            for pair in task_names.windows(2) {
+                if let [from, to] = pair {
+                    let _ = writeln!(&mut dot, "  \"{from}\" -> \"{to}\";");
+                }
+            }
             // Last task to end
-            writeln!(dot, "  \"{}\" -> end;", task_names[task_names.len() - 1]).unwrap();
+            // Last task to end
+            if let Some(last) = task_names.last() {
+                let _ = writeln!(&mut dot, "  \"{last}\" -> end;");
+            }
         }
 
         dot.push_str("}\n");

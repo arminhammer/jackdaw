@@ -1,0 +1,27 @@
+# Build artifacts
+target/
+dist/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# Databases
+*.db
+.ci/*.db
+
+# Documentation
+*.md
+docs/
+
+# CI/Test files
+.ci/
+.github/
+
+# Temporary files
+*.tmp
+*.log

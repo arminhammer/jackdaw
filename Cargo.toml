@@ -2,6 +2,14 @@
 name = "jackdaw"
 version = "0.1.0"
 edition = "2024"
+authors = ["Armin Graf"]
+description = "A durable, cached, graph-based execution engine for Serverless Workflows"
+documentation = "https://docs.rs/jackdaw"
+readme = "README.md"
+repository = "https://github.com/arminhammer/jackdaw"
+license = "MIT OR Apache-2.0"
+keywords = ["serverless", "workflow", "engine", "durable", "orchestration"]
+categories = ["development-tools", "asynchronous"]
 
 [dependencies]
 serde = { version = "=1.0.219", features = ["derive"] }
@@ -45,7 +53,7 @@ http-body-util = "0.1"
 openapiv3-extended = { version = "6.0", features = ["v2"] }
 redb = "2"
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "postgres", "chrono", "json", "uuid"] }
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls"] }
 
 # Python execution with pyo3
 # Using abi3 for stable ABI compatibility, avoiding need for specific libpython version
@@ -93,3 +101,11 @@ panic = "abort"          # Smaller binary, no unwinding
 inherits = "release"
 strip = false
 debug = true
+
+[lints.clippy]
+indexing_slicing = "deny"
+fallible_impl_from = "deny"
+wildcard_enum_match_arm = "deny"
+unneeded_field_pattern = "deny"
+fn_params_excessive_bools = "deny"
+must_use_candidate = "deny"

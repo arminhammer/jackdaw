@@ -67,10 +67,9 @@ impl TypeScriptExecutor {
 
         // Call the exported function from the module
         // Since we only have 1 arg (a JSON object), pass it directly
-        let arg = if args.len() == 1 {
-            args[0].clone()
-        } else {
-            Value::Array(args.to_vec())
+        let arg = match args {
+            [single] => single.clone(),
+            _ => Value::Array(args.to_vec()),
         };
 
         // Call the function from the module's exports (not global scope)

@@ -204,7 +204,9 @@ async fn execute_swagger_v2_spec(
                     serde_json::Value::String(s) => s.clone(),
                     serde_json::Value::Number(n) => n.to_string(),
                     serde_json::Value::Bool(b) => b.to_string(),
-                    _ => value.to_string(),
+                    serde_json::Value::Null
+                    | serde_json::Value::Array(_)
+                    | serde_json::Value::Object(_) => value.to_string(),
                 };
 
                 let param_in = param.get("in").and_then(|i| i.as_str()).unwrap_or("");
@@ -383,7 +385,9 @@ async fn execute_openapi_v3_spec(
                     serde_json::Value::String(s) => s.clone(),
                     serde_json::Value::Number(n) => n.to_string(),
                     serde_json::Value::Bool(b) => b.to_string(),
-                    _ => value.to_string(),
+                    serde_json::Value::Null
+                    | serde_json::Value::Array(_)
+                    | serde_json::Value::Object(_) => value.to_string(),
                 };
 
                 match &param.kind {
@@ -393,7 +397,7 @@ async fn execute_openapi_v3_spec(
                     ParameterKind::Query { .. } => {
                         query_params.push(format!("{param_name}={value_str}"));
                     }
-                    _ => {}
+                    ParameterKind::Header { .. } | ParameterKind::Cookie { .. } => {}
                 }
             }
         }

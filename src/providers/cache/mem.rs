@@ -27,18 +27,27 @@ impl InMemoryCache {
 #[async_trait]
 impl CacheProvider for InMemoryCache {
     async fn get(&self, key: &str) -> Result<Option<CacheEntry>> {
-        let store = self.store.lock().unwrap();
+        let store = self
+            .store
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         Ok(store.get(key).cloned())
     }
 
     async fn set(&self, entry: CacheEntry) -> Result<()> {
-        let mut store = self.store.lock().unwrap();
+        let mut store = self
+            .store
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         store.insert(entry.key.clone(), entry);
         Ok(())
     }
 
     async fn invalidate(&self, key: &str) -> Result<()> {
-        let mut store = self.store.lock().unwrap();
+        let mut store = self
+            .store
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         store.remove(key);
         Ok(())
     }

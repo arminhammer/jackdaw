@@ -54,8 +54,8 @@ impl D2Provider {
 
         // Direction and metadata
         d2.push_str("direction: down\n\n");
-        writeln!(d2, "# Workflow: {}", workflow.document.name).unwrap();
-        writeln!(d2, "# Version: {}\n", workflow.document.version).unwrap();
+        let _ = writeln!(d2, "# Workflow: {}", workflow.document.name);
+        let _ = writeln!(d2, "# Version: {}\n", workflow.document.version);
 
         // Start node
         d2.push_str("Start: {\n");
@@ -97,8 +97,8 @@ impl D2Provider {
                         );
                     }
                 }
-                writeln!(d2, "\"{name}\": {{").unwrap();
-                writeln!(d2, "  label: \"{label}\"").unwrap();
+                let _ = writeln!(d2, "\"{name}\": {{");
+                let _ = writeln!(d2, "  label: \"{label}\"");
                 d2.push_str(&style);
                 d2.push_str(&style);
                 d2.push_str("}\n\n");
@@ -118,15 +118,21 @@ impl D2Provider {
             d2.push_str("Start -> End\n");
         } else {
             // Start to first task
-            writeln!(d2, "Start -> \"{}\"", task_names[0]).unwrap();
+            if let Some(first) = task_names.first() {
+                let _ = writeln!(d2, "Start -> \"{first}\"");
+            }
 
             // Sequential flow between tasks
-            for i in 0..task_names.len() - 1 {
-                writeln!(d2, "\"{}\" -> \"{}\"", task_names[i], task_names[i + 1]).unwrap();
+            for pair in task_names.windows(2) {
+                if let [a, b] = pair {
+                    let _ = writeln!(d2, "\"{a}\" -> \"{b}\"");
+                }
             }
 
             // Last task to end
-            writeln!(d2, "\"{}\" -> End", task_names[task_names.len() - 1]).unwrap();
+            if let Some(last) = task_names.last() {
+                let _ = writeln!(d2, "\"{last}\" -> End");
+            }
         }
 
         d2

@@ -49,10 +49,16 @@ pub(super) fn build_graph(
     // If no explicit transitions, create implicit sequential edges
     if !has_explicit_transitions && task_names.len() > 1 {
         for i in 0..task_names.len() - 1 {
-            let src = nodes.get(&task_names[i]).ok_or(Error::TaskExecution {
+            let src_name = task_names.get(i).ok_or(Error::TaskExecution {
                 message: "Task not found".to_string(),
             })?;
-            let dst = nodes.get(&task_names[i + 1]).ok_or(Error::TaskExecution {
+            let dst_name = task_names.get(i + 1).ok_or(Error::TaskExecution {
+                message: "Task not found".to_string(),
+            })?;
+            let src = nodes.get(src_name).ok_or(Error::TaskExecution {
+                message: "Task not found".to_string(),
+            })?;
+            let dst = nodes.get(dst_name).ok_or(Error::TaskExecution {
                 message: "Task not found".to_string(),
             })?;
             graph.add_edge(*src, *dst, ());
@@ -102,6 +108,17 @@ pub(super) fn get_task_transitions(task: &TaskDefinition) -> Vec<String> {
             .as_ref()
             .map(|s| vec![s.clone()])
             .unwrap_or_default(),
-        _ => vec![],
+        TaskDefinition::Emit(t) => t
+            .common
+            .then
+            .as_ref()
+            .map(|s| vec![s.clone()])
+            .unwrap_or_default(),
+        TaskDefinition::For(_)
+        | TaskDefinition::Listen(_)
+        | TaskDefinition::Raise(_)
+        | TaskDefinition::Run(_)
+        | TaskDefinition::Try(_)
+        | TaskDefinition::Wait(_) => vec![],
     }
 }

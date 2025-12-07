@@ -31,7 +31,10 @@ impl TaskOutputStreamer {
     /// * `task_index` - Index of the task (used for color selection in concurrent scenarios)
     #[must_use]
     pub fn new(task_name: String, task_index: usize) -> Self {
-        let color = TASK_COLORS[task_index % TASK_COLORS.len()];
+        let color = TASK_COLORS
+            .get(task_index % TASK_COLORS.len())
+            .copied()
+            .unwrap_or(Color::Cyan);
         Self { task_name, color }
     }
 
@@ -108,8 +111,14 @@ impl TaskOutputStreamer {
         &self,
         mut child: Child,
     ) -> std::io::Result<(String, String, i32)> {
-        let stdout = child.stdout.take().expect("Failed to capture stdout");
-        let stderr = child.stderr.take().expect("Failed to capture stderr");
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| std::io::Error::other("Failed to capture stdout"))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| std::io::Error::other("Failed to capture stderr"))?;
 
         let stdout_handle = {
             let streamer = self.clone();

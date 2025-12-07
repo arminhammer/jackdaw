@@ -364,23 +364,79 @@ impl Service<http::Request<BoxBody>> for MultiMethodServiceWrapper {
                 let body = Full::new(Bytes::new())
                     .map_err(|_: std::convert::Infallible| Status::internal("unreachable"));
                 let boxed = BoxBody::new(body);
-                let response = http::Response::builder().status(404).body(boxed).unwrap();
+                let response = http::Response::builder()
+                    .status(404)
+                    .body(boxed)
+                    .unwrap_or_else(|_| {
+                        let body = Full::new(Bytes::new())
+                            .map_err(|_: std::convert::Infallible| Status::internal("unreachable"));
+                        let boxed = BoxBody::new(body);
+                        http::Response::new(boxed)
+                    });
                 return Ok(response);
             }
 
-            let request_service_name = parts[0];
-            let method_name = parts[1];
+            let request_service_name = match parts.first() {
+                Some(name) => *name,
+                None => {
+                    println!("  Missing service name in path - returning 400");
+                    let body = Full::new(Bytes::new())
+                        .map_err(|_: std::convert::Infallible| Status::internal("unreachable"));
+                    let boxed = BoxBody::new(body);
+                    let response = http::Response::builder()
+                        .status(400)
+                        .body(boxed)
+                        .unwrap_or_else(|_| {
+                            let body =
+                                Full::new(Bytes::new()).map_err(|_: std::convert::Infallible| {
+                                    Status::internal("unreachable")
+                                });
+                            let boxed = BoxBody::new(body);
+                            http::Response::new(boxed)
+                        });
+                    return Ok(response);
+                }
+            };
+            let method_name = match parts.get(1) {
+                Some(name) => *name,
+                None => {
+                    println!("  Missing method name in path - returning 400");
+                    let body = Full::new(Bytes::new())
+                        .map_err(|_: std::convert::Infallible| Status::internal("unreachable"));
+                    let boxed = BoxBody::new(body);
+                    let response = http::Response::builder()
+                        .status(400)
+                        .body(boxed)
+                        .unwrap_or_else(|_| {
+                            let body =
+                                Full::new(Bytes::new()).map_err(|_: std::convert::Infallible| {
+                                    Status::internal("unreachable")
+                                });
+                            let boxed = BoxBody::new(body);
+                            http::Response::new(boxed)
+                        });
+                    return Ok(response);
+                }
+            };
 
             println!("  Request service: {request_service_name}, method: {method_name}");
             println!("  Our service descriptor: {service_name}");
 
             // Check if this request is for our service
-            if request_service_name != service_name {
+            if *request_service_name != service_name {
                 println!("  Service name mismatch - returning 404");
                 let body = Full::new(Bytes::new())
                     .map_err(|_: std::convert::Infallible| Status::internal("unreachable"));
                 let boxed = BoxBody::new(body);
-                let response = http::Response::builder().status(404).body(boxed).unwrap();
+                let response = http::Response::builder()
+                    .status(404)
+                    .body(boxed)
+                    .unwrap_or_else(|_| {
+                        let body = Full::new(Bytes::new())
+                            .map_err(|_: std::convert::Infallible| Status::internal("unreachable"));
+                        let boxed = BoxBody::new(body);
+                        http::Response::new(boxed)
+                    });
                 return Ok(response);
             }
 
@@ -388,16 +444,32 @@ impl Service<http::Request<BoxBody>> for MultiMethodServiceWrapper {
             let (_parts, body) = req.into_parts();
 
             // Read the body bytes
-            let body_bytes = body
-                .collect()
-                .await
-                .map_err(|_| Status::internal("Failed to read request body"))
-                .unwrap();
+            let body_bytes = match body.collect().await {
+                Ok(bytes) => bytes,
+                Err(_) => {
+                    let body = Full::new(Bytes::new())
+                        .map_err(|_: std::convert::Infallible| Status::internal("unreachable"));
+                    let boxed = BoxBody::new(body);
+                    let response = http::Response::builder()
+                        .status(500)
+                        .header("content-type", "application/grpc")
+                        .header("grpc-status", "13") // INTERNAL error code
+                        .header("grpc-message", "Failed to read request body")
+                        .body(boxed)
+                        .unwrap_or_else(|_| {
+                            let body = Full::new(Bytes::new())
+                                .map_err(|_: std::convert::Infallible| Status::internal("unreachable"));
+                            let boxed = BoxBody::new(body);
+                            http::Response::new(boxed)
+                        });
+                    return Ok(response);
+                }
+            };
             let mut request_bytes = body_bytes.to_bytes();
 
             println!("  Raw body length: {}", request_bytes.len());
-            if request_bytes.len() > 5 {
-                println!("  First 5 bytes: {:?}", &request_bytes[0..5]);
+            if let Some(first_bytes) = request_bytes.get(0..5) {
+                println!("  First 5 bytes: {:?}", first_bytes);
             }
 
             // gRPC uses a 5-byte frame: [compressed flag (1 byte)][message length (4 bytes)][message]
@@ -424,7 +496,12 @@ impl Service<http::Request<BoxBody>> for MultiMethodServiceWrapper {
                         .header("content-type", "application/grpc")
                         .header("grpc-status", "0")
                         .body(boxed)
-                        .unwrap();
+                        .unwrap_or_else(|_| {
+                            let body = Full::new(Bytes::new())
+                                .map_err(|_: std::convert::Infallible| Status::internal("unreachable"));
+                            let boxed = BoxBody::new(body);
+                            http::Response::new(boxed)
+                        });
                     Ok(response)
                 }
                 Err(status) => {
@@ -437,7 +514,12 @@ impl Service<http::Request<BoxBody>> for MultiMethodServiceWrapper {
                         .header("grpc-status", status.code() as i32)
                         .header("grpc-message", status.message())
                         .body(boxed)
-                        .unwrap();
+                        .unwrap_or_else(|_| {
+                            let body = Full::new(Bytes::new())
+                                .map_err(|_: std::convert::Infallible| Status::internal("unreachable"));
+                            let boxed = BoxBody::new(body);
+                            http::Response::new(boxed)
+                        });
                     Ok(response)
                 }
             }

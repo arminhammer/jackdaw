@@ -637,21 +637,21 @@ fn extract_expressions_from_value(
 ) {
     match value {
         Value::String(s) => {
-            if s.starts_with("${") && s.ends_with("}") {
+            if s.starts_with("${") && s.ends_with('}') {
                 expressions.push((location.to_string(), s.clone()));
             }
         }
         Value::Object(map) => {
             for (key, val) in map {
-                extract_expressions_from_value(val, &format!("{}.{}", location, key), expressions);
+                extract_expressions_from_value(val, &format!("{location}.{key}"), expressions);
             }
         }
         Value::Array(arr) => {
             for (idx, val) in arr.iter().enumerate() {
-                extract_expressions_from_value(val, &format!("{}[{}]", location, idx), expressions);
+                extract_expressions_from_value(val, &format!("{location}[{idx}]"), expressions);
             }
         }
-        _ => {}
+        Value::Null | Value::Bool(_) | Value::Number(_) => {}
     }
 }
 
@@ -666,8 +666,8 @@ fn validate_expression_syntax(expr: &str) -> std::result::Result<(), String> {
         Err(e) => {
             // Extract meaningful error message
             let error_msg = match e {
-                expressions::Error::JqLoad { errors } => errors,
-                expressions::Error::JqCompile { errors } => errors,
+                expressions::Error::JqLoad { errors }
+                | expressions::Error::JqCompile { errors } => errors,
                 expressions::Error::JqEvaluation { message } => {
                     // For validation, we don't care about runtime errors like "null has no field"
                     // These are expected since we're using a null context
@@ -679,7 +679,7 @@ fn validate_expression_syntax(expr: &str) -> std::result::Result<(), String> {
                     }
                     message
                 }
-                _ => format!("{}", e),
+                _ => format!("{e}"),
             };
             Err(error_msg)
         }
@@ -708,7 +708,7 @@ fn validate_references(workflow: &WorkflowDefinition, issues: &mut Vec<Validatio
                 // Skip HTTP/HTTPS calls and catalog references
                 if function_ref.starts_with("http://")
                     || function_ref.starts_with("https://")
-                    || function_ref.contains("#")
+                    || function_ref.contains('#')
                 {
                     continue;
                 }
@@ -716,10 +716,9 @@ fn validate_references(workflow: &WorkflowDefinition, issues: &mut Vec<Validatio
                 if !defined_functions.contains(function_ref) {
                     issues.push(ValidationIssue {
                         severity: IssueSeverity::Warning,
-                        location: format!("task.{}.call", task_name),
+                        location: format!("task.{task_name}.call"),
                         message: format!(
-                            "Function '{}' is not defined in 'use.functions'",
-                            function_ref
+                            "Function '{function_ref}' is not defined in 'use.functions'"
                         ),
                     });
                 }
