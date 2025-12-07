@@ -87,7 +87,7 @@ async fn main() -> Result<(), Error> {
             let workflows = args.workflows.clone();
 
             // Merge CLI args with config (CLI takes precedence)
-            let config = args.merge_with_config(global_config.run);
+            let config = args.merge_with_config(global_config);
 
             // Initialize tracing/logging with indicatif bridge
             init_tracing(config.verbose);

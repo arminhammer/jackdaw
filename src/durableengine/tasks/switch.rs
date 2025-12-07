@@ -24,7 +24,10 @@ pub async fn exec_switch_task(
                 match result {
                     serde_json::Value::Bool(b) => b,
                     serde_json::Value::Null => false,
-                    _ => true, // Non-null, non-bool values are truthy
+                    serde_json::Value::Number(_)
+                    | serde_json::Value::String(_)
+                    | serde_json::Value::Array(_)
+                    | serde_json::Value::Object(_) => true, // Non-null, non-bool values are truthy
                 }
             } else {
                 // No 'when' condition means this is a default case

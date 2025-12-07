@@ -28,3 +28,12 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+ctk/
+submodules/
+dist/
+workflow.db
+
+# Generated documentation
+/docs/
+/doc/
+/book/book/

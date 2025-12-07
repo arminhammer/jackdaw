@@ -28,7 +28,10 @@ impl Executor for RestExecutor {
                     let auth = obj.get("authentication").cloned();
                     (uri, auth)
                 }
-                _ => {
+                serde_json::Value::Null
+                | serde_json::Value::Bool(_)
+                | serde_json::Value::Number(_)
+                | serde_json::Value::Array(_) => {
                     return Err(Error::Execution {
                         message: "Invalid endpoint format".to_string(),
                     });
@@ -226,7 +229,9 @@ async fn interpolate_uri(uri: &str, ctx: &Context) -> Result<String> {
     let data = ctx.state.data.read().await;
 
     // Find all {paramName} patterns and replace them
-    let re = regex::Regex::new(r"\{([^}]+)\}").unwrap();
+    let re = regex::Regex::new(r"\{([^}]+)\}").map_err(|e| Error::Execution {
+        message: format!("Failed to compile regex: {e}"),
+    })?;
 
     for cap in re.captures_iter(uri) {
         let param_name = &cap[1];
@@ -235,7 +240,9 @@ async fn interpolate_uri(uri: &str, ctx: &Context) -> Result<String> {
                 serde_json::Value::String(s) => s.clone(),
                 serde_json::Value::Number(n) => n.to_string(),
                 serde_json::Value::Bool(b) => b.to_string(),
-                _ => value.to_string(),
+                serde_json::Value::Null
+                | serde_json::Value::Array(_)
+                | serde_json::Value::Object(_) => value.to_string(),
             };
             result = result.replace(&format!("{{{param_name}}}"), &value_str);
         }
