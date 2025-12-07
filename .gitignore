@@ -30,3 +30,10 @@ __pycache__/
 *.pyd
 ctk/
 submodules/
+dist/
+workflow.db
+
+# Generated documentation
+/docs/
+/doc/
+/book/book/

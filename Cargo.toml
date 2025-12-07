@@ -2,6 +2,14 @@
 name = "jackdaw"
 version = "0.1.0"
 edition = "2024"
+authors = ["Armin Graf"]
+description = "A durable, cached, graph-based execution engine for Serverless Workflows"
+documentation = "https://docs.rs/jackdaw"
+readme = "README.md"
+repository = "https://github.com/arminhammer/jackdaw"
+license = "MIT OR Apache-2.0"
+keywords = ["serverless", "workflow", "engine", "durable", "orchestration"]
+categories = ["development-tools", "asynchronous"]
 
 [dependencies]
 serde = { version = "=1.0.219", features = ["derive"] }
