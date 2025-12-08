@@ -656,21 +656,55 @@ fn extract_expressions_from_value(
 }
 
 fn validate_expression_syntax(expr: &str) -> std::result::Result<(), String> {
-    // Create a dummy context for compilation
-    let context = Value::Null;
+    // Create a dummy context with special variables that Jackdaw supports
+    // This allows expressions like $workflow.id, $input.data, etc. to compile
+    let mut context_obj = serde_json::Map::new();
 
-    // Try to evaluate the expression with a null context
+    // Add dummy __workflow descriptor
+    context_obj.insert(
+        "__workflow".to_string(),
+        serde_json::json!({
+            "id": "dummy-workflow-id",
+            "name": "dummy-workflow",
+            "version": "1.0.0"
+        }),
+    );
+
+    // Add dummy __runtime descriptor
+    context_obj.insert(
+        "__runtime".to_string(),
+        serde_json::json!({
+            "version": "1.0.0"
+        }),
+    );
+
+    // Add dummy input for $input references
+    context_obj.insert(
+        "input".to_string(),
+        serde_json::json!({}),
+    );
+
+    let context = Value::Object(context_obj);
+
+    // Try to evaluate the expression with a dummy context
     // This will compile the expression and check for syntax errors
     match expressions::evaluate_expression(expr, &context) {
         Ok(_) => Ok(()),
         Err(e) => {
             // Extract meaningful error message
             let error_msg = match e {
-                expressions::Error::JqLoad { errors }
-                | expressions::Error::JqCompile { errors } => errors,
+                expressions::Error::JqLoad { errors } => errors,
+                expressions::Error::JqCompile { errors } => {
+                    // Check if this is just a variable binding issue
+                    // The expression preprocessor handles variable bindings at runtime
+                    if errors.contains("variable") && errors.contains("not defined") {
+                        return Ok(());
+                    }
+                    errors
+                }
                 expressions::Error::JqEvaluation { message } => {
                     // For validation, we don't care about runtime errors like "null has no field"
-                    // These are expected since we're using a null context
+                    // These are expected since we're using a dummy context
                     if message.contains("has no")
                         || message.contains("cannot")
                         || message.contains("not defined")
@@ -679,7 +713,7 @@ fn validate_expression_syntax(expr: &str) -> std::result::Result<(), String> {
                     }
                     message
                 }
-                _ => format!("{e}"),
+                expressions::Error::Evaluation { message } => message,
             };
             Err(error_msg)
         }
@@ -691,11 +725,19 @@ fn validate_references(workflow: &WorkflowDefinition, issues: &mut Vec<Validatio
 
     // Collect defined functions
     let mut defined_functions = HashSet::new();
-    if let Some(use_) = &workflow.use_
-        && let Some(functions) = &use_.functions
-    {
-        for func_name in functions.keys() {
-            defined_functions.insert(func_name.clone());
+    let mut has_catalogs = false;
+
+    if let Some(use_) = &workflow.use_ {
+        // Collect inline function definitions
+        if let Some(functions) = &use_.functions {
+            for func_name in functions.keys() {
+                defined_functions.insert(func_name.clone());
+            }
+        }
+
+        // Check if catalogs are defined
+        if let Some(catalogs) = &use_.catalogs {
+            has_catalogs = !catalogs.is_empty();
         }
     }
 
@@ -713,14 +755,20 @@ fn validate_references(workflow: &WorkflowDefinition, issues: &mut Vec<Validatio
                     continue;
                 }
 
+                // If function is not defined inline, check if it might come from a catalog
                 if !defined_functions.contains(function_ref) {
-                    issues.push(ValidationIssue {
-                        severity: IssueSeverity::Warning,
-                        location: format!("task.{task_name}.call"),
-                        message: format!(
-                            "Function '{function_ref}' is not defined in 'use.functions'"
-                        ),
-                    });
+                    // If catalogs are defined, the function might be resolved from there
+                    // We can't validate catalog contents at validation time, so only warn
+                    // if there are no catalogs defined at all
+                    if !has_catalogs {
+                        issues.push(ValidationIssue {
+                            severity: IssueSeverity::Warning,
+                            location: format!("task.{task_name}.call"),
+                            message: format!(
+                                "Function '{function_ref}' is not defined in 'use.functions' and no catalogs are configured"
+                            ),
+                        });
+                    }
                 }
             }
         }
