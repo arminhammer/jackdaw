@@ -93,8 +93,16 @@ impl DurableEngine {
             && let Some(expr_str) = from_expr.as_str()
         {
             let current_data = ctx.state.data.read().await.clone();
-            // Input filtering uses jq expressions directly (not wrapped in ${ })
-            let filtered = crate::expressions::evaluate_jq(expr_str, &current_data)?;
+            // Input filtering can use either:
+            // 1. Wrapped expressions: ${ .field } (newer CTK examples)
+            // 2. Bare JQ expressions: .field (older examples)
+            let filtered = if expr_str.trim().starts_with("${") {
+                // Wrapped expression - use evaluate_expression which handles ${ } syntax
+                crate::expressions::evaluate_expression(expr_str, &current_data)?
+            } else {
+                // Bare JQ expression - use evaluate_jq directly
+                crate::expressions::evaluate_jq(expr_str, &current_data)?
+            };
             *ctx.state.data.write().await = filtered;
             return Ok(true);
         }

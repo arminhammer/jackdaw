@@ -7,6 +7,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 mod cache;
 mod cmd;
 mod config;
+mod container;
 mod context;
 mod descriptors;
 mod durableengine;
