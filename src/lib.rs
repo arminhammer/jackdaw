@@ -90,6 +90,7 @@
 
 pub mod cache;
 pub mod config;
+pub mod container;
 pub mod context;
 pub mod descriptors;
 pub mod durableengine;
