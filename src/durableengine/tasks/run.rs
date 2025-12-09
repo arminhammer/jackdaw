@@ -3,8 +3,10 @@ use snafu::prelude::*;
 use std::process::Stdio;
 
 use crate::cache::{CacheEntry, compute_cache_key};
+use crate::container::{ContainerConfig, ContainerProvider};
 use crate::context::Context;
 use crate::output;
+use crate::providers::container::DockerProvider;
 use crate::task_output::TaskOutputStreamer;
 use crate::workflow::WorkflowEvent;
 
@@ -345,8 +347,91 @@ pub async fn exec_run_task(
             "stderr": stderr,
             "exit_code": exit_code
         })
+    } else if let Some(container) = run_task.run.container.as_ref() {
+        // Container execution using provider abstraction
+        let image = &container.image;
+        let command = container.command.as_deref().unwrap_or("sh");
+
+        // Evaluate arguments against current context
+        let current_data = ctx.state.data.read().await.clone();
+        let evaluated_args: Vec<String> = if let Some(args) = container.arguments.as_ref() {
+            args.iter()
+                .map(|arg| {
+                    // Try to evaluate as expression, fall back to literal string
+                    match crate::expressions::evaluate_value_with_input(
+                        &serde_json::Value::String(arg.clone()),
+                        &current_data,
+                        &ctx.metadata.initial_input,
+                    ) {
+                        Ok(serde_json::Value::String(s)) => s,
+                        _ => arg.clone(),
+                    }
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        // Evaluate stdin if provided
+        let stdin_data = if let Some(stdin_str) = container.stdin.as_ref() {
+            let evaluated = crate::expressions::evaluate_value_with_input(
+                &serde_json::Value::String(stdin_str.clone()),
+                &current_data,
+                &ctx.metadata.initial_input,
+            )?;
+            evaluated.as_str().map(String::from)
+        } else {
+            None
+        };
+
+        // Build the command to execute in the container
+        // Format: sh -c "command" -- arg1 arg2 ...
+        // The -- acts as $0, and subsequent args become $1, $2, etc.
+        let mut cmd_with_args = vec![String::from("sh"), String::from("-c"), command.to_string()];
+
+        // Add -- as $0, followed by actual arguments
+        cmd_with_args.push(String::from("--"));
+        cmd_with_args.extend(evaluated_args);
+
+        // Create container provider (Docker for now, could be configurable later)
+        let provider = DockerProvider::new().map_err(|e| Error::TaskExecution {
+            message: format!("Failed to create container provider: {e}"),
+        })?;
+
+        // Execute container
+        let config = ContainerConfig {
+            image: image.clone(),
+            command: cmd_with_args,
+            stdin: stdin_data,
+            environment: None, // TODO: Add environment variable support from spec
+            working_dir: None, // TODO: Add working directory support from spec
+        };
+
+        let result = provider
+            .execute(config)
+            .await
+            .map_err(|e| Error::TaskExecution {
+                message: format!("Container execution failed: {e}"),
+            })?;
+
+        // Check exit status
+        if result.exit_code != 0 {
+            return Err(Error::TaskExecution {
+                message: format!(
+                    "Container '{image}' failed with exit code {}\nstdout: {}\nstderr: {}",
+                    result.exit_code, result.stdout, result.stderr
+                ),
+            });
+        }
+
+        // Return stdout and stderr as result
+        serde_json::json!({
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "exit_code": result.exit_code
+        })
     } else {
-        // Other run types (container, etc.) not yet implemented
+        // Other run types not yet implemented
         serde_json::json!({})
     };
 

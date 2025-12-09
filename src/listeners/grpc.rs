@@ -457,8 +457,10 @@ impl Service<http::Request<BoxBody>> for MultiMethodServiceWrapper {
                         .header("grpc-message", "Failed to read request body")
                         .body(boxed)
                         .unwrap_or_else(|_| {
-                            let body = Full::new(Bytes::new())
-                                .map_err(|_: std::convert::Infallible| Status::internal("unreachable"));
+                            let body =
+                                Full::new(Bytes::new()).map_err(|_: std::convert::Infallible| {
+                                    Status::internal("unreachable")
+                                });
                             let boxed = BoxBody::new(body);
                             http::Response::new(boxed)
                         });
@@ -497,8 +499,10 @@ impl Service<http::Request<BoxBody>> for MultiMethodServiceWrapper {
                         .header("grpc-status", "0")
                         .body(boxed)
                         .unwrap_or_else(|_| {
-                            let body = Full::new(Bytes::new())
-                                .map_err(|_: std::convert::Infallible| Status::internal("unreachable"));
+                            let body =
+                                Full::new(Bytes::new()).map_err(|_: std::convert::Infallible| {
+                                    Status::internal("unreachable")
+                                });
                             let boxed = BoxBody::new(body);
                             http::Response::new(boxed)
                         });
@@ -515,8 +519,10 @@ impl Service<http::Request<BoxBody>> for MultiMethodServiceWrapper {
                         .header("grpc-message", status.message())
                         .body(boxed)
                         .unwrap_or_else(|_| {
-                            let body = Full::new(Bytes::new())
-                                .map_err(|_: std::convert::Infallible| Status::internal("unreachable"));
+                            let body =
+                                Full::new(Bytes::new()).map_err(|_: std::convert::Infallible| {
+                                    Status::internal("unreachable")
+                                });
                             let boxed = BoxBody::new(body);
                             http::Response::new(boxed)
                         });

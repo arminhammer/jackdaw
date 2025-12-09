@@ -55,6 +55,9 @@ test-ctk-list:
     @echo "CTK feature worlds:"
     @ls tests/worlds/*.rs | grep -v mod.rs | xargs -n1 basename -s .rs | sed 's/^/  - /'
 
+test-examples:
+    cargo test --test example_tests
+
 # Run all tests (unit + integration)
 test-all:
     cargo test

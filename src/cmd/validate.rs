@@ -679,10 +679,7 @@ fn validate_expression_syntax(expr: &str) -> std::result::Result<(), String> {
     );
 
     // Add dummy input for $input references
-    context_obj.insert(
-        "input".to_string(),
-        serde_json::json!({}),
-    );
+    context_obj.insert("input".to_string(), serde_json::json!({}));
 
     let context = Value::Object(context_obj);
 
