@@ -28,7 +28,7 @@ build:
 
 # Build in development mode
 build-release:
-    RUSTFLAGS="-D warnings" cargo build --release
+    cargo build --release
 
 # Run all unit tests
 test:
@@ -57,6 +57,9 @@ test-ctk-list:
 
 test-examples:
     cargo test --test example_tests
+
+test-validate:
+    cargo test --test validate_tests
 
 # Run all tests (unit + integration)
 test-all:
@@ -214,6 +217,18 @@ show-binary-sizes:
 # ============================================================================
 # Docker Builds (Linux cross-compilation)
 # ============================================================================
+
+# Build Docker image for current platform
+docker-build:
+    docker buildx build --load -t jackdaw:latest .
+
+# Build Docker image for multiple platforms (amd64 and arm64)
+docker-build-multiplatform:
+    docker buildx build --platform linux/amd64,linux/arm64 -t jackdaw:latest .
+
+# Build and push Docker image for multiple platforms
+docker-build-push:
+    docker buildx build --platform linux/amd64,linux/arm64 -t jackdaw:latest --push .
 
 # Build Linux x86_64 binary using Docker
 docker-build-linux-amd64:

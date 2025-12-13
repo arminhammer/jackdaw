@@ -89,6 +89,9 @@ harness = false
 name = "example_tests"
 harness = false
 
+[[test]]
+name = "validate_tests"
+
 # Optimized release profile for smaller, faster binaries
 [profile.release]
 opt-level = "z"          # Optimize for size
