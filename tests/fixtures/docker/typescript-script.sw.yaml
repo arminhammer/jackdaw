@@ -1,0 +1,33 @@
+document:
+  dsl: '1.0.1'
+  namespace: test
+  name: typescript-script-test
+  version: '1.0.0'
+  title: TypeScript Script Test
+  summary: Test running TypeScript code in Docker
+
+do:
+  - runTypeScript:
+      run:
+        script:
+          language: typescript
+          code: |
+            // Test basic TypeScript execution
+            interface Result {
+              message: string;
+              timestamp: number;
+              type: string;
+            }
+
+            const result: Result = {
+              message: "Hello from TypeScript!",
+              timestamp: Date.now(),
+              type: "typescript"
+            };
+
+            console.log(JSON.stringify(result));
+      output:
+        as: .typescript_result
+
+output:
+  as: .typescript_result

@@ -1,0 +1,31 @@
+document:
+  dsl: '1.0.1'
+  namespace: calculator
+  name: grpc-typescript-calculator
+  version: '1.0.0'
+  title: gRPC Calculator with TypeScript Handler
+  summary: Test gRPC listener with TypeScript handlers
+
+do:
+  - performAddition:
+      listen:
+        to:
+          any:
+            - with:
+                source:
+                  uri: grpc://localhost:50051/calculator.Calculator/Add
+                  schema:
+                    format: proto
+                    resource:
+                      endpoint: tests/fixtures/listeners/specs/calculator.proto
+        until: '${ false }'
+      foreach:
+        item: event
+        do:
+          - executeAdd:
+              call: typescript
+              with:
+                module: calculator.add
+                function: handler
+                arguments:
+                  - ${ $event }

@@ -92,6 +92,10 @@ harness = false
 [[test]]
 name = "validate_tests"
 
+[[test]]
+name = "docker_integration_tests"
+required-features = []
+
 # Optimized release profile for smaller, faster binaries
 [profile.release]
 opt-level = "z"          # Optimize for size

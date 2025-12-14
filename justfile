@@ -65,6 +65,13 @@ test-validate:
 test-all:
     cargo test
 
+# Run Docker integration tests (requires Docker image to be built)
+test-docker:
+    cargo test --test docker_integration_tests
+
+# Build Docker image and run integration tests
+test-docker-full: docker-build test-docker
+
 # Generate code coverage report for all tests (unit and integration tests)
 coverage:
     cargo llvm-cov \

@@ -1,6 +1,6 @@
 # Multi-platform Dockerfile for jackdaw
 # Supports: linux/amd64, linux/arm64
-# Uses Python 3.12 from Ubuntu 25.10 (Oracular Oriole)
+# Uses Python 3.13 from Ubuntu 25.10 (Oracular Oriole)
 # Produces minimal distroless final image with only jackdaw binary + Python shared library
 # Uses glibc (not musl) for maximum compatibility
 # Optimized for dependency caching
@@ -10,20 +10,20 @@
 #   docker buildx build --platform linux/amd64,linux/arm64 -t jackdaw:latest --push .
 
 # =============================================================================
-# Builder Stage - Uses Ubuntu 25.10 for Python 3.12 support
+# Builder Stage - Uses Ubuntu 25.10 for Python 3.13 support
 # =============================================================================
-FROM ubuntu:24.04 AS builder
+FROM python:3.14-slim AS builder
 
 # Set platform args (provided by buildx)
 ARG TARGETPLATFORM
 ARG TARGETARCH
-ARG PYTHONVERSION=3.12
+ARG PYTHONVERSION=3.13
 
 # Prevent interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install build dependencies and Python 3.12
-# Ubuntu 25.10 (Oracular) includes Python 3.12 by default
+# Install build dependencies and Python 3.13
+# Ubuntu 25.10 (Oracular) includes Python 3.13 by default
 RUN apt-get update && apt-get install -y \
     build-essential \
     pkg-config \
@@ -88,80 +88,17 @@ COPY tests ./tests
 # - lto = true (link-time optimization)
 # - codegen-units = 1 (better optimization)
 # - strip = true (remove debug symbols)
-RUN cargo build --release
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/app/target \
+    cargo build --release
 
 # Additional stripping to ensure minimal size
 RUN strip target/release/jackdaw
 
 # =============================================================================
-# Python Extractor Stage - Extract minimal Python 3.12 shared library
-# =============================================================================
-
-FROM ubuntu:24.04 AS python-extractor
-
-# Configure Python version (must match builder stage)
-ARG PYTHONVERSION=3.12
-
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Install Python (same version as builder)
-RUN apt-get update && \
-    apt-get install -y \
-    python${PYTHONVERSION} \
-    libpython${PYTHONVERSION} \
-    && rm -rf /var/lib/apt/lists/*
-
-# Find and copy all Python shared libraries
-# For abi3-py310, jackdaw needs libpython3.so (stable ABI)
-RUN mkdir -p /python-libs && \
-    cp -P /usr/lib/$(uname -m)-linux-gnu/libpython${PYTHONVERSION}*.so* /python-libs/ && \
-    echo "Extracted Python libraries:" && \
-    ls -lh /python-libs/
-
-# =============================================================================
-# Dependency Extractor Stage - Extract required shared libraries for glibc
-# =============================================================================
-FROM ubuntu:24.04 AS dependency-extractor
-
-# Configure Python version (must match builder stage)
-ARG PYTHONVERSION=3.12
-
-# Copy the jackdaw binary from builder
-COPY --from=builder /build/target/release/jackdaw /tmp/jackdaw
-
-# Install binutils for ldd, ca-certificates, and zlib
-RUN apt-get update && apt-get install -y binutils ca-certificates zlib1g && \
-    mkdir -p /deps/lib /deps/lib64
-
-# Extract all shared library dependencies
-# This captures libssl, libcrypto, libgcc, libm, libc, etc.
-RUN ldd /tmp/jackdaw | grep "=> /" | awk '{print $3}' | \
-    xargs -I {} cp -v {} /deps/lib/
-
-# Also extract dependencies of Python library (libz, libexpat, etc.)
-# These are transitive dependencies that ldd on jackdaw doesn't show
-RUN apt-get install -y python${PYTHONVERSION} libpython${PYTHONVERSION} > /dev/null 2>&1 && \
-    ldd /usr/lib/$(uname -m)-linux-gnu/libpython${PYTHONVERSION}.so.* | grep "=> /" | awk '{print $3}' | \
-    xargs -I {} cp -v {} /deps/lib/
-
-# Copy the dynamic linker (architecture-specific)
-RUN cp -v /lib64/ld-linux-*.so.* /deps/lib64/ 2>/dev/null || \
-    cp -v /lib/ld-linux-*.so.* /deps/lib/ 2>/dev/null || true
-
-# Show what we extracted
-RUN echo "Extracted dependencies:" && \
-    ls -lh /deps/lib/ && \
-    ls -lh /deps/lib64/ 2>/dev/null || true
-
-# =============================================================================
 # Final Stage - Distroless Python3 runtime image
 # =============================================================================
-FROM gcr.io/distroless/python3-debian12
-
-# Copy dynamic linker and all required libraries from Ubuntu
-COPY --from=dependency-extractor /deps/lib64/ /lib64/
-COPY --from=dependency-extractor /deps/lib/ /lib/x86_64-linux-gnu/
-COPY --from=python-extractor /python-libs/ /lib/x86_64-linux-gnu/
+FROM python:3.14-slim AS final
 
 # Copy the jackdaw binary
 COPY --from=builder /build/target/release/jackdaw /usr/local/bin/jackdaw
