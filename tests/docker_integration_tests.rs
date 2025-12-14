@@ -991,35 +991,30 @@ fn test_docker_validate_nested_workflows() {
 
 #[test]
 fn test_docker_run_nested_workflow() {
-    // Test running nested workflows
-    let fixture_path = PathBuf::from("tests/fixtures/nested-workflows");
-    let temp_dir = TempDir::new().unwrap_or_else(|e| panic!("Failed to create temp dir: {}", e));
-
-    // Copy all workflow files to temp dir
-    for workflow in &["workflow-a.yaml", "workflow-b.yaml", "workflow-c.yaml"] {
-        std::fs::copy(
-            std::env::current_dir()
-                .unwrap()
-                .join(&fixture_path)
-                .join(workflow),
-            temp_dir.path().join(workflow),
-        )
-        .unwrap_or_else(|e| panic!("Failed to copy {}: {}", workflow, e));
-    }
+    // Test running nested workflows - mounts the project directory so subworkflows can be resolved
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
 
     let output = Command::new("docker")
         .args([
             "run",
             "--rm",
             "-v",
-            &format!("{}:/workflows", temp_dir.path().display()),
+            &format!("{}:/app:ro", std::env::current_dir().unwrap().display()),
+            "-v",
+            &format!("{}:/data", temp_dir.path().display()),
+            "-w",
+            "/app",
             "jackdaw:latest",
             "run",
-            "/workflows/workflow-a.yaml",
+            "tests/fixtures/nested-workflows/workflow-a.yaml",
+            "--input",
+            r#"{"value": 10}"#,
+            "--registry",
+            "tests/fixtures/nested-workflows",
             "--durable-db",
-            "/workflows/test.db",
+            "/data/test.db",
             "--cache-db",
-            "/workflows/cache.db",
+            "/data/cache.db",
         ])
         .output()
         .expect("Failed to run docker container");
