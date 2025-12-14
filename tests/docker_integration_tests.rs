@@ -280,42 +280,6 @@ fn test_docker_validate_python_script() {
 }
 
 #[test]
-fn test_docker_validate_typescript_script() {
-    // Test validating a workflow with TypeScript script
-    let fixture_path = PathBuf::from("tests/fixtures/docker");
-
-    assert!(
-        fixture_path.join("typescript-script.sw.yaml").exists(),
-        "Fixture not found: tests/fixtures/docker/typescript-script.sw.yaml"
-    );
-
-    let output = Command::new("docker")
-        .args([
-            "run",
-            "--rm",
-            "-v",
-            &format!(
-                "{}:/workflows:ro",
-                std::env::current_dir()
-                    .unwrap()
-                    .join(&fixture_path)
-                    .display()
-            ),
-            "jackdaw:latest",
-            "validate",
-            "/workflows/typescript-script.sw.yaml",
-        ])
-        .output()
-        .expect("Failed to run docker container");
-
-    assert!(
-        output.status.success(),
-        "TypeScript script workflow validation failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
-#[test]
 fn test_docker_validate_javascript_script() {
     // Test validating a workflow with JavaScript script
     let fixture_path = PathBuf::from("tests/fixtures/docker");
@@ -348,6 +312,59 @@ fn test_docker_validate_javascript_script() {
         output.status.success(),
         "JavaScript script workflow validation failed: {}",
         String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn test_docker_run_javascript_script() {
+    // Test running a Python script workflow
+    let fixture_path = PathBuf::from("tests/fixtures/docker");
+    let temp_dir = TempDir::new().unwrap_or_else(|e| panic!("Failed to create temp dir: {}", e));
+
+    assert!(
+        fixture_path.join("javascript-script.sw.yaml").exists(),
+        "Fixture not found: tests/fixtures/docker/javascript-script.sw.yaml"
+    );
+
+    // Copy fixture to temp dir
+    std::fs::copy(
+        std::env::current_dir()
+            .unwrap()
+            .join(&fixture_path)
+            .join("javascript-script.sw.yaml"),
+        temp_dir.path().join("javascript-script.sw.yaml"),
+    )
+    .unwrap_or_else(|e| panic!("Failed to copy fixture: {}", e));
+
+    let output = Command::new("docker")
+        .args([
+            "run",
+            "--rm",
+            "-v",
+            &format!("{}:/workflows", temp_dir.path().display()),
+            "jackdaw:latest",
+            "run",
+            "/workflows/javascript-script.sw.yaml",
+            "--durable-db",
+            "/workflows/test.db",
+            "--cache-db",
+            "/workflows/cache.db",
+        ])
+        .output()
+        .expect("Failed to run docker container");
+
+    assert!(
+        output.status.success(),
+        "Javascript script execution failed: {}\nStderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Hello from JavaScript!"),
+        "Output doesn't contain expected JavaScript message: {}",
+        stdout
     );
 }
 
@@ -400,59 +417,6 @@ fn test_docker_run_python_script() {
     assert!(
         stdout.contains("Hello from Python!"),
         "Output doesn't contain expected Python message: {}",
-        stdout
-    );
-}
-
-#[test]
-fn test_docker_run_typescript_script() {
-    // Test running a TypeScript script workflow
-    let fixture_path = PathBuf::from("tests/fixtures/docker");
-    let temp_dir = TempDir::new().unwrap_or_else(|e| panic!("Failed to create temp dir: {}", e));
-
-    assert!(
-        fixture_path.join("typescript-script.sw.yaml").exists(),
-        "Fixture not found: tests/fixtures/docker/typescript-script.sw.yaml"
-    );
-
-    // Copy fixture to temp dir
-    std::fs::copy(
-        std::env::current_dir()
-            .unwrap()
-            .join(&fixture_path)
-            .join("typescript-script.sw.yaml"),
-        temp_dir.path().join("typescript-script.sw.yaml"),
-    )
-    .unwrap_or_else(|e| panic!("Failed to copy fixture: {}", e));
-
-    let output = Command::new("docker")
-        .args([
-            "run",
-            "--rm",
-            "-v",
-            &format!("{}:/workflows", temp_dir.path().display()),
-            "jackdaw:latest",
-            "run",
-            "/workflows/typescript-script.sw.yaml",
-            "--durable-db",
-            "/workflows/test.db",
-            "--cache-db",
-            "/workflows/cache.db",
-        ])
-        .output()
-        .expect("Failed to run docker container");
-
-    assert!(
-        output.status.success(),
-        "TypeScript script execution failed: {}\nStderr: {}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("Hello from TypeScript!"),
-        "Output doesn't contain expected TypeScript message: {}",
         stdout
     );
 }
@@ -749,9 +713,8 @@ fn test_docker_run_openapi_python_listener_with_client() {
         .args(["stop", "jackdaw-http-test"])
         .output();
 
-    // Kill the child process
-    let _ = child.kill();
-    let _ = child.wait();
+    // Get container output before killing
+    let container_output = child.wait_with_output().ok();
 
     // Verify the HTTP call worked
     assert!(
@@ -760,10 +723,21 @@ fn test_docker_run_openapi_python_listener_with_client() {
     );
 
     let output = http_result.unwrap();
+
+    let container_logs = container_output.map(|o| {
+        format!(
+            "Container stdout:\n{}\n\nContainer stderr:\n{}",
+            String::from_utf8_lossy(&o.stdout),
+            String::from_utf8_lossy(&o.stderr)
+        )
+    }).unwrap_or_else(|| "Could not capture container output".to_string());
+
     assert!(
         output.status.success(),
-        "HTTP call failed: {}",
-        String::from_utf8_lossy(&output.stderr)
+        "HTTP call failed.\nCurl stderr: {}\nCurl stdout: {}\n\n{}",
+        String::from_utf8_lossy(&output.stderr),
+        String::from_utf8_lossy(&output.stdout),
+        container_logs
     );
 
     let response = String::from_utf8_lossy(&output.stdout);

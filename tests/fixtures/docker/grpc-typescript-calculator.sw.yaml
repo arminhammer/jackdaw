@@ -13,7 +13,7 @@ do:
           any:
             - with:
                 source:
-                  uri: grpc://localhost:50051/calculator.Calculator/Add
+                  uri: grpc://0.0.0.0:50051/calculator.Calculator/Add
                   schema:
                     format: proto
                     resource:
