@@ -230,39 +230,39 @@ docker-build-multiplatform:
 docker-build-push:
     docker buildx build --platform linux/amd64,linux/arm64 -t jackdaw:latest --push .
 
-# Build Linux x86_64 binary using Docker
+# Build Linux x86_64 binary using Docker (extracts from builder stage)
 docker-build-linux-amd64:
     #!/usr/bin/env bash
     set -euo pipefail
     echo "Building Linux x86_64 binary in Docker..."
     docker buildx build \
         --platform linux/amd64 \
+        --target builder \
         --load \
-        -f Dockerfile.build \
         -t jackdaw-builder:linux-amd64 .
     echo "Extracting binary..."
     mkdir -p dist
     docker create --name jackdaw-extract jackdaw-builder:linux-amd64
-    docker cp jackdaw-extract:/usr/local/bin/jackdaw ./dist/jackdaw-linux-amd64
+    docker cp jackdaw-extract:/build/target/release/jackdaw ./dist/jackdaw-linux-amd64
     docker rm jackdaw-extract
     echo "✓ Linux x86_64 binary ready: ./dist/jackdaw-linux-amd64"
     ls -lh ./dist/jackdaw-linux-amd64
     file ./dist/jackdaw-linux-amd64
 
-# Build Linux ARM64 binary using Docker
+# Build Linux ARM64 binary using Docker (extracts from builder stage)
 docker-build-linux-arm64:
     #!/usr/bin/env bash
     set -euo pipefail
     echo "Building Linux ARM64 binary in Docker..."
     docker buildx build \
         --platform linux/arm64 \
+        --target builder \
         --load \
-        -f Dockerfile.build \
         -t jackdaw-builder:linux-arm64 .
     echo "Extracting binary..."
     mkdir -p dist
     docker create --name jackdaw-extract jackdaw-builder:linux-arm64
-    docker cp jackdaw-extract:/usr/local/bin/jackdaw ./dist/jackdaw-linux-arm64
+    docker cp jackdaw-extract:/build/target/release/jackdaw ./dist/jackdaw-linux-arm64
     docker rm jackdaw-extract
     echo "✓ Linux ARM64 binary ready: ./dist/jackdaw-linux-arm64"
     ls -lh ./dist/jackdaw-linux-arm64

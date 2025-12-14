@@ -1,6 +1,6 @@
 # Multi-platform Dockerfile for jackdaw
 # Supports: linux/amd64, linux/arm64
-# Uses Python 3.14 from Ubuntu 25.10 (Oracular Oriole)
+# Uses Python 3.12 from Ubuntu 25.10 (Oracular Oriole)
 # Produces minimal distroless final image with only jackdaw binary + Python shared library
 # Uses glibc (not musl) for maximum compatibility
 # Optimized for dependency caching
@@ -10,20 +10,20 @@
 #   docker buildx build --platform linux/amd64,linux/arm64 -t jackdaw:latest --push .
 
 # =============================================================================
-# Builder Stage - Uses Ubuntu 25.10 for Python 3.14 support
+# Builder Stage - Uses Ubuntu 25.10 for Python 3.12 support
 # =============================================================================
-FROM ubuntu:25.10 AS builder
+FROM ubuntu:24.04 AS builder
 
 # Set platform args (provided by buildx)
 ARG TARGETPLATFORM
 ARG TARGETARCH
-ARG PYTHONVERSION=3.14
+ARG PYTHONVERSION=3.12
 
 # Prevent interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install build dependencies and Python 3.14
-# Ubuntu 25.10 (Oracular) includes Python 3.14 by default
+# Install build dependencies and Python 3.12
+# Ubuntu 25.10 (Oracular) includes Python 3.12 by default
 RUN apt-get update && apt-get install -y \
     build-essential \
     pkg-config \
@@ -94,13 +94,13 @@ RUN cargo build --release
 RUN strip target/release/jackdaw
 
 # =============================================================================
-# Python Extractor Stage - Extract minimal Python 3.14 shared library
+# Python Extractor Stage - Extract minimal Python 3.12 shared library
 # =============================================================================
 
-FROM ubuntu:25.10 AS python-extractor
+FROM ubuntu:24.04 AS python-extractor
 
 # Configure Python version (must match builder stage)
-ARG PYTHONVERSION=3.14
+ARG PYTHONVERSION=3.12
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -121,10 +121,10 @@ RUN mkdir -p /python-libs && \
 # =============================================================================
 # Dependency Extractor Stage - Extract required shared libraries for glibc
 # =============================================================================
-FROM ubuntu:25.10 AS dependency-extractor
+FROM ubuntu:24.04 AS dependency-extractor
 
 # Configure Python version (must match builder stage)
-ARG PYTHONVERSION=3.14
+ARG PYTHONVERSION=3.12
 
 # Copy the jackdaw binary from builder
 COPY --from=builder /build/target/release/jackdaw /tmp/jackdaw
@@ -154,14 +154,17 @@ RUN echo "Extracted dependencies:" && \
     ls -lh /deps/lib64/ 2>/dev/null || true
 
 # =============================================================================
-# Final Stage - Chainguard Python 3.14 distroless runtime image
+# Final Stage - Distroless Python3 runtime image
 # =============================================================================
-FROM cgr.dev/chainguard/python:latest
+FROM gcr.io/distroless/python3-debian12
 
-# Copy the jackdaw binary (this is the star of the show!)
+# Copy dynamic linker and all required libraries from Ubuntu
+COPY --from=dependency-extractor /deps/lib64/ /lib64/
+COPY --from=dependency-extractor /deps/lib/ /lib/x86_64-linux-gnu/
+COPY --from=python-extractor /python-libs/ /lib/x86_64-linux-gnu/
+
+# Copy the jackdaw binary
 COPY --from=builder /build/target/release/jackdaw /usr/local/bin/jackdaw
-
-# Chainguard images run as non-root by default (uid 65532:65532)
 
 # Set entrypoint to jackdaw binary
 ENTRYPOINT ["/usr/local/bin/jackdaw"]
