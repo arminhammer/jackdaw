@@ -246,6 +246,87 @@ impl Listener for GrpcListener {
     }
 }
 
+/// Body type that includes gRPC trailers for successful responses
+struct GrpcResponseBody {
+    data: Option<Bytes>,
+    trailers_sent: bool,
+}
+
+impl GrpcResponseBody {
+    fn new(data: Bytes) -> Self {
+        Self {
+            data: Some(data),
+            trailers_sent: false,
+        }
+    }
+}
+
+impl http_body::Body for GrpcResponseBody {
+    type Data = Bytes;
+    type Error = Status;
+
+    fn poll_frame(
+        mut self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<std::result::Result<http_body::Frame<Self::Data>, Self::Error>>> {
+        // First send the data frame
+        if let Some(data) = self.data.take() {
+            return Poll::Ready(Some(Ok(http_body::Frame::data(data))));
+        }
+
+        // Then send trailers
+        if !self.trailers_sent {
+            self.trailers_sent = true;
+            let mut trailers = http::HeaderMap::new();
+            trailers.insert("grpc-status", "0".parse().unwrap());
+            trailers.insert("grpc-message", "".parse().unwrap());
+            return Poll::Ready(Some(Ok(http_body::Frame::trailers(trailers))));
+        }
+
+        // Stream is complete
+        Poll::Ready(None)
+    }
+}
+
+/// Body type for gRPC error responses with trailers
+struct GrpcErrorBody {
+    trailers_sent: bool,
+    status_code: tonic::Code,
+    status_message: String,
+}
+
+impl GrpcErrorBody {
+    fn new(code: tonic::Code, message: &str) -> Self {
+        Self {
+            trailers_sent: false,
+            status_code: code,
+            status_message: message.to_string(),
+        }
+    }
+}
+
+impl http_body::Body for GrpcErrorBody {
+    type Data = Bytes;
+    type Error = Status;
+
+    fn poll_frame(
+        mut self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<std::result::Result<http_body::Frame<Self::Data>, Self::Error>>> {
+        // Send trailers immediately for errors (no data frame)
+        if !self.trailers_sent {
+            self.trailers_sent = true;
+            let mut trailers = http::HeaderMap::new();
+            trailers.insert("grpc-status", (self.status_code as i32).to_string().parse().unwrap());
+            trailers.insert("grpc-message", self.status_message.parse().unwrap());
+            return Poll::Ready(Some(Ok(http_body::Frame::trailers(trailers))));
+        }
+
+        // Stream is complete
+        Poll::Ready(None)
+    }
+}
+
 /// Multi-method dynamic gRPC service implementation
 /// This handles multiple methods on a single gRPC server
 struct MultiMethodGrpcService {
@@ -507,39 +588,39 @@ impl Service<http::Request<BoxBody>> for MultiMethodServiceWrapper {
             // Handle the request
             match inner.handle_request(method_name, request_bytes).await {
                 Ok(response_bytes) => {
-                    let body = Full::new(response_bytes)
-                        .map_err(|_: std::convert::Infallible| Status::internal("unreachable"));
+                    // gRPC requires a 5-byte frame header: [compressed flag (1 byte)][message length (4 bytes)]
+                    // Add the frame header to the response
+                    let mut framed_response = Vec::with_capacity(5 + response_bytes.len());
+                    framed_response.push(0); // No compression
+                    framed_response.extend_from_slice(&(response_bytes.len() as u32).to_be_bytes());
+                    framed_response.extend_from_slice(&response_bytes);
+
+                    // Create body with trailers support
+                    let body = GrpcResponseBody::new(Bytes::from(framed_response));
                     let boxed = BoxBody::new(body);
+                    
                     let response = http::Response::builder()
                         .status(200)
                         .header("content-type", "application/grpc")
-                        .header("grpc-status", "0")
                         .body(boxed)
                         .unwrap_or_else(|_| {
-                            let body =
-                                Full::new(Bytes::new()).map_err(|_: std::convert::Infallible| {
-                                    Status::internal("unreachable")
-                                });
+                            let body = GrpcResponseBody::new(Bytes::new());
                             let boxed = BoxBody::new(body);
                             http::Response::new(boxed)
                         });
                     Ok(response)
                 }
                 Err(status) => {
-                    let body = Full::new(Bytes::new())
-                        .map_err(|_: std::convert::Infallible| Status::internal("unreachable"));
+                    // Create error body with trailers
+                    let body = GrpcErrorBody::new(status.code(), status.message());
                     let boxed = BoxBody::new(body);
+                    
                     let response = http::Response::builder()
                         .status(200)
                         .header("content-type", "application/grpc")
-                        .header("grpc-status", status.code() as i32)
-                        .header("grpc-message", status.message())
                         .body(boxed)
                         .unwrap_or_else(|_| {
-                            let body =
-                                Full::new(Bytes::new()).map_err(|_: std::convert::Infallible| {
-                                    Status::internal("unreachable")
-                                });
+                            let body = GrpcErrorBody::new(tonic::Code::Internal, "Failed to build response");
                             let boxed = BoxBody::new(body);
                             http::Response::new(boxed)
                         });
