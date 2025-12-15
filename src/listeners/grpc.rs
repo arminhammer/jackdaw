@@ -4,10 +4,12 @@ use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 use prost::Message;
 use prost_reflect::{DescriptorPool, DynamicMessage, ServiceDescriptor};
+use prost_types::FileDescriptorSet;
 use std::sync::Arc;
 use std::task::{Context as TaskContext, Poll};
 use tokio::sync::RwLock;
 use tonic::{Status, body::BoxBody, server::NamedService, transport::Server};
+use tonic_reflection::server::Builder as ReflectionBuilder;
 use tower::Service;
 
 /// gRPC listener for handling proto-based service requests
@@ -17,6 +19,9 @@ pub struct GrpcListener {
 
     /// Service descriptor
     service_descriptor: ServiceDescriptor,
+
+    /// File descriptor set for reflection support
+    file_descriptor_set: FileDescriptorSet,
 
     /// Method handlers: ``method_name`` -> handler function
     /// For multi-method servers, this contains all handlers
@@ -118,8 +123,8 @@ impl GrpcListener {
 
         Ok(Self {
             bind_addr,
-            // descriptor_pool: Arc::new(descriptor_pool),
             service_descriptor,
+            file_descriptor_set,
             method_handlers: Arc::new(RwLock::new(method_handlers)),
             shutdown_tx: Arc::new(RwLock::new(None)),
         })
@@ -144,6 +149,7 @@ impl Listener for GrpcListener {
         let bind_addr = self.bind_addr.clone();
         let method_handlers = self.method_handlers.clone();
         let service_descriptor = self.service_descriptor.clone();
+        let file_descriptor_set = self.file_descriptor_set.clone();
 
         // Create shutdown channel
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
@@ -178,9 +184,20 @@ impl Listener for GrpcListener {
 
             let service_wrapper = service.into_service();
 
-            println!("  Starting tonic server on {addr}");
+            // Build reflection service from file descriptor set
+            let reflection_service = ReflectionBuilder::configure()
+                .register_encoded_file_descriptor_set(file_descriptor_set.encode_to_vec().as_slice())
+                .build_v1()
+                .unwrap_or_else(|e| {
+                    eprintln!("  Failed to build reflection service: {e}");
+                    panic!("Failed to build reflection service");
+                });
+
+            println!("  Starting tonic server on {addr} with reflection support");
 
             let result = Server::builder()
+                // Add reflection service for gRPC clients to discover the API
+                .add_service(reflection_service)
                 // Add our service - tonic will route all requests here since we're the only service
                 .add_service(service_wrapper)
                 .serve_with_shutdown(addr, async {

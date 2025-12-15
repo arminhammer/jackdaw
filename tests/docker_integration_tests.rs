@@ -191,8 +191,6 @@ fn test_docker_run_existing_fixture() {
     }
 
     let temp_dir = TempDir::new().unwrap_or_else(|e| panic!("Failed to create temp dir: {}", e));
-    let db_path = temp_dir.path().join("test.db");
-    let cache_path = temp_dir.path().join("cache.db");
 
     // First, validate the workflow
     let validate_output = Command::new("docker")
@@ -666,7 +664,7 @@ fn test_docker_run_openapi_python_listener_with_client() {
     );
 
     // Start jackdaw with HTTP listener in background
-    let mut child = Command::new("docker")
+    let child = Command::new("docker")
         .args([
             "run",
             "--rm",

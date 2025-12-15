@@ -25,7 +25,7 @@ do:
           - executeAdd:
               call: typescript
               with:
-                module: calculator.add
+                module: tests/fixtures/listeners/handlers/typescript-handlers/src/add.ts
                 function: handler
                 arguments:
                   - ${ $event }
