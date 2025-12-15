@@ -190,8 +190,6 @@ fn test_docker_run_existing_fixture() {
         return;
     }
 
-    let temp_dir = TempDir::new().unwrap_or_else(|e| panic!("Failed to create temp dir: {}", e));
-
     // First, validate the workflow
     let validate_output = Command::new("docker")
         .args([
