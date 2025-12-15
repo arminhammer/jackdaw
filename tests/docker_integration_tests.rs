@@ -583,6 +583,8 @@ fn test_docker_run_grpc_python_listener_with_client() {
             "jackdaw-grpc-test",
             "-p",
             "50051:50051", // Expose gRPC port
+            "-e",
+            "PYTHONPATH=/app/tests/fixtures/listeners/handlers/python-handlers", // Set Python module path
             "-v",
             &format!("{}:/app:ro", std::env::current_dir().unwrap().display()),
             "-v",
@@ -672,6 +674,8 @@ fn test_docker_run_openapi_python_listener_with_client() {
             "jackdaw-http-test",
             "-p",
             "8080:8080", // Expose HTTP port
+            "-e",
+            "PYTHONPATH=/app/tests/fixtures/listeners/handlers/python-handlers", // Set Python module path
             "-v",
             &format!("{}:/app:ro", std::env::current_dir().unwrap().display()),
             "-v",

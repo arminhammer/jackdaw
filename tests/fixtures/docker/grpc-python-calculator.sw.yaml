@@ -18,7 +18,7 @@ do:
                     format: proto
                     resource:
                       endpoint: tests/fixtures/listeners/specs/calculator.proto
-        until: '${ false }'
+          until: '${ false }'
       foreach:
         item: event
         do:

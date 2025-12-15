@@ -19,7 +19,7 @@ do:
                     resource:
                       endpoint: tests/fixtures/listeners/specs/calculator.yaml
                       name: AddRequest
-        until: '${ false }'
+          until: '${ false }'
       foreach:
         item: event
         do:
