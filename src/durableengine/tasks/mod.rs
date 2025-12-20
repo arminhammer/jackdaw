@@ -73,7 +73,7 @@ impl DurableEngine {
                 exec_emit_task(self, task_name, emit_task, ctx).await
             }
             TaskDefinition::Listen(listen_task) => {
-                exec_listen_task(self, task_name, listen_task, ctx)
+                exec_listen_task(self, task_name, listen_task, ctx).await
             }
             TaskDefinition::Wait(_wait_task) => {
                 println!("  Task type not yet implemented, returning empty result");
@@ -182,14 +182,43 @@ async fn exec_do_task(
 
 /// Execute a Listen task - listeners are initialized at workflow startup
 #[allow(clippy::unnecessary_wraps)]
-fn exec_listen_task(
+async fn exec_listen_task(
     _engine: &DurableEngine,
     _task_name: &str,
-    _listen_task: &serverless_workflow_core::models::task::ListenTaskDefinition,
-    _ctx: &Context,
+    listen_task: &serverless_workflow_core::models::task::ListenTaskDefinition,
+    ctx: &Context,
 ) -> Result<serde_json::Value> {
-    // Listen tasks are now initialized at workflow startup via initialize_listeners()
-    // This method is kept for compatibility but does nothing during execution
-    // The listener is already running and will continue to run until workflow completes
+    // Listen tasks are initialized at workflow startup via initialize_listeners()
+    // The listener is already running in the background.
+    // According to the DSL spec, if 'until' is specified with eventConsumptionStrategy 'any',
+    // we must keep listening until the condition evaluates to true.
+    // If until evaluates to false, we block indefinitely to keep the workflow alive.
+
+    let listen_def = &listen_task.listen;
+    if let Some(until_box) = &listen_def.to.until {
+        use serverless_workflow_core::models::event::OneOfEventConsumptionStrategyDefinitionOrExpression;
+
+        // Check if until is an expression (not a strategy with events)
+        if let OneOfEventConsumptionStrategyDefinitionOrExpression::Expression(until_expr) = until_box.as_ref() {
+            // Evaluate the until expression
+            let current_data = ctx.state.data.read().await.clone();
+            let until_value = crate::expressions::evaluate_expression(&until_expr, &current_data)?;
+
+            // If until evaluates to false, block indefinitely
+            // This keeps the workflow (and container) alive while background listeners process events
+            if let Some(false) = until_value.as_bool() {
+                eprintln!("DEBUG: Blocking forever because until = false");
+                use tokio::time::Duration;
+                loop {
+                    tokio::time::sleep(Duration::from_secs(3600)).await;
+                }
+            } else {
+                eprintln!("DEBUG: NOT blocking, until_value.as_bool() = {:?}", until_value.as_bool());
+            }
+        }
+        // Note: If until is a Strategy (not an Expression), we don't block here
+        // because the strategy defines events that trigger completion, not a boolean condition
+    }
+
     Ok(serde_json::json!({"status": "already_listening"}))
 }

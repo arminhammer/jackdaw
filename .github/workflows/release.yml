@@ -1,0 +1,209 @@
+name: Build Release Binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v0.1.0)'
+        required: true
+        default: 'v0.1.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    name: Build Linux (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build binary for ${{ matrix.arch }}
+        run: |
+          docker buildx build \
+            --platform linux/${{ matrix.arch }} \
+            --target builder \
+            --load \
+            -t jackdaw-builder:linux-${{ matrix.arch }} .
+
+      - name: Extract binary
+        run: |
+          mkdir -p dist
+          docker create --name jackdaw-extract jackdaw-builder:linux-${{ matrix.arch }}
+          docker cp jackdaw-extract:/build/target/release/jackdaw ./dist/jackdaw-linux-${{ matrix.arch }}
+          docker rm jackdaw-extract
+
+      - name: Verify binary
+        run: |
+          file ./dist/jackdaw-linux-${{ matrix.arch }}
+          ls -lh ./dist/jackdaw-linux-${{ matrix.arch }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jackdaw-linux-${{ matrix.arch }}
+          path: dist/jackdaw-linux-${{ matrix.arch }}
+          retention-days: 5
+
+  build-macos:
+    name: Build macOS (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: macos-13
+            target: x86_64-apple-darwin
+            arch: amd64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            arch: arm64
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: Setup Python library symlink
+        run: |
+          mkdir -p ~/lib
+          # Find the actual Python library location
+          PYTHON_LIB=$(python3.14 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
+          PYTHON_VERSION=$(python3.14 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+
+          # Create symlink for pyo3
+          if [ -f "$PYTHON_LIB/libpython${PYTHON_VERSION}.dylib" ]; then
+            ln -sf "$PYTHON_LIB/libpython${PYTHON_VERSION}.dylib" ~/lib/libpython${PYTHON_VERSION}.dylib
+          fi
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build binary
+        run: cargo build --release --target ${{ matrix.target }}
+        env:
+          RUSTFLAGS: "-L$HOME/lib"
+
+      - name: Verify binary
+        run: |
+          file target/${{ matrix.target }}/release/jackdaw
+          ls -lh target/${{ matrix.target }}/release/jackdaw
+
+      - name: Prepare artifact
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/jackdaw dist/jackdaw-macos-${{ matrix.arch }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jackdaw-macos-${{ matrix.arch }}
+          path: dist/jackdaw-macos-${{ matrix.arch }}
+          retention-days: 5
+
+  create-release:
+    name: Create Release
+    needs: [build-linux, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p dist
+
+          # Copy and compress binaries
+          for platform in linux-amd64 linux-arm64 macos-amd64 macos-arm64; do
+            if [ -d "artifacts/jackdaw-$platform" ]; then
+              cp artifacts/jackdaw-$platform/jackdaw-$platform dist/
+              tar -czf dist/jackdaw-$platform.tar.gz -C artifacts/jackdaw-$platform jackdaw-$platform
+            fi
+          done
+
+          # Generate checksums
+          cd dist
+          sha256sum jackdaw-*.tar.gz > checksums.txt
+          cat checksums.txt
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.VERSION }}
+          name: Release ${{ steps.version.outputs.VERSION }}
+          draft: false
+          prerelease: false
+          files: |
+            dist/jackdaw-*.tar.gz
+            dist/checksums.txt
+          body: |
+            ## Jackdaw Release ${{ steps.version.outputs.VERSION }}
+
+            ### Downloads
+
+            - **Linux x86_64**: `jackdaw-linux-amd64.tar.gz`
+            - **Linux ARM64**: `jackdaw-linux-arm64.tar.gz`
+            - **macOS Intel**: `jackdaw-macos-amd64.tar.gz`
+            - **macOS Apple Silicon**: `jackdaw-macos-arm64.tar.gz`
+
+            ### Requirements
+
+            - Python 3.10+ (Python 3.12+ recommended)
+            - For Linux: `libpython3.12` or newer
+
+            ### Installation
+
+            ```bash
+            # Extract the binary
+            tar -xzf jackdaw-<platform>.tar.gz
+
+            # Move to PATH
+            sudo mv jackdaw-<platform> /usr/local/bin/jackdaw
+            chmod +x /usr/local/bin/jackdaw
+
+            # Verify installation
+            jackdaw --version
+            ```
+
+            ### Checksums
+
+            See `checksums.txt` for SHA256 checksums of all binaries.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

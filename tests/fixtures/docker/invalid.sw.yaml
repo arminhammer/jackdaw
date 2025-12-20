@@ -1,0 +1,4 @@
+document:
+  dsl: '1.0.1'
+  name: invalid-workflow
+# Missing required fields: namespace, version, and do sections

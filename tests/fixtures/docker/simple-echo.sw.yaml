@@ -1,0 +1,20 @@
+document:
+  dsl: '1.0.1'
+  namespace: test
+  name: simple-echo
+  version: '1.0.0'
+  title: Simple Echo Test
+  summary: Basic workflow that echoes a message
+
+do:
+  - printMessage:
+      run:
+        shell:
+          command: echo
+          arguments:
+            - "Hello from Docker!"
+      output:
+        as: .message
+
+output:
+  as: .message

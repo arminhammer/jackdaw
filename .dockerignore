@@ -25,3 +25,9 @@ docs/
 # Temporary files
 *.tmp
 *.log
+tests/fixtures
+# tests/docker_integration_tests.rs
+tests/listener_steps
+tests/nested_workflow_steps
+tests/steps
+# tests

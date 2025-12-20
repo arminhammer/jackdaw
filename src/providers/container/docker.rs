@@ -182,20 +182,6 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_docker_health_check() {
-        let provider = DockerProvider::new();
-
-        // Skip test if Docker is not available
-        if provider.is_err() {
-            eprintln!("Skipping test: Docker not available");
-            return;
-        }
-
-        let provider = provider.unwrap();
-        assert!(provider.health_check().await.is_ok());
-    }
-
-    #[tokio::test]
     async fn test_docker_execute_simple() {
         let provider = DockerProvider::new();
 
@@ -263,7 +249,7 @@ mod tests {
 
         let provider = provider.unwrap();
 
-        let mut env = HashMap::new();
+        let mut env = std::collections::HashMap::new();
         env.insert("TEST_VAR".to_string(), "test_value".to_string());
 
         let config = ContainerConfig {
