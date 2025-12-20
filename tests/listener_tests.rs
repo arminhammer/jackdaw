@@ -89,6 +89,9 @@ pub struct ListenerWorld {
     // Active listeners
     pub http_listener: Option<Arc<jackdaw::listeners::http::HttpListener>>,
     pub http_response_status: Option<u16>,
+    
+    // Workflow abort handle for cleanup
+    pub abort_handle: Option<futures::future::AbortHandle>,
 }
 
 impl ListenerWorld {
@@ -123,6 +126,7 @@ impl ListenerWorld {
             http_responses: std::collections::HashMap::new(),
             http_listener: None,
             http_response_status: None,
+            abort_handle: None,
         })
     }
 }
@@ -131,8 +135,12 @@ impl ListenerWorld {
 async fn main() {
     // Run listener feature tests sequentially to avoid port conflicts
     // (multiple tests binding to localhost:8080 and localhost:50051)
-    ListenerWorld::cucumber()
-        .max_concurrent_scenarios(1) // Run one scenario at a time
-        .run("tests/fixtures/listeners/features/")
-        .await;
+    // Use LocalSet to support !Send futures in workflow execution
+    let local = tokio::task::LocalSet::new();
+    local.run_until(async {
+        ListenerWorld::cucumber()
+            .max_concurrent_scenarios(1) // Run one scenario at a time
+            .run("tests/fixtures/listeners/features/")
+            .await;
+    }).await;
 }

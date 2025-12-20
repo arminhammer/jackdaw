@@ -1,0 +1,27 @@
+document:
+  dsl: '1.0.1'
+  namespace: test
+  name: javascript-script-test
+  version: '1.0.0'
+  title: JavaScript Script Test
+  summary: Test running JavaScript code in Docker
+
+do:
+  - runJavaScript:
+      run:
+        script:
+          language: javascript
+          code: |
+            // Test basic JavaScript execution
+            const result = {
+              message: "Hello from JavaScript!",
+              timestamp: Date.now(),
+              type: "javascript"
+            };
+
+            console.log(JSON.stringify(result));
+      output:
+        as: .javascript_result
+
+output:
+  as: .javascript_result

@@ -4,10 +4,12 @@ use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 use prost::Message;
 use prost_reflect::{DescriptorPool, DynamicMessage, ServiceDescriptor};
+use prost_types::FileDescriptorSet;
 use std::sync::Arc;
 use std::task::{Context as TaskContext, Poll};
 use tokio::sync::RwLock;
 use tonic::{Status, body::BoxBody, server::NamedService, transport::Server};
+use tonic_reflection::server::Builder as ReflectionBuilder;
 use tower::Service;
 
 /// gRPC listener for handling proto-based service requests
@@ -17,6 +19,9 @@ pub struct GrpcListener {
 
     /// Service descriptor
     service_descriptor: ServiceDescriptor,
+
+    /// File descriptor set for reflection support
+    file_descriptor_set: FileDescriptorSet,
 
     /// Method handlers: ``method_name`` -> handler function
     /// For multi-method servers, this contains all handlers
@@ -118,8 +123,8 @@ impl GrpcListener {
 
         Ok(Self {
             bind_addr,
-            // descriptor_pool: Arc::new(descriptor_pool),
             service_descriptor,
+            file_descriptor_set,
             method_handlers: Arc::new(RwLock::new(method_handlers)),
             shutdown_tx: Arc::new(RwLock::new(None)),
         })
@@ -144,6 +149,7 @@ impl Listener for GrpcListener {
         let bind_addr = self.bind_addr.clone();
         let method_handlers = self.method_handlers.clone();
         let service_descriptor = self.service_descriptor.clone();
+        let file_descriptor_set = self.file_descriptor_set.clone();
 
         // Create shutdown channel
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
@@ -178,9 +184,20 @@ impl Listener for GrpcListener {
 
             let service_wrapper = service.into_service();
 
-            println!("  Starting tonic server on {addr}");
+            // Build reflection service from file descriptor set
+            let reflection_service = ReflectionBuilder::configure()
+                .register_encoded_file_descriptor_set(file_descriptor_set.encode_to_vec().as_slice())
+                .build_v1()
+                .unwrap_or_else(|e| {
+                    eprintln!("  Failed to build reflection service: {e}");
+                    panic!("Failed to build reflection service");
+                });
+
+            println!("  Starting tonic server on {addr} with reflection support");
 
             let result = Server::builder()
+                // Add reflection service for gRPC clients to discover the API
+                .add_service(reflection_service)
                 // Add our service - tonic will route all requests here since we're the only service
                 .add_service(service_wrapper)
                 .serve_with_shutdown(addr, async {
@@ -226,6 +243,87 @@ impl Listener for GrpcListener {
             self.service_descriptor.full_name(),
             methods.join(",")
         )
+    }
+}
+
+/// Body type that includes gRPC trailers for successful responses
+struct GrpcResponseBody {
+    data: Option<Bytes>,
+    trailers_sent: bool,
+}
+
+impl GrpcResponseBody {
+    fn new(data: Bytes) -> Self {
+        Self {
+            data: Some(data),
+            trailers_sent: false,
+        }
+    }
+}
+
+impl http_body::Body for GrpcResponseBody {
+    type Data = Bytes;
+    type Error = Status;
+
+    fn poll_frame(
+        mut self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<std::result::Result<http_body::Frame<Self::Data>, Self::Error>>> {
+        // First send the data frame
+        if let Some(data) = self.data.take() {
+            return Poll::Ready(Some(Ok(http_body::Frame::data(data))));
+        }
+
+        // Then send trailers
+        if !self.trailers_sent {
+            self.trailers_sent = true;
+            let mut trailers = http::HeaderMap::new();
+            trailers.insert("grpc-status", "0".parse().unwrap());
+            trailers.insert("grpc-message", "".parse().unwrap());
+            return Poll::Ready(Some(Ok(http_body::Frame::trailers(trailers))));
+        }
+
+        // Stream is complete
+        Poll::Ready(None)
+    }
+}
+
+/// Body type for gRPC error responses with trailers
+struct GrpcErrorBody {
+    trailers_sent: bool,
+    status_code: tonic::Code,
+    status_message: String,
+}
+
+impl GrpcErrorBody {
+    fn new(code: tonic::Code, message: &str) -> Self {
+        Self {
+            trailers_sent: false,
+            status_code: code,
+            status_message: message.to_string(),
+        }
+    }
+}
+
+impl http_body::Body for GrpcErrorBody {
+    type Data = Bytes;
+    type Error = Status;
+
+    fn poll_frame(
+        mut self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<std::result::Result<http_body::Frame<Self::Data>, Self::Error>>> {
+        // Send trailers immediately for errors (no data frame)
+        if !self.trailers_sent {
+            self.trailers_sent = true;
+            let mut trailers = http::HeaderMap::new();
+            trailers.insert("grpc-status", (self.status_code as i32).to_string().parse().unwrap());
+            trailers.insert("grpc-message", self.status_message.parse().unwrap());
+            return Poll::Ready(Some(Ok(http_body::Frame::trailers(trailers))));
+        }
+
+        // Stream is complete
+        Poll::Ready(None)
     }
 }
 
@@ -490,39 +588,39 @@ impl Service<http::Request<BoxBody>> for MultiMethodServiceWrapper {
             // Handle the request
             match inner.handle_request(method_name, request_bytes).await {
                 Ok(response_bytes) => {
-                    let body = Full::new(response_bytes)
-                        .map_err(|_: std::convert::Infallible| Status::internal("unreachable"));
+                    // gRPC requires a 5-byte frame header: [compressed flag (1 byte)][message length (4 bytes)]
+                    // Add the frame header to the response
+                    let mut framed_response = Vec::with_capacity(5 + response_bytes.len());
+                    framed_response.push(0); // No compression
+                    framed_response.extend_from_slice(&(response_bytes.len() as u32).to_be_bytes());
+                    framed_response.extend_from_slice(&response_bytes);
+
+                    // Create body with trailers support
+                    let body = GrpcResponseBody::new(Bytes::from(framed_response));
                     let boxed = BoxBody::new(body);
+                    
                     let response = http::Response::builder()
                         .status(200)
                         .header("content-type", "application/grpc")
-                        .header("grpc-status", "0")
                         .body(boxed)
                         .unwrap_or_else(|_| {
-                            let body =
-                                Full::new(Bytes::new()).map_err(|_: std::convert::Infallible| {
-                                    Status::internal("unreachable")
-                                });
+                            let body = GrpcResponseBody::new(Bytes::new());
                             let boxed = BoxBody::new(body);
                             http::Response::new(boxed)
                         });
                     Ok(response)
                 }
                 Err(status) => {
-                    let body = Full::new(Bytes::new())
-                        .map_err(|_: std::convert::Infallible| Status::internal("unreachable"));
+                    // Create error body with trailers
+                    let body = GrpcErrorBody::new(status.code(), status.message());
                     let boxed = BoxBody::new(body);
+                    
                     let response = http::Response::builder()
                         .status(200)
                         .header("content-type", "application/grpc")
-                        .header("grpc-status", status.code() as i32)
-                        .header("grpc-message", status.message())
                         .body(boxed)
                         .unwrap_or_else(|_| {
-                            let body =
-                                Full::new(Bytes::new()).map_err(|_: std::convert::Infallible| {
-                                    Status::internal("unreachable")
-                                });
+                            let body = GrpcErrorBody::new(tonic::Code::Internal, "Failed to build response");
                             let boxed = BoxBody::new(body);
                             http::Response::new(boxed)
                         });

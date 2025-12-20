@@ -123,6 +123,14 @@ pub struct RunArgs {
     /// Visualization output path (optional, defaults to stdout for ascii)
     #[arg(long, value_name = "PATH")]
     pub viz_output: Option<PathBuf>,
+
+    /// Input data for the workflow (JSON string or path to JSON file)
+    #[arg(short = 'i', long, value_name = "INPUT")]
+    pub input: Option<String>,
+
+    /// Workflow registry paths - directories or files containing workflows that can be called
+    #[arg(short = 'r', long = "registry", value_name = "PATH")]
+    pub registry: Option<Vec<PathBuf>>,
 }
 
 impl RunArgs {
@@ -204,6 +212,7 @@ async fn execute_workflow(
     engine: Arc<DurableEngine>,
     progress: Option<&ProgressBar>,
     _verbose: bool,
+    input: Option<&String>,
 ) -> Result<(String, serde_json::Value, WorkflowDefinition)> {
     if let Some(pb) = progress {
         pb.set_message(format!("Loading {}", workflow_path.display()));
@@ -218,9 +227,30 @@ async fn execute_workflow(
         pb.set_message(format!("Executing {}", workflow.document.name));
     }
 
+    // Parse input data
+    let input_data = if let Some(input_str) = input {
+        // Try to parse as JSON first
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(input_str) {
+            json
+        } else {
+            // Try to read as file path
+            let input_path = PathBuf::from(input_str);
+            if input_path.exists() {
+                let file_content = std::fs::read_to_string(&input_path)?;
+                serde_json::from_str(&file_content)?
+            } else {
+                return Err(Error::InvalidWorkflowFile {
+                    message: format!("Input '{}' is neither valid JSON nor a valid file path", input_str),
+                });
+            }
+        }
+    } else {
+        serde_json::json!({})
+    };
+
     // Execute workflow - returns both instance_id and final result
     let (instance_id, result) = engine
-        .start_with_input(workflow.clone(), serde_json::json!({}))
+        .start_with_input(workflow.clone(), input_data)
         .await?;
 
     if let Some(pb) = progress {
@@ -246,6 +276,8 @@ fn parse_diagram_format(format_str: &str) -> Result<DiagramFormat> {
 /// Handle the run subcommand
 pub async fn handle_run(
     workflows: Vec<PathBuf>,
+    input: Option<String>,
+    registry: Option<Vec<PathBuf>>,
     config: JackdawConfig,
     multi_progress: MultiProgress,
 ) -> Result<()> {
@@ -307,6 +339,25 @@ pub async fn handle_run(
 
     let engine = Arc::new(DurableEngine::new(persistence.clone(), cache.clone())?);
 
+    // Register workflows from registry paths (if provided)
+    if let Some(registry_paths) = registry {
+        if config.verbose {
+            println!("{} Registering workflows from registry...", style("→").cyan());
+        }
+        let registry_files = discover_workflow_files(&registry_paths)?;
+        for workflow_path in &registry_files {
+            let workflow_yaml = std::fs::read_to_string(workflow_path)?;
+            let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml)?;
+            engine.register_workflow(workflow).await?;
+            if config.verbose {
+                println!("  • Registered workflow from {}", workflow_path.display());
+            }
+        }
+        if config.verbose {
+            println!();
+        }
+    }
+
     // Execute workflows
     if config.parallel && workflow_files.len() > 1 {
         // Parallel execution using futures::join_all
@@ -322,6 +373,7 @@ pub async fn handle_run(
                 let engine_clone = engine.clone();
                 let verbose = config.verbose;
                 let path = workflow_path.clone();
+                let input_clone = input.clone();
                 let pb = multi_progress.add(ProgressBar::new_spinner());
                 let style_result = ProgressStyle::default_spinner()
                     .template("{spinner:.cyan} {msg}")
@@ -337,7 +389,7 @@ pub async fn handle_run(
                     pb.set_style(style);
                     pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
-                    let result = execute_workflow(&path, engine_clone, Some(&pb), verbose).await;
+                    let result = execute_workflow(&path, engine_clone, Some(&pb), verbose, input_clone.as_ref()).await;
                     pb.finish_and_clear();
                     (path, result)
                 }
@@ -423,7 +475,7 @@ pub async fn handle_run(
         );
 
         for workflow_path in workflow_files {
-            match execute_workflow(&workflow_path, engine.clone(), Some(&pb), config.verbose).await
+            match execute_workflow(&workflow_path, engine.clone(), Some(&pb), config.verbose, input.as_ref()).await
             {
                 Ok((instance_id, result, workflow)) => {
                     if config.verbose {

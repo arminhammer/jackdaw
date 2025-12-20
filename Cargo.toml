@@ -43,12 +43,14 @@ axum = "0.7.5"  # Pinned to avoid serde 1.0.228+ which breaks swc_config 3.0.0
 base64 = "0.22"
 
 tonic = "0.12"
+tonic-reflection = "0.12"
 prost = "0.13"
 prost-reflect = { version = "0.14", features = ["serde"] }
 prost-types = "0.13"
 protox = "0.7"
 tower = "0.4"
 http = "1"
+http-body = "1"
 http-body-util = "0.1"
 openapiv3-extended = { version = "6.0", features = ["v2"] }
 redb = "2"
@@ -88,6 +90,13 @@ harness = false
 [[test]]
 name = "example_tests"
 harness = false
+
+[[test]]
+name = "validate_tests"
+
+[[test]]
+name = "docker_integration_tests"
+required-features = []
 
 # Optimized release profile for smaller, faster binaries
 [profile.release]

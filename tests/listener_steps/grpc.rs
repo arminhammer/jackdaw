@@ -152,7 +152,7 @@ async fn given_grpc_multiply_typescript_request(
     world.grpc_requests.insert(method, request);
 }
 
-// Helper to execute workflow and make actual gRPC call
+// Helper to execute workflow and make actual gRPC call  
 async fn execute_workflow_and_call_grpc(world: &mut ListenerWorld, method: String) -> Result<()> {
     // Parse workflow
     let workflow_yaml = world
@@ -168,12 +168,26 @@ async fn execute_workflow_and_call_grpc(world: &mut ListenerWorld, method: Strin
         message: "No engine".to_string(),
     })?;
 
-    // Start workflow - this will start the listeners
-    let instance_id = engine.start(workflow).await?;
-    world.instance_id = Some(instance_id);
+    // Start workflow execution with a race against our gRPC call
+    // The workflow will start listeners and then block forever on `until: false`
+    // We use spawn_local since the workflow future is !Send
+    let engine_clone = engine.clone();
+    let workflow_clone = workflow.clone();
+    
+    // Create an abortable workflow task
+    let (abort_handle, abort_registration) = futures::future::AbortHandle::new_pair();
+    let workflow_future = futures::future::Abortable::new(
+        async move {
+            let _ = engine_clone.start(workflow_clone).await;
+        },
+        abort_registration
+    );
+    
+    // Start workflow in background using spawn_local (works with LocalSet)
+    tokio::task::spawn_local(workflow_future);
 
     // Wait for listeners to start
-    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
 
     // Get the request payload
     let request_json = world
@@ -286,6 +300,9 @@ async fn execute_workflow_and_call_grpc(world: &mut ListenerWorld, method: Strin
     let response_json = serde_json::Value::Object(response_json_map);
 
     world.grpc_responses.insert(method, response_json);
+
+    // Abort the workflow task now that we have our response
+    abort_handle.abort();
 
     Ok(())
 }

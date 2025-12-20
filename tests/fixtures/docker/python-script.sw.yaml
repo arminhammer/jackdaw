@@ -1,0 +1,30 @@
+document:
+  dsl: '1.0.1'
+  namespace: test
+  name: python-script-test
+  version: '1.0.0'
+  title: Python Script Test
+  summary: Test running Python code in Docker
+
+do:
+  - runPython:
+      run:
+        script:
+          language: python
+          code: |
+            import sys
+            import json
+
+            # Test basic Python execution
+            result = {
+                "message": "Hello from Python!",
+                "version": f"{sys.version_info.major}.{sys.version_info.minor}",
+                "platform": sys.platform
+            }
+
+            print(json.dumps(result))
+      output:
+        as: .python_result
+
+output:
+  as: .python_result
