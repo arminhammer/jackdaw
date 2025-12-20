@@ -15,6 +15,7 @@ mod raise;
 mod run;
 mod switch;
 mod try_catch;
+mod wait;
 
 // Re-export task execution methods
 pub use call::exec_call_task;
@@ -25,6 +26,7 @@ pub use raise::exec_raise_task;
 pub use run::exec_run_task;
 pub use switch::exec_switch_task;
 pub use try_catch::exec_try_task;
+pub use wait::exec_wait_task;
 
 impl DurableEngine {
     /// Main task execution dispatcher
@@ -75,9 +77,8 @@ impl DurableEngine {
             TaskDefinition::Listen(listen_task) => {
                 exec_listen_task(self, task_name, listen_task, ctx).await
             }
-            TaskDefinition::Wait(_wait_task) => {
-                println!("  Task type not yet implemented, returning empty result");
-                Ok(serde_json::json!({}))
+            TaskDefinition::Wait(wait_task) => {
+                exec_wait_task(self, task_name, wait_task, ctx).await
             }
         }
     }
