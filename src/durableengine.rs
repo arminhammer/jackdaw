@@ -434,8 +434,11 @@ impl DurableEngine {
             if let Some(next_name) = next_task_name {
                 // Task explicitly set the next task (e.g., Switch task)
 
-                // Special case: "end" means terminate the workflow
-                if next_name == "end" {
+                // Special cases for flow directives:
+                // - "end" means gracefully terminate the workflow
+                // - "exit" means exit current scope (terminates workflow since we're in main scope)
+                // Note: In future, "exit" will only exit the current scope for nested workflows
+                if next_name == "end" || next_name == "exit" {
                     break;
                 }
 
