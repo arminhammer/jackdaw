@@ -49,14 +49,7 @@ pub async fn exec_run_task(
 
     output::format_cache_miss(task_name, &cache_key);
 
-    ctx.services
-        .persistence
-        .save_event(WorkflowEvent::TaskStarted {
-            instance_id: ctx.metadata.instance_id.clone(),
-            task_name: task_name.to_string(),
-            timestamp: Utc::now(),
-        })
-        .await?;
+    // Note: TaskStarted event is now emitted centrally in exec_task()
 
     // Check what type of run task this is
     let result = if let Some(workflow_def) = run_task.run.workflow.as_ref() {

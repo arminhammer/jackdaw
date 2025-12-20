@@ -36,6 +36,27 @@ impl DurableEngine {
         task: &TaskDefinition,
         ctx: &Context,
     ) -> Result<serde_json::Value> {
+        // Emit task.created.v1 event
+        ctx.services
+            .persistence
+            .save_event(crate::workflow::WorkflowEvent::TaskCreated {
+                instance_id: ctx.metadata.instance_id.clone(),
+                task_name: task_name.to_string(),
+                task_type: task.type_name().to_string(),
+                timestamp: chrono::Utc::now(),
+            })
+            .await?;
+
+        // Emit task.started.v1 event
+        ctx.services
+            .persistence
+            .save_event(crate::workflow::WorkflowEvent::TaskStarted {
+                instance_id: ctx.metadata.instance_id.clone(),
+                task_name: task_name.to_string(),
+                timestamp: chrono::Utc::now(),
+            })
+            .await?;
+
         // Format task start
         output::format_task_start(task_name, task.type_name());
 

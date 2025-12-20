@@ -72,7 +72,9 @@ impl SqlitePersistence {
         match event {
             WorkflowEvent::WorkflowStarted { .. } => "WorkflowStarted",
             WorkflowEvent::TaskEntered { .. } => "TaskEntered",
+            WorkflowEvent::TaskCreated { .. } => "TaskCreated",
             WorkflowEvent::TaskStarted { .. } => "TaskStarted",
+            WorkflowEvent::TaskRetried { .. } => "TaskRetried",
             WorkflowEvent::TaskCompleted { .. } => "TaskCompleted",
             WorkflowEvent::WorkflowCompleted { .. } => "WorkflowCompleted",
             WorkflowEvent::WorkflowFailed { .. } => "WorkflowFailed",

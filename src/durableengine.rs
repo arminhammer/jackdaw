@@ -307,7 +307,9 @@ impl DurableEngine {
                         });
                     }
                     WorkflowEvent::WorkflowStarted { .. }
+                    | WorkflowEvent::TaskCreated { .. }
                     | WorkflowEvent::TaskStarted { .. }
+                    | WorkflowEvent::TaskRetried { .. }
                     | WorkflowEvent::TaskEntered { .. }
                     | WorkflowEvent::TaskCompleted { .. } => {}
                 }

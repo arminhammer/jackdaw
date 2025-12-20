@@ -14,9 +14,21 @@ pub enum WorkflowEvent {
         task_name: String,
         timestamp: DateTime<Utc>,
     },
+    TaskCreated {
+        instance_id: String,
+        task_name: String,
+        task_type: String,
+        timestamp: DateTime<Utc>,
+    },
     TaskStarted {
         instance_id: String,
         task_name: String,
+        timestamp: DateTime<Utc>,
+    },
+    TaskRetried {
+        instance_id: String,
+        task_name: String,
+        attempt: u32,
         timestamp: DateTime<Utc>,
     },
     TaskCompleted {
@@ -43,7 +55,9 @@ impl WorkflowEvent {
         match self {
             WorkflowEvent::WorkflowStarted { instance_id, .. }
             | WorkflowEvent::TaskEntered { instance_id, .. }
+            | WorkflowEvent::TaskCreated { instance_id, .. }
             | WorkflowEvent::TaskStarted { instance_id, .. }
+            | WorkflowEvent::TaskRetried { instance_id, .. }
             | WorkflowEvent::TaskCompleted { instance_id, .. }
             | WorkflowEvent::WorkflowCompleted { instance_id, .. }
             | WorkflowEvent::WorkflowFailed { instance_id, .. } => instance_id,
