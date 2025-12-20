@@ -90,12 +90,12 @@ name = "example_tests"
 harness = false
 
 # Optimized release profile for smaller, faster binaries
-[profile.release]
-opt-level = "z"          # Optimize for size
-lto = true               # Enable Link Time Optimization
-codegen-units = 1        # Better optimization, slower compile
-strip = true             # Strip symbols from binary
-panic = "abort"          # Smaller binary, no unwinding
+#[profile.release]
+#opt-level = "z"          # Optimize for size
+#lto = true               # Enable Link Time Optimization
+3codegen-units = 1        # Better optimization, slower compile
+#strip = true             # Strip symbols from binary
+#panic = "abort"          # Smaller binary, no unwinding
 
 # Profile for release with debug info (useful for profiling production issues)
 [profile.release-with-debug]

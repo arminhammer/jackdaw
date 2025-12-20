@@ -679,10 +679,14 @@ fn validate_expression_syntax(expr: &str) -> std::result::Result<(), String> {
     );
 
     // Add dummy input for $input references
+<<<<<<< HEAD
     context_obj.insert(
         "input".to_string(),
         serde_json::json!({}), 
     );
+=======
+    context_obj.insert("input".to_string(), serde_json::json!({}));
+>>>>>>> a6407c5 (feat: add support for containers, and add an example test)
 
     let context = Value::Object(context_obj);
 
