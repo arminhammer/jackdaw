@@ -1,0 +1,14 @@
+document:
+  dsl: '1.0.2'
+  namespace: default
+  name: test-env-vars
+  version: '1.0.0'
+do:
+  - printEnv:
+      run:
+        container:
+          image: alpine:latest
+          command: sh -c "echo MY_VAR=$MY_VAR ANOTHER=$ANOTHER"
+          environment:
+            MY_VAR: "HelloWorld"
+            ANOTHER: "TestValue"

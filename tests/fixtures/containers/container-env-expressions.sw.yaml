@@ -1,0 +1,18 @@
+document:
+  dsl: '1.0.2'
+  namespace: default
+  name: test-env-expressions
+  version: '1.0.0'
+do:
+  - setContext:
+      set:
+        user: "Alice"
+        count: 42
+  - useContext:
+      run:
+        container:
+          image: alpine:latest
+          command: sh -c "echo USER=$USER_NAME COUNT=$COUNT_VAL"
+          environment:
+            USER_NAME: "${ .user }"
+            COUNT_VAL: "${ .count }"

@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use crate::cache::{CacheEntry, compute_cache_key};
 use crate::context::Context;
 use crate::output;
-use crate::workflow::WorkflowEvent;
 
 use super::super::{DurableEngine, Result};
 

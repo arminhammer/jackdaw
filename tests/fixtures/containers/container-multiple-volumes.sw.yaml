@@ -1,0 +1,14 @@
+document:
+  dsl: '1.0.2'
+  namespace: default
+  name: test-multiple-volumes
+  version: '1.0.0'
+do:
+  - processData:
+      run:
+        container:
+          image: alpine:latest
+          command: sh -c "cat /input/input.txt | tr '[:lower:]' '[:upper:]' > /output/output.txt"
+          volumes:
+            /tmp/container-test-input: /input
+            /tmp/container-test-output: /output

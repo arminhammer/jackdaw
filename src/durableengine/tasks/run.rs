@@ -8,7 +8,6 @@ use crate::context::Context;
 use crate::output;
 use crate::providers::container::DockerProvider;
 use crate::task_output::TaskOutputStreamer;
-use crate::workflow::WorkflowEvent;
 
 use super::super::{DurableEngine, Error, IoSnafu, Result};
 
@@ -386,6 +385,57 @@ pub async fn exec_run_task(
         cmd_with_args.push(String::from("--"));
         cmd_with_args.extend(evaluated_args);
 
+        // Evaluate environment variables if provided
+        let environment = if let Some(env) = container.environment.as_ref() {
+            let mut evaluated_env = std::collections::HashMap::new();
+            for (key, value) in env {
+                let evaluated = crate::expressions::evaluate_value_with_input(
+                    &serde_json::Value::String(value.clone()),
+                    &current_data,
+                    &ctx.metadata.initial_input,
+                )?;
+                // Convert evaluated value to string - handles strings, numbers, bools, etc.
+                let value_str = match evaluated {
+                    serde_json::Value::String(s) => s,
+                    serde_json::Value::Number(n) => n.to_string(),
+                    serde_json::Value::Bool(b) => b.to_string(),
+                    serde_json::Value::Null => String::from("null"),
+                    _ => evaluated.to_string(), // Arrays and objects as JSON
+                };
+                evaluated_env.insert(key.clone(), value_str);
+            }
+            Some(evaluated_env)
+        } else {
+            None
+        };
+
+        // Evaluate volumes if provided
+        let volumes = if let Some(vols) = container.volumes.as_ref() {
+            let mut evaluated_vols = std::collections::HashMap::new();
+            for (key, value) in vols {
+                // Evaluate both host path and container path for expressions
+                let evaluated_key = crate::expressions::evaluate_value_with_input(
+                    &serde_json::Value::String(key.clone()),
+                    &current_data,
+                    &ctx.metadata.initial_input,
+                )?;
+                let evaluated_value = crate::expressions::evaluate_value_with_input(
+                    &serde_json::Value::String(value.clone()),
+                    &current_data,
+                    &ctx.metadata.initial_input,
+                )?;
+                if let (Some(host_path), Some(container_path)) = (evaluated_key.as_str(), evaluated_value.as_str()) {
+                    evaluated_vols.insert(host_path.to_string(), container_path.to_string());
+                }
+            }
+            Some(evaluated_vols)
+        } else {
+            None
+        };
+
+        // Ports don't need expression evaluation (they're numbers)
+        let ports = container.ports.clone();
+
         // Create container provider (Docker for now, could be configurable later)
         let provider = DockerProvider::new().map_err(|e| Error::TaskExecution {
             message: format!("Failed to create container provider: {e}"),
@@ -396,8 +446,10 @@ pub async fn exec_run_task(
             image: image.clone(),
             command: cmd_with_args,
             stdin: stdin_data,
-            environment: None, // TODO: Add environment variable support from spec
-            working_dir: None, // TODO: Add working directory support from spec
+            environment,
+            working_dir: None, // TODO: Add working directory support if spec adds it
+            volumes,
+            ports,
         };
 
         let result = provider
