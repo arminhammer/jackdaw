@@ -28,6 +28,7 @@ mod export;
 mod graph;
 mod listeners;
 mod tasks;
+mod timeout;
 
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub))]
@@ -43,6 +44,9 @@ pub enum Error {
 
     #[snafu(display("Configuration error: {message}"))]
     Configuration { message: String },
+
+    #[snafu(display("Timeout: {message}"))]
+    Timeout { message: String },
 
     #[snafu(display("I/O error: {source}"))]
     Io { source: std::io::Error },
@@ -351,6 +355,34 @@ impl DurableEngine {
     }
 
     async fn run_instance(
+        &self,
+        workflow: WorkflowDefinition,
+        instance_id: Option<String>,
+        initial_data: serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        // Check if workflow has a timeout
+        let workflow_timeout = workflow.timeout.as_ref().and_then(|timeout_def| {
+            timeout::parse_timeout_duration(timeout_def).ok()
+        });
+
+        // Execute workflow with timeout if specified
+        let execution_future = self.run_instance_inner(workflow, instance_id, initial_data);
+
+        if let Some(timeout_duration) = workflow_timeout {
+            match tokio::time::timeout(timeout_duration, execution_future).await {
+                Ok(result) => result,
+                Err(_) => {
+                    Err(Error::Timeout {
+                        message: format!("Workflow execution timed out after {:?}", timeout_duration),
+                    })
+                }
+            }
+        } else {
+            execution_future.await
+        }
+    }
+
+    async fn run_instance_inner(
         &self,
         workflow: WorkflowDefinition,
         instance_id: Option<String>,

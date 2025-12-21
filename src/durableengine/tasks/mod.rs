@@ -102,33 +102,63 @@ impl DurableEngine {
         // Execute the task
         // Note: We don't restore the original context after input filtering
         // because task outputs (via ctx.merge) should be preserved
-        match task {
-            TaskDefinition::Call(call_task) => {
-                exec_call_task(self, task_name, call_task, ctx).await
+        let task_execution_future = async {
+            match task {
+                TaskDefinition::Call(call_task) => {
+                    exec_call_task(self, task_name, call_task, ctx).await
+                }
+                TaskDefinition::Set(set_task) => exec_set_task(self, task_name, set_task, ctx).await,
+                TaskDefinition::Fork(fork_task) => {
+                    exec_fork_task(self, task_name, fork_task, ctx).await
+                }
+                TaskDefinition::Run(run_task) => exec_run_task(self, task_name, run_task, ctx).await,
+                TaskDefinition::Do(do_task) => exec_do_task(self, task_name, do_task, ctx).await,
+                TaskDefinition::For(for_task) => exec_for_task(self, task_name, for_task, ctx).await,
+                TaskDefinition::Switch(switch_task) => {
+                    exec_switch_task(self, task_name, switch_task, ctx).await
+                }
+                TaskDefinition::Raise(raise_task) => {
+                    exec_raise_task(self, task_name, raise_task, ctx).await
+                }
+                TaskDefinition::Try(try_task) => exec_try_task(self, task_name, try_task, ctx).await,
+                TaskDefinition::Emit(emit_task) => {
+                    exec_emit_task(self, task_name, emit_task, ctx).await
+                }
+                TaskDefinition::Listen(listen_task) => {
+                    exec_listen_task(self, task_name, listen_task, ctx).await
+                }
+                TaskDefinition::Wait(wait_task) => {
+                    exec_wait_task(self, task_name, wait_task, ctx).await
+                }
             }
-            TaskDefinition::Set(set_task) => exec_set_task(self, task_name, set_task, ctx).await,
-            TaskDefinition::Fork(fork_task) => {
-                exec_fork_task(self, task_name, fork_task, ctx).await
+        };
+
+        // Apply task-level timeout if specified
+        if let Some(timeout_def) = task.timeout() {
+            let timeout_duration = super::timeout::parse_timeout_duration(timeout_def)?;
+            
+            match tokio::time::timeout(timeout_duration, task_execution_future).await {
+                Ok(result) => result,
+                Err(_) => {
+                    // Task timed out - emit TaskFaulted event
+                    ctx.services
+                        .persistence
+                        .save_event(crate::workflow::WorkflowEvent::TaskFaulted {
+                            instance_id: ctx.metadata.instance_id.clone(),
+                            task_name: task_name.to_string(),
+                            error: format!("Task '{}' timed out after {:?}", task_name, timeout_duration),
+                            timestamp: chrono::Utc::now(),
+                        })
+                        .await?;
+                    
+                    Err(super::Error::Timeout {
+                        message: format!("Task '{}' exceeded timeout of {:?}", task_name, timeout_duration),
+                    })
+                }
             }
-            TaskDefinition::Run(run_task) => exec_run_task(self, task_name, run_task, ctx).await,
-            TaskDefinition::Do(do_task) => exec_do_task(self, task_name, do_task, ctx).await,
-            TaskDefinition::For(for_task) => exec_for_task(self, task_name, for_task, ctx).await,
-            TaskDefinition::Switch(switch_task) => {
-                exec_switch_task(self, task_name, switch_task, ctx).await
-            }
-            TaskDefinition::Raise(raise_task) => {
-                exec_raise_task(self, task_name, raise_task, ctx).await
-            }
-            TaskDefinition::Try(try_task) => exec_try_task(self, task_name, try_task, ctx).await,
-            TaskDefinition::Emit(emit_task) => {
-                exec_emit_task(self, task_name, emit_task, ctx).await
-            }
-            TaskDefinition::Listen(listen_task) => {
-                exec_listen_task(self, task_name, listen_task, ctx).await
-            }
-            TaskDefinition::Wait(wait_task) => {
-                exec_wait_task(self, task_name, wait_task, ctx).await
-            }
+        } else {
+            // No timeout specified, execute normally
+            task_execution_future.await
         }
     }
 

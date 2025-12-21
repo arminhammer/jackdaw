@@ -1,0 +1,10 @@
+document:
+  dsl: '1.0.2'
+  namespace: default
+  name: test-task-no-timeout
+  version: '1.0.0'
+do:
+  - quickTask:
+      wait: PT1S
+      timeout:
+        after: PT3S
