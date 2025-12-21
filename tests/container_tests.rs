@@ -5,7 +5,6 @@
 /// - Environment variables (key-value pairs passed to container)
 /// - Expression evaluation in environment variables
 /// - Stdin and arguments support
-
 use jackdaw::cache::CacheProvider;
 use jackdaw::durableengine::DurableEngine;
 use jackdaw::persistence::PersistenceProvider;
@@ -38,8 +37,8 @@ async fn test_container_environment_variables() {
     let (engine, _temp_dir) = setup_test_engine().await;
 
     let fixture = PathBuf::from("tests/fixtures/containers/container-env-vars.sw.yaml");
-    let workflow_yaml = std::fs::read_to_string(&fixture)
-        .expect("Failed to read container-env-vars.sw.yaml");
+    let workflow_yaml =
+        std::fs::read_to_string(&fixture).expect("Failed to read container-env-vars.sw.yaml");
     let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     let result = engine.start_with_input(workflow, json!({})).await;
@@ -74,8 +73,8 @@ async fn test_container_volume_mapping() {
     std::fs::create_dir_all(mount_dir).expect("Failed to create mount directory");
 
     let fixture = PathBuf::from("tests/fixtures/containers/container-volume-write.sw.yaml");
-    let workflow_yaml = std::fs::read_to_string(&fixture)
-        .expect("Failed to read container-volume-write.sw.yaml");
+    let workflow_yaml =
+        std::fs::read_to_string(&fixture).expect("Failed to read container-volume-write.sw.yaml");
     let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     let result = engine.start_with_input(workflow, json!({})).await;

@@ -240,7 +240,10 @@ async fn execute_workflow(
                 serde_json::from_str(&file_content)?
             } else {
                 return Err(Error::InvalidWorkflowFile {
-                    message: format!("Input '{}' is neither valid JSON nor a valid file path", input_str),
+                    message: format!(
+                        "Input '{}' is neither valid JSON nor a valid file path",
+                        input_str
+                    ),
                 });
             }
         }
@@ -342,7 +345,10 @@ pub async fn handle_run(
     // Register workflows from registry paths (if provided)
     if let Some(registry_paths) = registry {
         if config.verbose {
-            println!("{} Registering workflows from registry...", style("→").cyan());
+            println!(
+                "{} Registering workflows from registry...",
+                style("→").cyan()
+            );
         }
         let registry_files = discover_workflow_files(&registry_paths)?;
         for workflow_path in &registry_files {
@@ -389,7 +395,14 @@ pub async fn handle_run(
                     pb.set_style(style);
                     pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
-                    let result = execute_workflow(&path, engine_clone, Some(&pb), verbose, input_clone.as_ref()).await;
+                    let result = execute_workflow(
+                        &path,
+                        engine_clone,
+                        Some(&pb),
+                        verbose,
+                        input_clone.as_ref(),
+                    )
+                    .await;
                     pb.finish_and_clear();
                     (path, result)
                 }
@@ -475,7 +488,14 @@ pub async fn handle_run(
         );
 
         for workflow_path in workflow_files {
-            match execute_workflow(&workflow_path, engine.clone(), Some(&pb), config.verbose, input.as_ref()).await
+            match execute_workflow(
+                &workflow_path,
+                engine.clone(),
+                Some(&pb),
+                config.verbose,
+                input.as_ref(),
+            )
+            .await
             {
                 Ok((instance_id, result, workflow)) => {
                     if config.verbose {

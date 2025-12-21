@@ -152,7 +152,7 @@ async fn given_grpc_multiply_typescript_request(
     world.grpc_requests.insert(method, request);
 }
 
-// Helper to execute workflow and make actual gRPC call  
+// Helper to execute workflow and make actual gRPC call
 async fn execute_workflow_and_call_grpc(world: &mut ListenerWorld, method: String) -> Result<()> {
     // Parse workflow
     let workflow_yaml = world
@@ -173,16 +173,16 @@ async fn execute_workflow_and_call_grpc(world: &mut ListenerWorld, method: Strin
     // We use spawn_local since the workflow future is !Send
     let engine_clone = engine.clone();
     let workflow_clone = workflow.clone();
-    
+
     // Create an abortable workflow task
     let (abort_handle, abort_registration) = futures::future::AbortHandle::new_pair();
     let workflow_future = futures::future::Abortable::new(
         async move {
             let _ = engine_clone.start(workflow_clone).await;
         },
-        abort_registration
+        abort_registration,
     );
-    
+
     // Start workflow in background using spawn_local (works with LocalSet)
     tokio::task::spawn_local(workflow_future);
 

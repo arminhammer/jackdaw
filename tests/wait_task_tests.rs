@@ -5,7 +5,6 @@
 /// 2. Wait for inline duration format (seconds, minutes, etc.)
 /// 3. Measure elapsed time to ensure accuracy
 /// 4. Support expression evaluation (if needed)
-
 use jackdaw::cache::CacheProvider;
 use jackdaw::durableengine::DurableEngine;
 use jackdaw::persistence::PersistenceProvider;
@@ -13,6 +12,7 @@ use jackdaw::providers::cache::RedbCache;
 use jackdaw::providers::persistence::RedbPersistence;
 use serde_json::json;
 use serverless_workflow_core::models::workflow::WorkflowDefinition;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -37,19 +37,10 @@ async fn setup_test_engine() -> (Arc<DurableEngine>, tempfile::TempDir) {
 async fn test_wait_task_iso8601_seconds() {
     let (engine, _temp_dir) = setup_test_engine().await;
 
-    // Create workflow with wait task using ISO 8601 duration (2 seconds)
-    let workflow_yaml = r#"
-document:
-  dsl: '1.0.2'
-  namespace: default
-  name: test-wait-iso8601
-  version: '1.0.0'
-do:
-  - waitTask:
-      wait: PT2S
-"#;
-
-    let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml).unwrap();
+    let fixture = PathBuf::from("tests/fixtures/wait/wait-iso8601-seconds.sw.yaml");
+    let workflow_yaml =
+        std::fs::read_to_string(&fixture).expect("Failed to read wait-iso8601-seconds.sw.yaml");
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     // Measure execution time
     let start = Instant::now();
@@ -75,20 +66,10 @@ do:
 async fn test_wait_task_iso8601_minutes() {
     let (engine, _temp_dir) = setup_test_engine().await;
 
-    // Create workflow with wait task using ISO 8601 duration (1 minute = 60 seconds)
-    // We'll use PT1M (1 minute) but for testing we'll use a shorter duration
-    let workflow_yaml = r#"
-document:
-  dsl: '1.0.2'
-  namespace: default
-  name: test-wait-iso8601-minutes
-  version: '1.0.0'
-do:
-  - waitTask:
-      wait: PT0.05M
-"#;
-
-    let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml).unwrap();
+    let fixture = PathBuf::from("tests/fixtures/wait/wait-iso8601-minutes.sw.yaml");
+    let workflow_yaml =
+        std::fs::read_to_string(&fixture).expect("Failed to read wait-iso8601-minutes.sw.yaml");
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     // Measure execution time
     let start = Instant::now();
@@ -114,20 +95,10 @@ do:
 async fn test_wait_task_inline_seconds() {
     let (engine, _temp_dir) = setup_test_engine().await;
 
-    // Create workflow with wait task using inline duration format
-    let workflow_yaml = r#"
-document:
-  dsl: '1.0.2'
-  namespace: default
-  name: test-wait-inline-seconds
-  version: '1.0.0'
-do:
-  - waitTask:
-      wait:
-        seconds: 1
-"#;
-
-    let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml).unwrap();
+    let fixture = PathBuf::from("tests/fixtures/wait/wait-inline-seconds.sw.yaml");
+    let workflow_yaml =
+        std::fs::read_to_string(&fixture).expect("Failed to read wait-inline-seconds.sw.yaml");
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     // Measure execution time
     let start = Instant::now();
@@ -153,20 +124,10 @@ do:
 async fn test_wait_task_inline_milliseconds() {
     let (engine, _temp_dir) = setup_test_engine().await;
 
-    // Create workflow with wait task using inline duration format (milliseconds)
-    let workflow_yaml = r#"
-document:
-  dsl: '1.0.2'
-  namespace: default
-  name: test-wait-inline-milliseconds
-  version: '1.0.0'
-do:
-  - waitTask:
-      wait:
-        milliseconds: 500
-"#;
-
-    let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml).unwrap();
+    let fixture = PathBuf::from("tests/fixtures/wait/wait-inline-milliseconds.sw.yaml");
+    let workflow_yaml =
+        std::fs::read_to_string(&fixture).expect("Failed to read wait-inline-milliseconds.sw.yaml");
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     // Measure execution time
     let start = Instant::now();
@@ -192,21 +153,10 @@ do:
 async fn test_wait_task_inline_composite() {
     let (engine, _temp_dir) = setup_test_engine().await;
 
-    // Create workflow with wait task using composite duration (1 second + 500 milliseconds)
-    let workflow_yaml = r#"
-document:
-  dsl: '1.0.2'
-  namespace: default
-  name: test-wait-inline-composite
-  version: '1.0.0'
-do:
-  - waitTask:
-      wait:
-        seconds: 1
-        milliseconds: 500
-"#;
-
-    let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml).unwrap();
+    let fixture = PathBuf::from("tests/fixtures/wait/wait-inline-composite.sw.yaml");
+    let workflow_yaml =
+        std::fs::read_to_string(&fixture).expect("Failed to read wait-inline-composite.sw.yaml");
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     // Measure execution time
     let start = Instant::now();
@@ -232,24 +182,10 @@ do:
 async fn test_wait_task_in_sequence() {
     let (engine, _temp_dir) = setup_test_engine().await;
 
-    // Create workflow with multiple wait tasks in sequence
-    let workflow_yaml = r#"
-document:
-  dsl: '1.0.2'
-  namespace: default
-  name: test-wait-sequence
-  version: '1.0.0'
-do:
-  - wait1:
-      wait: PT1S
-  - wait2:
-      wait:
-        milliseconds: 500
-  - wait3:
-      wait: PT0.5S
-"#;
-
-    let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml).unwrap();
+    let fixture = PathBuf::from("tests/fixtures/wait/wait-in-sequence.sw.yaml");
+    let workflow_yaml =
+        std::fs::read_to_string(&fixture).expect("Failed to read wait-in-sequence.sw.yaml");
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     // Measure execution time
     let start = Instant::now();
@@ -275,19 +211,10 @@ do:
 async fn test_wait_task_returns_empty_result() {
     let (engine, _temp_dir) = setup_test_engine().await;
 
-    // Create workflow with wait task
-    let workflow_yaml = r#"
-document:
-  dsl: '1.0.2'
-  namespace: default
-  name: test-wait-result
-  version: '1.0.0'
-do:
-  - waitTask:
-      wait: PT0.1S
-"#;
-
-    let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml).unwrap();
+    let fixture = PathBuf::from("tests/fixtures/wait/wait-returns-empty.sw.yaml");
+    let workflow_yaml =
+        std::fs::read_to_string(&fixture).expect("Failed to read wait-returns-empty.sw.yaml");
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     let result = engine.start_with_input(workflow, json!({})).await;
 

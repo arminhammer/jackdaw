@@ -424,7 +424,9 @@ pub async fn exec_run_task(
                     &current_data,
                     &ctx.metadata.initial_input,
                 )?;
-                if let (Some(host_path), Some(container_path)) = (evaluated_key.as_str(), evaluated_value.as_str()) {
+                if let (Some(host_path), Some(container_path)) =
+                    (evaluated_key.as_str(), evaluated_value.as_str())
+                {
                     evaluated_vols.insert(host_path.to_string(), container_path.to_string());
                 }
             }

@@ -20,7 +20,8 @@ use serverless_workflow_core::models::workflow::WorkflowDefinition;
 async fn setup_test_engine(temp_dir: &TempDir) -> Arc<DurableEngine> {
     let db_path = temp_dir.path().join("test.db");
     let persistence = Arc::new(RedbPersistence::new(db_path.to_str().unwrap()).unwrap());
-    let cache = Arc::new(RedbCache::new(Arc::clone(&persistence.db)).unwrap()) as Arc<dyn CacheProvider>;
+    let cache =
+        Arc::new(RedbCache::new(Arc::clone(&persistence.db)).unwrap()) as Arc<dyn CacheProvider>;
     Arc::new(
         DurableEngine::new(
             Arc::clone(&persistence) as Arc<dyn PersistenceProvider>,
@@ -75,7 +76,11 @@ do:
 
     // Start workflow (this initializes the listener)
     let result = engine.start_with_input(workflow, json!({})).await;
-    assert!(result.is_ok(), "Failed to start workflow: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Failed to start workflow: {:?}",
+        result.err()
+    );
 
     // Give listener time to start
     tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
@@ -163,7 +168,11 @@ do:
 
     // Start workflow
     let result = engine.start_with_input(workflow, json!({})).await;
-    assert!(result.is_ok(), "Failed to start workflow: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Failed to start workflow: {:?}",
+        result.err()
+    );
 
     // Give listener time to start
     tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
@@ -213,7 +222,10 @@ do:
         "Envelope mode should include CloudEvent id"
     );
     assert_eq!(
-        response_body.get("data").and_then(|v| v.get("message")).and_then(|v| v.as_str()),
+        response_body
+            .get("data")
+            .and_then(|v| v.get("message"))
+            .and_then(|v| v.as_str()),
         Some("Nested data"),
         "Envelope mode should include CloudEvent data"
     );
@@ -264,7 +276,11 @@ do:
 
     // Start workflow
     let result = engine.start_with_input(workflow, json!({})).await;
-    assert!(result.is_ok(), "Failed to start workflow: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Failed to start workflow: {:?}",
+        result.err()
+    );
 
     // Give listener time to start
     tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
@@ -296,7 +312,10 @@ do:
         "Raw mode should pass through raw request body"
     );
     assert_eq!(
-        response_body.get("nested").and_then(|v| v.get("data")).and_then(|v| v.as_str()),
+        response_body
+            .get("nested")
+            .and_then(|v| v.get("data"))
+            .and_then(|v| v.as_str()),
         Some("arbitrary structure"),
         "Raw mode should preserve nested structure"
     );
@@ -346,7 +365,11 @@ do:
 
     // Start workflow
     let result = engine.start_with_input(workflow, json!({})).await;
-    assert!(result.is_ok(), "Failed to start workflow: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Failed to start workflow: {:?}",
+        result.err()
+    );
 
     // Give listener time to start
     tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;

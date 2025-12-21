@@ -4,7 +4,6 @@
 /// 1. When a task is scheduled/created (before execution starts)
 /// 2. Before the task.started.v1 event
 /// 3. Should include task name, task type, and timestamp
-
 use jackdaw::cache::CacheProvider;
 use jackdaw::durableengine::DurableEngine;
 use jackdaw::persistence::PersistenceProvider;
@@ -16,7 +15,11 @@ use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use std::sync::Arc;
 
 /// Helper to set up test infrastructure
-async fn setup_test_engine() -> (Arc<DurableEngine>, Arc<dyn PersistenceProvider>, tempfile::TempDir) {
+async fn setup_test_engine() -> (
+    Arc<DurableEngine>,
+    Arc<dyn PersistenceProvider>,
+    tempfile::TempDir,
+) {
     let temp_dir = tempfile::tempdir().unwrap();
     let db_path = temp_dir.path().join("test.db");
     let persistence = Arc::new(RedbPersistence::new(db_path.to_str().unwrap()).unwrap());
@@ -29,7 +32,11 @@ async fn setup_test_engine() -> (Arc<DurableEngine>, Arc<dyn PersistenceProvider
         )
         .unwrap(),
     );
-    (engine, Arc::clone(&persistence) as Arc<dyn PersistenceProvider>, temp_dir)
+    (
+        engine,
+        Arc::clone(&persistence) as Arc<dyn PersistenceProvider>,
+        temp_dir,
+    )
 }
 
 #[tokio::test]
@@ -309,7 +316,10 @@ do:
     let result = engine.start_with_input(workflow, json!({})).await;
 
     // Should eventually fail after retries
-    assert!(result.is_err(), "Task should fail after all retries exhausted");
+    assert!(
+        result.is_err(),
+        "Task should fail after all retries exhausted"
+    );
 
     // Get the instance_id from the error or we need to track it differently
     // For now, we'll get all instances and find the most recent one
@@ -359,9 +369,7 @@ do:
         .iter()
         .filter_map(|e| match e {
             WorkflowEvent::TaskRetried {
-                task_name,
-                attempt,
-                ..
+                task_name, attempt, ..
             } => Some((task_name.clone(), *attempt)),
             _ => None,
         })

@@ -5,7 +5,6 @@
 /// 2. Task level - individual task execution
 /// 3. Error format - RFC 7807 compliant errors
 /// 4. Event emission - task.faulted.v1 and workflow.faulted.v1 events
-
 use jackdaw::cache::CacheProvider;
 use jackdaw::durableengine::DurableEngine;
 use jackdaw::persistence::PersistenceProvider;
@@ -39,8 +38,8 @@ async fn test_workflow_timeout_enforcement() {
     let (engine, _temp_dir) = setup_test_engine().await;
 
     let fixture = PathBuf::from("tests/fixtures/timeout/workflow-timeout-iso8601.sw.yaml");
-    let workflow_yaml = std::fs::read_to_string(&fixture)
-        .expect("Failed to read workflow-timeout-iso8601.sw.yaml");
+    let workflow_yaml =
+        std::fs::read_to_string(&fixture).expect("Failed to read workflow-timeout-iso8601.sw.yaml");
     let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     // Measure execution time
@@ -49,14 +48,11 @@ async fn test_workflow_timeout_enforcement() {
     let elapsed = start.elapsed();
 
     // Should fail with timeout error
-    assert!(
-        result.is_err(),
-        "Workflow should timeout and return error"
-    );
+    assert!(result.is_err(), "Workflow should timeout and return error");
 
     let error = result.unwrap_err();
     let error_msg = error.to_string();
-    
+
     // Verify timeout occurred around 2 seconds (not completing all 4 seconds of waits)
     assert!(
         elapsed.as_secs() >= 2 && elapsed.as_secs() < 3,
@@ -66,7 +62,8 @@ async fn test_workflow_timeout_enforcement() {
 
     // Verify error message mentions timeout
     assert!(
-        error_msg.to_lowercase().contains("timeout") || error_msg.to_lowercase().contains("timed out"),
+        error_msg.to_lowercase().contains("timeout")
+            || error_msg.to_lowercase().contains("timed out"),
         "Error message should mention timeout: {}",
         error_msg
     );
@@ -77,8 +74,8 @@ async fn test_workflow_timeout_with_inline_duration() {
     let (engine, _temp_dir) = setup_test_engine().await;
 
     let fixture = PathBuf::from("tests/fixtures/timeout/workflow-timeout-inline.sw.yaml");
-    let workflow_yaml = std::fs::read_to_string(&fixture)
-        .expect("Failed to read workflow-timeout-inline.sw.yaml");
+    let workflow_yaml =
+        std::fs::read_to_string(&fixture).expect("Failed to read workflow-timeout-inline.sw.yaml");
     let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     let start = Instant::now();
@@ -102,8 +99,8 @@ async fn test_task_timeout_enforcement() {
     let (engine, _temp_dir) = setup_test_engine().await;
 
     let fixture = PathBuf::from("tests/fixtures/timeout/task-timeout-iso8601.sw.yaml");
-    let workflow_yaml = std::fs::read_to_string(&fixture)
-        .expect("Failed to read task-timeout-iso8601.sw.yaml");
+    let workflow_yaml =
+        std::fs::read_to_string(&fixture).expect("Failed to read task-timeout-iso8601.sw.yaml");
     let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     let start = Instant::now();
@@ -114,7 +111,7 @@ async fn test_task_timeout_enforcement() {
     assert!(result.is_err(), "Task should timeout and fail workflow");
 
     let error_msg = result.unwrap_err().to_string();
-    
+
     // Verify timeout occurred after approximately 3 seconds (1s + 2s timeout)
     // not completing the full 7 seconds
     assert!(
@@ -125,7 +122,8 @@ async fn test_task_timeout_enforcement() {
 
     // Verify error message mentions the task and timeout
     assert!(
-        error_msg.to_lowercase().contains("timeout") || error_msg.to_lowercase().contains("timed out"),
+        error_msg.to_lowercase().contains("timeout")
+            || error_msg.to_lowercase().contains("timed out"),
         "Error message should mention timeout: {}",
         error_msg
     );
@@ -136,8 +134,8 @@ async fn test_task_timeout_with_inline_duration() {
     let (engine, _temp_dir) = setup_test_engine().await;
 
     let fixture = PathBuf::from("tests/fixtures/timeout/task-timeout-inline.sw.yaml");
-    let workflow_yaml = std::fs::read_to_string(&fixture)
-        .expect("Failed to read task-timeout-inline.sw.yaml");
+    let workflow_yaml =
+        std::fs::read_to_string(&fixture).expect("Failed to read task-timeout-inline.sw.yaml");
     let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     let start = Instant::now();
@@ -207,8 +205,8 @@ async fn test_task_timeout_wait_task() {
     let (engine, _temp_dir) = setup_test_engine().await;
 
     let fixture = PathBuf::from("tests/fixtures/timeout/task-timeout-call.sw.yaml");
-    let workflow_yaml = std::fs::read_to_string(&fixture)
-        .expect("Failed to read task-timeout-call.sw.yaml");
+    let workflow_yaml =
+        std::fs::read_to_string(&fixture).expect("Failed to read task-timeout-call.sw.yaml");
     let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     let start = Instant::now();
@@ -237,7 +235,10 @@ async fn test_nested_timeout_task_overrides_workflow() {
     let result = engine.start_with_input(workflow, json!({})).await;
     let elapsed = start.elapsed();
 
-    assert!(result.is_err(), "Task timeout should trigger before workflow timeout");
+    assert!(
+        result.is_err(),
+        "Task timeout should trigger before workflow timeout"
+    );
 
     // Should timeout around 2 seconds (task timeout), not 10 seconds (workflow timeout)
     assert!(
@@ -252,8 +253,8 @@ async fn test_timeout_with_milliseconds() {
     let (engine, _temp_dir) = setup_test_engine().await;
 
     let fixture = PathBuf::from("tests/fixtures/timeout/timeout-milliseconds.sw.yaml");
-    let workflow_yaml = std::fs::read_to_string(&fixture)
-        .expect("Failed to read timeout-milliseconds.sw.yaml");
+    let workflow_yaml =
+        std::fs::read_to_string(&fixture).expect("Failed to read timeout-milliseconds.sw.yaml");
     let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     let start = Instant::now();

@@ -63,8 +63,8 @@ fn parse_iso8601_duration(iso_str: &str) -> Result<StdDuration> {
 
             match ch {
                 'H' => total_ms += value * 3600.0 * 1000.0, // hours to ms
-                'M' => total_ms += value * 60.0 * 1000.0,    // minutes to ms
-                'S' => total_ms += value * 1000.0,           // seconds to ms
+                'M' => total_ms += value * 60.0 * 1000.0,   // minutes to ms
+                'S' => total_ms += value * 1000.0,          // seconds to ms
                 _ => {
                     return Err(Error::TaskExecution {
                         message: format!("Unsupported ISO 8601 time unit: {ch}"),
@@ -81,9 +81,7 @@ fn parse_iso8601_duration(iso_str: &str) -> Result<StdDuration> {
 }
 
 /// Parse a timeout definition into a std::time::Duration
-pub fn parse_timeout_duration(
-    timeout: &OneOfTimeoutDefinitionOrReference,
-) -> Result<StdDuration> {
+pub fn parse_timeout_duration(timeout: &OneOfTimeoutDefinitionOrReference) -> Result<StdDuration> {
     match timeout {
         OneOfTimeoutDefinitionOrReference::Timeout(def) => match &def.after {
             OneOfDurationOrIso8601Expression::Duration(d) => {

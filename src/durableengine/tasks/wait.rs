@@ -22,7 +22,10 @@ fn parse_iso8601_duration(iso_str: &str) -> Result<StdDuration> {
 
     if !trimmed.starts_with('P') {
         return Err(crate::durableengine::Error::TaskExecution {
-            message: format!("Invalid ISO 8601 duration: must start with 'P', got: {}", iso_str),
+            message: format!(
+                "Invalid ISO 8601 duration: must start with 'P', got: {}",
+                iso_str
+            ),
         });
     }
 
@@ -34,7 +37,10 @@ fn parse_iso8601_duration(iso_str: &str) -> Result<StdDuration> {
         // Date components not yet supported (would need to handle days, months, years)
         // For now, we only support time components
         return Err(crate::durableengine::Error::TaskExecution {
-            message: format!("ISO 8601 date components not yet supported, only time components (PT...) are supported, got: {}", iso_str),
+            message: format!(
+                "ISO 8601 date components not yet supported, only time components (PT...) are supported, got: {}",
+                iso_str
+            ),
         });
     }
 
@@ -44,7 +50,10 @@ fn parse_iso8601_duration(iso_str: &str) -> Result<StdDuration> {
     // Empty duration (just "PT") is invalid
     if time_part.is_empty() {
         return Err(crate::durableengine::Error::TaskExecution {
-            message: format!("Invalid ISO 8601 duration: no time components specified, got: {}", iso_str),
+            message: format!(
+                "Invalid ISO 8601 duration: no time components specified, got: {}",
+                iso_str
+            ),
         });
     }
 
@@ -61,16 +70,20 @@ fn parse_iso8601_duration(iso_str: &str) -> Result<StdDuration> {
                 });
             }
 
-            let value: f64 = current_num.parse().map_err(|_| {
-                crate::durableengine::Error::TaskExecution {
-                    message: format!("Failed to parse number in ISO 8601 duration: {}", current_num),
-                }
-            })?;
+            let value: f64 =
+                current_num
+                    .parse()
+                    .map_err(|_| crate::durableengine::Error::TaskExecution {
+                        message: format!(
+                            "Failed to parse number in ISO 8601 duration: {}",
+                            current_num
+                        ),
+                    })?;
 
             match ch {
-                'H' => total_ms += value * 3600.0 * 1000.0,  // hours to ms
-                'M' => total_ms += value * 60.0 * 1000.0,     // minutes to ms
-                'S' => total_ms += value * 1000.0,            // seconds to ms
+                'H' => total_ms += value * 3600.0 * 1000.0, // hours to ms
+                'M' => total_ms += value * 60.0 * 1000.0,   // minutes to ms
+                'S' => total_ms += value * 1000.0,          // seconds to ms
                 _ => {
                     return Err(crate::durableengine::Error::TaskExecution {
                         message: format!("Unsupported ISO 8601 time unit: {}", ch),

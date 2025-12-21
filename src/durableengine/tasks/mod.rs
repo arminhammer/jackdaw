@@ -52,7 +52,10 @@ impl DurableEngine {
                 .await?;
 
             return Err(super::Error::WorkflowExecution {
-                message: format!("Workflow cancelled: {}", reason.unwrap_or_else(|| "No reason provided".to_string())),
+                message: format!(
+                    "Workflow cancelled: {}",
+                    reason.unwrap_or_else(|| "No reason provided".to_string())
+                ),
             });
         }
 
@@ -60,7 +63,10 @@ impl DurableEngine {
         if ctx.is_suspended().await {
             let reason = ctx.state.suspension_reason.read().await.clone();
             return Err(super::Error::WorkflowExecution {
-                message: format!("Workflow suspended: {}", reason.unwrap_or_else(|| "No reason provided".to_string())),
+                message: format!(
+                    "Workflow suspended: {}",
+                    reason.unwrap_or_else(|| "No reason provided".to_string())
+                ),
             });
         }
 
@@ -107,20 +113,28 @@ impl DurableEngine {
                 TaskDefinition::Call(call_task) => {
                     exec_call_task(self, task_name, call_task, ctx).await
                 }
-                TaskDefinition::Set(set_task) => exec_set_task(self, task_name, set_task, ctx).await,
+                TaskDefinition::Set(set_task) => {
+                    exec_set_task(self, task_name, set_task, ctx).await
+                }
                 TaskDefinition::Fork(fork_task) => {
                     exec_fork_task(self, task_name, fork_task, ctx).await
                 }
-                TaskDefinition::Run(run_task) => exec_run_task(self, task_name, run_task, ctx).await,
+                TaskDefinition::Run(run_task) => {
+                    exec_run_task(self, task_name, run_task, ctx).await
+                }
                 TaskDefinition::Do(do_task) => exec_do_task(self, task_name, do_task, ctx).await,
-                TaskDefinition::For(for_task) => exec_for_task(self, task_name, for_task, ctx).await,
+                TaskDefinition::For(for_task) => {
+                    exec_for_task(self, task_name, for_task, ctx).await
+                }
                 TaskDefinition::Switch(switch_task) => {
                     exec_switch_task(self, task_name, switch_task, ctx).await
                 }
                 TaskDefinition::Raise(raise_task) => {
                     exec_raise_task(self, task_name, raise_task, ctx).await
                 }
-                TaskDefinition::Try(try_task) => exec_try_task(self, task_name, try_task, ctx).await,
+                TaskDefinition::Try(try_task) => {
+                    exec_try_task(self, task_name, try_task, ctx).await
+                }
                 TaskDefinition::Emit(emit_task) => {
                     exec_emit_task(self, task_name, emit_task, ctx).await
                 }
@@ -136,7 +150,7 @@ impl DurableEngine {
         // Apply task-level timeout if specified
         if let Some(timeout_def) = task.timeout() {
             let timeout_duration = super::timeout::parse_timeout_duration(timeout_def)?;
-            
+
             match tokio::time::timeout(timeout_duration, task_execution_future).await {
                 Ok(result) => result,
                 Err(_) => {
@@ -146,13 +160,19 @@ impl DurableEngine {
                         .save_event(crate::workflow::WorkflowEvent::TaskFaulted {
                             instance_id: ctx.metadata.instance_id.clone(),
                             task_name: task_name.to_string(),
-                            error: format!("Task '{}' timed out after {:?}", task_name, timeout_duration),
+                            error: format!(
+                                "Task '{}' timed out after {:?}",
+                                task_name, timeout_duration
+                            ),
                             timestamp: chrono::Utc::now(),
                         })
                         .await?;
-                    
+
                     Err(super::Error::Timeout {
-                        message: format!("Task '{}' exceeded timeout of {:?}", task_name, timeout_duration),
+                        message: format!(
+                            "Task '{}' exceeded timeout of {:?}",
+                            task_name, timeout_duration
+                        ),
                     })
                 }
             }
@@ -279,7 +299,9 @@ async fn exec_listen_task(
         use serverless_workflow_core::models::event::OneOfEventConsumptionStrategyDefinitionOrExpression;
 
         // Check if until is an expression (not a strategy with events)
-        if let OneOfEventConsumptionStrategyDefinitionOrExpression::Expression(until_expr) = until_box.as_ref() {
+        if let OneOfEventConsumptionStrategyDefinitionOrExpression::Expression(until_expr) =
+            until_box.as_ref()
+        {
             // Evaluate the until expression
             let current_data = ctx.state.data.read().await.clone();
             let until_value = crate::expressions::evaluate_expression(&until_expr, &current_data)?;
@@ -293,7 +315,10 @@ async fn exec_listen_task(
                     tokio::time::sleep(Duration::from_secs(3600)).await;
                 }
             } else {
-                eprintln!("DEBUG: NOT blocking, until_value.as_bool() = {:?}", until_value.as_bool());
+                eprintln!(
+                    "DEBUG: NOT blocking, until_value.as_bool() = {:?}",
+                    until_value.as_bool()
+                );
             }
         }
         // Note: If until is a Strategy (not an Expression), we don't block here
