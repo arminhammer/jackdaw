@@ -78,6 +78,13 @@ impl SqlitePersistence {
             WorkflowEvent::TaskCompleted { .. } => "TaskCompleted",
             WorkflowEvent::WorkflowCompleted { .. } => "WorkflowCompleted",
             WorkflowEvent::WorkflowFailed { .. } => "WorkflowFailed",
+            WorkflowEvent::WorkflowCancelled { .. } => "WorkflowCancelled",
+            WorkflowEvent::WorkflowSuspended { .. } => "WorkflowSuspended",
+            WorkflowEvent::WorkflowResumed { .. } => "WorkflowResumed",
+            WorkflowEvent::TaskCancelled { .. } => "TaskCancelled",
+            WorkflowEvent::TaskSuspended { .. } => "TaskSuspended",
+            WorkflowEvent::TaskResumed { .. } => "TaskResumed",
+            WorkflowEvent::TaskFaulted { .. } => "TaskFaulted",
         }
     }
 }

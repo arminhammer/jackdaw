@@ -38,6 +38,14 @@ pub struct ExecutionState {
     pub current_task: Arc<RwLock<String>>,
     pub next_task: Arc<RwLock<Option<String>>>,
     pub task_index: Option<usize>,
+    /// Cancellation flag - when set to true, workflow execution should stop
+    pub cancelled: Arc<RwLock<bool>>,
+    /// Cancellation reason - optional message explaining why workflow was cancelled
+    pub cancellation_reason: Arc<RwLock<Option<String>>>,
+    /// Suspension flag - when set to true, workflow should pause and save state
+    pub suspended: Arc<RwLock<bool>>,
+    /// Suspension reason - optional message explaining why workflow was suspended
+    pub suspension_reason: Arc<RwLock<Option<String>>>,
 }
 
 /// Static workflow metadata (immutable during execution)
@@ -164,6 +172,10 @@ impl Context {
                 current_task: Arc::new(RwLock::new(current_task)),
                 next_task: Arc::new(RwLock::new(None)),
                 task_index: None,
+                cancelled: Arc::new(RwLock::new(false)),
+                cancellation_reason: Arc::new(RwLock::new(None)),
+                suspended: Arc::new(RwLock::new(false)),
+                suspension_reason: Arc::new(RwLock::new(None)),
             },
             metadata: WorkflowMetadata {
                 instance_id,
@@ -228,5 +240,86 @@ impl Context {
             })
             .await
             .context(PersistenceSnafu)
+    }
+
+    /// Cancel the workflow execution
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if there is a persistence error when saving the cancellation event.
+    pub async fn cancel(&self, reason: Option<String>) -> Result<()> {
+        // Set cancellation flags
+        *self.state.cancelled.write().await = true;
+        *self.state.cancellation_reason.write().await = reason.clone();
+
+        // Emit WorkflowCancelled event
+        self.services
+            .persistence
+            .save_event(WorkflowEvent::WorkflowCancelled {
+                instance_id: self.metadata.instance_id.clone(),
+                reason,
+                timestamp: Utc::now(),
+            })
+            .await
+            .context(PersistenceSnafu)
+    }
+
+    /// Suspend the workflow execution
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if there is a persistence error when saving the suspension event or checkpoint.
+    pub async fn suspend(&self, reason: Option<String>) -> Result<()> {
+        // Set suspension flags
+        *self.state.suspended.write().await = true;
+        *self.state.suspension_reason.write().await = reason.clone();
+
+        // Save current state as checkpoint
+        let current_task = self.state.current_task.read().await.clone();
+        self.save_checkpoint(&current_task).await?;
+
+        // Emit WorkflowSuspended event with checkpoint data
+        let data = self.state.data.read().await.clone();
+        self.services
+            .persistence
+            .save_event(WorkflowEvent::WorkflowSuspended {
+                instance_id: self.metadata.instance_id.clone(),
+                reason,
+                checkpoint_data: data,
+                timestamp: Utc::now(),
+            })
+            .await
+            .context(PersistenceSnafu)
+    }
+
+    /// Resume the workflow execution from suspended state
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if there is a persistence error when saving the resumption event.
+    pub async fn resume(&self) -> Result<()> {
+        // Clear suspension flags
+        *self.state.suspended.write().await = false;
+        *self.state.suspension_reason.write().await = None;
+
+        // Emit WorkflowResumed event
+        self.services
+            .persistence
+            .save_event(WorkflowEvent::WorkflowResumed {
+                instance_id: self.metadata.instance_id.clone(),
+                timestamp: Utc::now(),
+            })
+            .await
+            .context(PersistenceSnafu)
+    }
+
+    /// Check if workflow is cancelled
+    pub async fn is_cancelled(&self) -> bool {
+        *self.state.cancelled.read().await
+    }
+
+    /// Check if workflow is suspended
+    pub async fn is_suspended(&self) -> bool {
+        *self.state.suspended.read().await
     }
 }

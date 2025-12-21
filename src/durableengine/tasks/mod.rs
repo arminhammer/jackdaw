@@ -36,6 +36,34 @@ impl DurableEngine {
         task: &TaskDefinition,
         ctx: &Context,
     ) -> Result<serde_json::Value> {
+        // Check if workflow is cancelled before executing task
+        if ctx.is_cancelled().await {
+            let reason = ctx.state.cancellation_reason.read().await.clone();
+
+            // Emit task.cancelled.v1 event
+            ctx.services
+                .persistence
+                .save_event(crate::workflow::WorkflowEvent::TaskCancelled {
+                    instance_id: ctx.metadata.instance_id.clone(),
+                    task_name: task_name.to_string(),
+                    reason: reason.clone(),
+                    timestamp: chrono::Utc::now(),
+                })
+                .await?;
+
+            return Err(super::Error::WorkflowExecution {
+                message: format!("Workflow cancelled: {}", reason.unwrap_or_else(|| "No reason provided".to_string())),
+            });
+        }
+
+        // Check if workflow is suspended before executing task
+        if ctx.is_suspended().await {
+            let reason = ctx.state.suspension_reason.read().await.clone();
+            return Err(super::Error::WorkflowExecution {
+                message: format!("Workflow suspended: {}", reason.unwrap_or_else(|| "No reason provided".to_string())),
+            });
+        }
+
         // Emit task.created.v1 event
         ctx.services
             .persistence

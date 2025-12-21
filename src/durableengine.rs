@@ -311,7 +311,14 @@ impl DurableEngine {
                     | WorkflowEvent::TaskStarted { .. }
                     | WorkflowEvent::TaskRetried { .. }
                     | WorkflowEvent::TaskEntered { .. }
-                    | WorkflowEvent::TaskCompleted { .. } => {}
+                    | WorkflowEvent::TaskCompleted { .. }
+                    | WorkflowEvent::WorkflowCancelled { .. }
+                    | WorkflowEvent::WorkflowSuspended { .. }
+                    | WorkflowEvent::WorkflowResumed { .. }
+                    | WorkflowEvent::TaskCancelled { .. }
+                    | WorkflowEvent::TaskSuspended { .. }
+                    | WorkflowEvent::TaskResumed { .. }
+                    | WorkflowEvent::TaskFaulted { .. } => {}
                 }
             }
 

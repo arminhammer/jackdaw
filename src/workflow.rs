@@ -47,6 +47,44 @@ pub enum WorkflowEvent {
         error: String,
         timestamp: DateTime<Utc>,
     },
+    WorkflowCancelled {
+        instance_id: String,
+        reason: Option<String>,
+        timestamp: DateTime<Utc>,
+    },
+    WorkflowSuspended {
+        instance_id: String,
+        reason: Option<String>,
+        checkpoint_data: serde_json::Value,
+        timestamp: DateTime<Utc>,
+    },
+    WorkflowResumed {
+        instance_id: String,
+        timestamp: DateTime<Utc>,
+    },
+    TaskCancelled {
+        instance_id: String,
+        task_name: String,
+        reason: Option<String>,
+        timestamp: DateTime<Utc>,
+    },
+    TaskSuspended {
+        instance_id: String,
+        task_name: String,
+        state: serde_json::Value,
+        timestamp: DateTime<Utc>,
+    },
+    TaskResumed {
+        instance_id: String,
+        task_name: String,
+        timestamp: DateTime<Utc>,
+    },
+    TaskFaulted {
+        instance_id: String,
+        task_name: String,
+        error: String,
+        timestamp: DateTime<Utc>,
+    },
 }
 
 impl WorkflowEvent {
@@ -60,7 +98,14 @@ impl WorkflowEvent {
             | WorkflowEvent::TaskRetried { instance_id, .. }
             | WorkflowEvent::TaskCompleted { instance_id, .. }
             | WorkflowEvent::WorkflowCompleted { instance_id, .. }
-            | WorkflowEvent::WorkflowFailed { instance_id, .. } => instance_id,
+            | WorkflowEvent::WorkflowFailed { instance_id, .. }
+            | WorkflowEvent::WorkflowCancelled { instance_id, .. }
+            | WorkflowEvent::WorkflowSuspended { instance_id, .. }
+            | WorkflowEvent::WorkflowResumed { instance_id, .. }
+            | WorkflowEvent::TaskCancelled { instance_id, .. }
+            | WorkflowEvent::TaskSuspended { instance_id, .. }
+            | WorkflowEvent::TaskResumed { instance_id, .. }
+            | WorkflowEvent::TaskFaulted { instance_id, .. } => instance_id,
         }
     }
 }
