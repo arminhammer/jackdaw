@@ -434,14 +434,60 @@ impl DurableEngine {
             // Save the original context before exec_task (which may apply input.from filtering)
             let original_context = ctx.state.data.read().await.clone();
 
-            let result = self.exec_task(task_name, task, &ctx).await?;
+            let result = match self.exec_task(task_name, task, &ctx).await {
+                Ok(r) => r,
+                Err(e) => {
+                    // Task execution failed - emit task.faulted.v1 event
+                    let _ = ctx
+                        .services
+                        .persistence
+                        .save_event(WorkflowEvent::TaskFaulted {
+                            instance_id: ctx.metadata.instance_id.clone(),
+                            task_name: task_name.clone(),
+                            error: e.to_string(),
+                            timestamp: Utc::now(),
+                        })
+                        .await;
+
+                    return Err(e);
+                }
+            };
 
             // Restore the original context before applying export
             // This ensures that input.from filtering doesn't affect export merging
             *ctx.state.data.write().await = original_context;
 
-            // Format task output
-            output::format_task_output(&result);
+            // Calculate task duration
+            let task_end_time = Utc::now();
+
+            // Find the TaskStarted event to calculate duration
+            let events = ctx
+                .services
+                .persistence
+                .get_events(&ctx.metadata.instance_id)
+                .await?;
+            let task_start_time = events
+                .iter()
+                .rev() // Search in reverse to find most recent TaskStarted
+                .find_map(|event| {
+                    if let WorkflowEvent::TaskStarted {
+                        task_name: name,
+                        timestamp,
+                        ..
+                    } = event
+                    {
+                        if name == task_name {
+                            return Some(*timestamp);
+                        }
+                    }
+                    None
+                })
+                .unwrap_or(task_end_time); // Fallback if not found (shouldn't happen)
+
+            let duration_ms = (task_end_time - task_start_time).num_milliseconds();
+
+            // Format task output with duration
+            output::format_task_output(&result, duration_ms);
 
             ctx.services
                 .persistence
@@ -449,7 +495,8 @@ impl DurableEngine {
                     instance_id: ctx.metadata.instance_id.clone(),
                     task_name: task_name.clone(),
                     result: result.clone(),
-                    timestamp: Utc::now(),
+                    timestamp: task_end_time,
+                    duration_ms,
                 })
                 .await?;
 
@@ -516,17 +563,38 @@ impl DurableEngine {
             obj.remove("__runtime");
         }
 
+        // Calculate workflow duration
+        let workflow_end_time = Utc::now();
+        let events = ctx
+            .services
+            .persistence
+            .get_events(&ctx.metadata.instance_id)
+            .await?;
+        let workflow_start_time = events
+            .iter()
+            .find_map(|event| {
+                if let WorkflowEvent::WorkflowStarted { timestamp, .. } = event {
+                    Some(*timestamp)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(workflow_end_time);
+
+        let workflow_duration_ms = (workflow_end_time - workflow_start_time).num_milliseconds();
+
         ctx.services
             .persistence
             .save_event(WorkflowEvent::WorkflowCompleted {
                 instance_id: ctx.metadata.instance_id.clone(),
                 final_data: final_data.clone(),
-                timestamp: Utc::now(),
+                timestamp: workflow_end_time,
+                duration_ms: workflow_duration_ms,
             })
             .await?;
 
-        // Format workflow completion with output
-        output::format_workflow_output(&final_data);
+        // Format workflow completion with output and duration
+        output::format_workflow_output(&final_data, workflow_duration_ms);
 
         Ok(final_data)
     }

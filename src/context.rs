@@ -247,6 +247,7 @@ impl Context {
     /// # Errors
     ///
     /// Returns an error if there is a persistence error when saving the cancellation event.
+    #[allow(dead_code)]
     pub async fn cancel(&self, reason: Option<String>) -> Result<()> {
         // Set cancellation flags
         *self.state.cancelled.write().await = true;
@@ -269,6 +270,7 @@ impl Context {
     /// # Errors
     ///
     /// Returns an error if there is a persistence error when saving the suspension event or checkpoint.
+    #[allow(dead_code)]
     pub async fn suspend(&self, reason: Option<String>) -> Result<()> {
         // Set suspension flags
         *self.state.suspended.write().await = true;
@@ -297,6 +299,7 @@ impl Context {
     /// # Errors
     ///
     /// Returns an error if there is a persistence error when saving the resumption event.
+    #[allow(dead_code)]
     pub async fn resume(&self) -> Result<()> {
         // Clear suspension flags
         *self.state.suspended.write().await = false;

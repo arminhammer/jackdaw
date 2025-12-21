@@ -36,11 +36,13 @@ pub enum WorkflowEvent {
         task_name: String,
         result: serde_json::Value,
         timestamp: DateTime<Utc>,
+        duration_ms: i64,
     },
     WorkflowCompleted {
         instance_id: String,
         final_data: serde_json::Value,
         timestamp: DateTime<Utc>,
+        duration_ms: i64,
     },
     WorkflowFailed {
         instance_id: String,

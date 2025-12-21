@@ -104,6 +104,10 @@ pub struct RunArgs {
     #[arg(short = 'v', long)]
     pub verbose: bool,
 
+    /// Enable debug mode (show detailed execution information)
+    #[arg(long)]
+    pub debug: bool,
+
     /// Skip cache hits (force re-execution)
     #[arg(long)]
     pub no_cache: bool,
@@ -283,14 +287,18 @@ pub async fn handle_run(
     registry: Option<Vec<PathBuf>>,
     config: JackdawConfig,
     multi_progress: MultiProgress,
+    debug: bool,
 ) -> Result<()> {
-    // Print banner
-    println!(
-        "{}\n",
-        style("Serverless Workflow Runtime Engine v1.0")
-            .bold()
-            .cyan()
-    );
+    // Set debug mode
+    crate::output::set_debug_mode(debug);
+
+    // Print banner (only in debug mode)
+    if debug {
+        println!(
+            "{}\n",
+            style("Jackdaw Serverless Workflow Runtime").bold().cyan()
+        );
+    }
 
     // Discover workflow files
     let workflow_files = discover_workflow_files(&workflows)?;
@@ -367,11 +375,13 @@ pub async fn handle_run(
     // Execute workflows
     if config.parallel && workflow_files.len() > 1 {
         // Parallel execution using futures::join_all
-        multi_progress.println(format!(
-            "{} Executing {} workflows in parallel...\n",
-            style("→").cyan(),
-            workflow_files.len()
-        ))?;
+        if debug || config.verbose {
+            multi_progress.println(format!(
+                "{} Executing {} workflows in parallel...\n",
+                style("→").cyan(),
+                workflow_files.len()
+            ))?;
+        }
 
         let futures: Vec<_> = workflow_files
             .iter()
@@ -412,19 +422,23 @@ pub async fn handle_run(
         let results = futures::future::join_all(futures).await;
 
         // Print results
-        multi_progress.println(format!("\n{}", style("Results:").bold().green()))?;
+        if debug || config.verbose {
+            multi_progress.println(format!("\n{}", style("Results:").bold().green()))?;
+        }
         for (path, result) in results {
             match result {
                 Ok((instance_id, output, workflow)) => {
-                    multi_progress.println(format!(
-                        "\n{} {}",
-                        style("✓").green(),
-                        style(path.display()).bold()
-                    ))?;
-                    if config.verbose {
-                        let filtered = filter_internal_fields(&output);
-                        multi_progress.println(serde_json::to_string_pretty(&filtered)?)?;
+                    if debug || config.verbose {
+                        multi_progress.println(format!(
+                            "\n{} {}",
+                            style("✓").green(),
+                            style(path.display()).bold()
+                        ))?;
                     }
+
+                    // Always output the final result as JSON (even in non-debug mode)
+                    let filtered = filter_internal_fields(&output);
+                    multi_progress.println(serde_json::to_string_pretty(&filtered)?)?;
 
                     // Visualization if requested
                     if config.visualize {
@@ -471,37 +485,44 @@ pub async fn handle_run(
         }
     } else {
         // Sequential execution with progress
-        multi_progress.println(format!(
-            "{} Executing {} workflow(s)...\n",
-            style("→").cyan(),
-            workflow_files.len()
-        ))?;
+        if debug || config.verbose {
+            multi_progress.println(format!(
+                "{} Executing {} workflow(s)...\n",
+                style("→").cyan(),
+                workflow_files.len()
+            ))?;
+        }
 
-        let pb = multi_progress.add(ProgressBar::new(workflow_files.len() as u64));
-        pb.set_style(
-            ProgressStyle::default_bar()
-                .template("{spinner:.cyan} [{bar:40.cyan/blue}] {pos}/{len} {msg}")
-                .map_err(|e| Error::Progress {
-                    source: std::io::Error::other(e.to_string()),
-                })?
-                .progress_chars("#>-"),
-        );
+        // Only show progress bars in debug/verbose mode
+        let pb = if debug || config.verbose {
+            let progress_bar = multi_progress.add(ProgressBar::new(workflow_files.len() as u64));
+            progress_bar.set_style(
+                ProgressStyle::default_bar()
+                    .template("{spinner:.cyan} [{bar:40.cyan/blue}] {pos}/{len} {msg}")
+                    .map_err(|e| Error::Progress {
+                        source: std::io::Error::other(e.to_string()),
+                    })?
+                    .progress_chars("#>-"),
+            );
+            Some(progress_bar)
+        } else {
+            None
+        };
 
         for workflow_path in workflow_files {
             match execute_workflow(
                 &workflow_path,
                 engine.clone(),
-                Some(&pb),
+                pb.as_ref(),
                 config.verbose,
                 input.as_ref(),
             )
             .await
             {
                 Ok((instance_id, result, workflow)) => {
-                    if config.verbose {
-                        let filtered = filter_internal_fields(&result);
-                        multi_progress.println(serde_json::to_string_pretty(&filtered)?)?;
-                    }
+                    // Always output the final result as JSON (even in non-debug mode)
+                    let filtered = filter_internal_fields(&result);
+                    multi_progress.println(serde_json::to_string_pretty(&filtered)?)?;
 
                     // Visualization if requested
                     if config.visualize {
@@ -544,10 +565,14 @@ pub async fn handle_run(
                     return Err(e);
                 }
             }
-            pb.inc(1);
+            if let Some(ref progress_bar) = pb {
+                progress_bar.inc(1);
+            }
         }
 
-        pb.finish_with_message("All workflows completed");
+        if let Some(progress_bar) = pb {
+            progress_bar.finish_with_message("All workflows completed");
+        }
     }
 
     Ok(())

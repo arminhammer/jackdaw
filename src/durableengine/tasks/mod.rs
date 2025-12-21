@@ -81,13 +81,16 @@ impl DurableEngine {
             })
             .await?;
 
+        // Record task start time for duration calculation
+        let task_start_time = chrono::Utc::now();
+
         // Emit task.started.v1 event
         ctx.services
             .persistence
             .save_event(crate::workflow::WorkflowEvent::TaskStarted {
                 instance_id: ctx.metadata.instance_id.clone(),
                 task_name: task_name.to_string(),
-                timestamp: chrono::Utc::now(),
+                timestamp: task_start_time,
             })
             .await?;
 

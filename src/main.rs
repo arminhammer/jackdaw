@@ -84,10 +84,11 @@ async fn main() -> Result<(), Error> {
 
     match cli.command {
         Commands::Run(args) => {
-            // Extract workflows, input, and registry before merging
+            // Extract workflows, input, registry, and debug flag before merging
             let workflows = args.workflows.clone();
             let input = args.input.clone();
             let registry = args.registry.clone();
+            let debug = args.debug;
 
             // Merge CLI args with config (CLI takes precedence)
             let config = args.merge_with_config(global_config);
@@ -98,7 +99,7 @@ async fn main() -> Result<(), Error> {
             // Initialize MultiProgress for coordinating progress bars and logs/traces
             let multi_progress = MultiProgress::new();
 
-            handle_run(workflows, input, registry, config, multi_progress)
+            handle_run(workflows, input, registry, config, multi_progress, debug)
                 .await
                 .context(RunSnafu)
         }
