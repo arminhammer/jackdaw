@@ -304,7 +304,7 @@ async fn exec_listen_task(
         {
             // Evaluate the until expression
             let current_data = ctx.state.data.read().await.clone();
-            let until_value = crate::expressions::evaluate_expression(&until_expr, &current_data)?;
+            let until_value = crate::expressions::evaluate_expression(until_expr, &current_data)?;
 
             // If until evaluates to false, block indefinitely
             // This keeps the workflow (and container) alive while background listeners process events

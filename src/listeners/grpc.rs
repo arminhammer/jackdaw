@@ -280,8 +280,16 @@ impl http_body::Body for GrpcResponseBody {
         if !self.trailers_sent {
             self.trailers_sent = true;
             let mut trailers = http::HeaderMap::new();
-            trailers.insert("grpc-status", "0".parse().unwrap());
-            trailers.insert("grpc-message", "".parse().unwrap());
+            trailers.insert(
+                "grpc-status",
+                "0".parse()
+                    .unwrap_or_else(|_| http::HeaderValue::from_static("0")),
+            );
+            trailers.insert(
+                "grpc-message",
+                "".parse()
+                    .unwrap_or_else(|_| http::HeaderValue::from_static("")),
+            );
             return Poll::Ready(Some(Ok(http_body::Frame::trailers(trailers))));
         }
 
@@ -321,9 +329,17 @@ impl http_body::Body for GrpcErrorBody {
             let mut trailers = http::HeaderMap::new();
             trailers.insert(
                 "grpc-status",
-                (self.status_code as i32).to_string().parse().unwrap(),
+                (self.status_code as i32)
+                    .to_string()
+                    .parse()
+                    .unwrap_or_else(|_| http::HeaderValue::from_static("13")),
             );
-            trailers.insert("grpc-message", self.status_message.parse().unwrap());
+            trailers.insert(
+                "grpc-message",
+                self.status_message
+                    .parse()
+                    .unwrap_or_else(|_| http::HeaderValue::from_static("internal error")),
+            );
             return Poll::Ready(Some(Ok(http_body::Frame::trailers(trailers))));
         }
 

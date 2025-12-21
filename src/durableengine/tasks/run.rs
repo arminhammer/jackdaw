@@ -400,7 +400,9 @@ pub async fn exec_run_task(
                     serde_json::Value::Number(n) => n.to_string(),
                     serde_json::Value::Bool(b) => b.to_string(),
                     serde_json::Value::Null => String::from("null"),
-                    _ => evaluated.to_string(), // Arrays and objects as JSON
+                    serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
+                        evaluated.to_string()
+                    } // Arrays and objects as JSON
                 };
                 evaluated_env.insert(key.clone(), value_str);
             }
