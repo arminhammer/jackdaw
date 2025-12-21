@@ -402,6 +402,7 @@ impl DurableEngine {
                 let module_owned = module.to_string();
                 let function_owned = function.to_string();
 
+                #[cfg(feature = "python-embedded")]
                 let handler: Arc<
                     dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value> + Send + Sync,
                 > = Arc::new(
@@ -409,6 +410,20 @@ impl DurableEngine {
                         // Load and call the Python handler
                         // Loading happens at request time, not initialization time,
                         // so PYTHONPATH can be set by the test environment
+                        let func = python_executor.load_function(&module_owned, &function_owned)
+                            .map_err(|e| crate::listeners::Error::Execution { message: format!("Failed to load Python function: {e}") })?;
+                        let result = python_executor.execute_function(&func, &[payload])
+                            .map_err(|e| crate::listeners::Error::Execution { message: format!("Failed to execute Python function: {e}") })?;
+                        Ok(result)
+                    },
+                );
+
+                #[cfg(not(feature = "python-embedded"))]
+                let handler: Arc<
+                    dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value> + Send + Sync,
+                > = Arc::new(
+                    move |payload: serde_json::Value| -> crate::listeners::Result<serde_json::Value> {
+                        // For external executor, load_function just creates a reference
                         let func = python_executor.load_function(&module_owned, &function_owned)
                             .map_err(|e| crate::listeners::Error::Execution { message: format!("Failed to load Python function: {e}") })?;
                         let result = python_executor.execute_function(&func, &[payload])

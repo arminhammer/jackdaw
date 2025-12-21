@@ -308,6 +308,7 @@ mod tests {
                 task_name: format!("task{}", i),
                 result: serde_json::json!({"step": i}),
                 timestamp: Utc::now(),
+                duration_ms: 100,
             };
             persistence.save_event(event).await.unwrap();
         }

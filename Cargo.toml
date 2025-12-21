@@ -61,10 +61,11 @@ bollard = "0.18"
 # Python execution with pyo3
 # Using abi3 for stable ABI compatibility, avoiding need for specific libpython version
 # NOTE: Not using auto-initialize to avoid libpython linking requirement for binaries
-pyo3 = { version = "0.22", features = ["abi3-py310"] }
+pyo3 = { version = "0.22", features = ["abi3-py310"], optional = true }
 
 # TypeScript/JavaScript execution with rustyscript (embedded Deno runtime)
-rustyscript = "0.12.3"
+# Made optional to support external deno executor
+rustyscript = { version = "0.12.3", optional = true }
 petgraph = "0.6"
 async-recursion = "1.0"
 futures = "0.3"
@@ -98,6 +99,21 @@ name = "validate_tests"
 [[test]]
 name = "docker_integration_tests"
 required-features = []
+
+[[bin]]
+name = "jackdaw"
+path = "src/main.rs"
+required-features = []
+
+[[bin]]
+name = "jackdaw-lite"
+path = "src/main.rs"
+required-features = []
+
+[features]
+default = ["python-embedded", "typescript-embedded"]
+python-embedded = ["pyo3"]
+typescript-embedded = ["rustyscript"]
 
 # Optimized release profile for smaller, faster binaries
 [profile.release]

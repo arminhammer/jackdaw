@@ -552,12 +552,27 @@ impl DurableEngine {
         // Apply workflow output filter if specified
         if let Some(output_config) = &workflow.output
             && let Some(as_expr) = &output_config.as_
-            && let Some(expr_str) = as_expr.as_str()
         {
-            final_data = crate::expressions::evaluate_expression(expr_str, &final_data)?;
-        }
+            // Handle both string and object forms of the expression
+            let expr_str = if let Some(s) = as_expr.as_str() {
+                s
+            } else {
+                // If it's not a string, convert it to JSON string
+                // This handles complex runtime expressions that are objects
+                &serde_json::to_string(as_expr)?
+            };
 
-        // Remove internal metadata fields from final output
+            // Output filtering can use either:
+            // 1. Wrapped expressions: ${ .field } (newer spec examples)
+            // 2. Bare JQ expressions: .field (older examples)
+            final_data = if expr_str.trim().starts_with("${") {
+                // Wrapped expression - use evaluate_expression which handles ${ } syntax
+                crate::expressions::evaluate_expression(expr_str, &final_data)?
+            } else {
+                // Bare JQ expression - use evaluate_jq directly
+                crate::expressions::evaluate_jq(expr_str, &final_data)?
+            };
+        } // Remove internal metadata fields from final output
         if let serde_json::Value::Object(ref mut obj) = final_data {
             obj.remove("__workflow");
             obj.remove("__runtime");

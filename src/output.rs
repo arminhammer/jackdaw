@@ -95,11 +95,22 @@ pub fn format_workflow_output(output: &Value, duration_ms: i64) {
     if !is_debug_mode() {
         return;
     }
+
+    let duration_str = if duration_ms < 1000 {
+        format!("{}ms", duration_ms)
+    } else if duration_ms < 60_000 {
+        format!("{:.2}s", duration_ms as f64 / 1000.0)
+    } else {
+        let minutes = duration_ms / 60_000;
+        let seconds = (duration_ms % 60_000) as f64 / 1000.0;
+        format!("{}m {:.2}s", minutes, seconds)
+    };
+
     println!("\n{}", "═".repeat(80));
     println!(
-        "{} ({}ms)",
+        "{} {}",
         style("Workflow Completed").green().bold(),
-        duration_ms
+        style(format!("({})", duration_str)).dim()
     );
     println!("{}", "─".repeat(80));
 
