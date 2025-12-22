@@ -80,13 +80,110 @@ just build-lite-static
 
 ## Usage
 
-### run
+### `run`
 
+#### container
 
-### validate
+`jackdaw` supports executing commands in containers. The default (and currently only) container runtime supported is Docker.
+
+TODO: fix container output
+
+```yaml
+document:
+  dsl: '1.0.2'
+  namespace: default
+  name: test-env-vars
+  version: '1.0.0'
+do:
+  - printEnv:
+      run:
+        container:
+          image: alpine:latest
+          command: sh -c "echo MY_VAR=$MY_VAR ANOTHER=$ANOTHER"
+          environment:
+            MY_VAR: "HelloWorld"
+            ANOTHER: "TestValue"
+```
+
+```
+jackdaw run ../../tests/fixtures/containers/container-env-vars.sw.yaml
+```
+![Run Container](docs/vhs/run-container.gif)
+
+#### Python
+
+#### Javascript
+
+#### Tasks from a Catalog
+
+#### Caching
+
+Caching is a core feature of `jackdaw`. During execution, the input object of every task is hashed, and checked against the cache. If the same task was executed previously with the exact input object, then the cached output will be pulled from the cache and the task will not execute again. This can be quite useful when executing workflows with expensive tasks.
+
+If you would like to disable the caching behavior, you can use the `jackdaw run --no-cache` flag.
+
+#### Persistence
+
+### `validate`
 
 ```
 jackdaw validate hello-world.sw.yaml
 ```
 
 ![Validate Command](docs/vhs/hello-world-validate.gif)
+
+## Providers
+
+### Cache Providers
+
+
+
+#### in-memory
+
+TODO: make this the default 
+
+#### redb
+
+#### sqlite
+
+#### postgres
+
+### Persistence Providers
+
+#### in-memory
+
+#### redb
+
+#### sqlite
+
+#### postgres
+
+### Container Providers
+
+#### Docker
+
+### Executor Providers
+
+#### OpenAPI
+
+#### Python
+
+#### Python External
+
+#### Typescript
+
+#### Typescript External
+
+#### OpenAPI
+
+#### Rest
+
+### Visualization
+
+#### D2
+
+#### Graphviz
+
+## Supported Serverless Features Matrix
+
+## Roadmap
