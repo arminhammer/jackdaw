@@ -26,16 +26,8 @@ do:
             import time
             import hashlib
 
-            # Simulate expensive computation (e.g., downloading large dataset, complex calculation)
-            # print("Performing expensive computation... (sleeping for 5 seconds)")
             time.sleep(5)
 
-            # Generate some "expensive" computed data
-            # In a real scenario, this might be:
-            # - Fetching a large dataset from an API
-            # - Training a model
-            # - Processing a large file
-            # - Computing cryptographic hashes
             result = {
                 "computed_hash": hashlib.sha256(b"expensive-operation").hexdigest(),
                 "dataset_size": 1000000,
@@ -46,7 +38,6 @@ do:
                 }
             }
 
-            # print(f"Expensive computation complete: {result['computed_hash'][:16]}...")
             print(result["computed_hash"])
       output:
         as: '${ { expensiveComputation: . } }'
@@ -65,13 +56,10 @@ do:
             import hashlib
             import json
 
-            # Get the user's input from workflow data
             user_data = sys.argv[1]
 
-            # Get the expensive computation result from previous step
             expensive_result = str(sys.argv[2])
 
-            # Process the user-specific data
             user_hash = hashlib.md5(user_data.encode()).hexdigest()
 
             result = {
@@ -83,8 +71,6 @@ do:
 
             print(json.dumps(result))
 
-  # Step 3: Combine results from both previous steps
-  # This depends on outputs from steps 1 and 2
   - combineResults:
       run:
         script:

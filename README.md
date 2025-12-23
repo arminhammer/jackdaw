@@ -120,7 +120,96 @@ jackdaw run ../../tests/fixtures/containers/container-env-vars.sw.yaml
 
 Caching is a core feature of `jackdaw`. During execution, the input object of every task is hashed, and checked against the cache. If the same task was executed previously with the exact input object, then the cached output will be pulled from the cache and the task will not execute again. This can be quite useful when executing workflows with expensive tasks.
 
-If you would like to disable the caching behavior, you can use the `jackdaw run --no-cache` flag.
+An example workflow that demonstrates the benefit of caching is the following `cache-demo` workflow. It has an expensive first task, which needs to be calculated but doesn't change based off of inputs. If it is not cached, then it has to be recalculated every single time. With caching enabled, it does not have to be recalculated, and the workflow moves to the other tasks quickly.
+
+```yaml
+document:
+  dsl: '1.0.0'
+  namespace: examples
+  name: cache-demo
+  version: '1.0.0'
+  description: |
+    Demonstrates caching behavior with an expensive computation.
+    Step 1 performs an expensive calculation (simulated with sleep).
+    Step 2 uses workflow input to process user data.
+    Step 3 combines outputs from both steps.
+
+    When run with different inputs:
+    - First run: All steps execute
+    - Second run with different input: Step 1 uses cached result, Steps 2 and 3 recalculate
+
+do:
+  # Step 1: Expensive computation that doesn't depend on input
+  # This will be cached and reused across runs with different inputs
+  - expensiveComputation:
+      input:
+        from: '{}'
+      run:
+        script:
+          language: python
+          code: |
+            import time
+            import hashlib
+
+            time.sleep(5)
+
+            result = {
+                "computed_hash": hashlib.sha256(b"expensive-operation").hexdigest(),
+                "dataset_size": 1000000,
+                "processing_time": 5.0,
+                "metadata": {
+                    "algorithm": "sha256",
+                    "iterations": 1000000
+                }
+            }
+
+            print(result["computed_hash"])
+      output:
+        as: '${ { expensiveComputation: . } }'
+
+  # Step 2: Process user input
+  # This depends on workflow input, so it will recalculate when input changes
+  - processUserInput:
+      run: 
+        script:
+          language: python
+          arguments:
+            - ${ .userData }
+            - ${ .expensiveComputation }
+          code: |
+            import sys
+            import hashlib
+            import json
+
+            user_data = sys.argv[1]
+
+            expensive_result = str(sys.argv[2])
+
+            user_hash = hashlib.md5(user_data.encode()).hexdigest()
+
+            result = {
+                "user_hash": user_hash,
+                "user_data_length": len(user_data),
+                "processed": True,
+                "expensive_computation": expensive_result
+            }
+
+            print(json.dumps(result))
+
+  - combineResults:
+      run:
+        script:
+          language: python
+          arguments:
+            - ${ .user_hash }
+          code: |
+            import sys
+            import json
+            user_hash = sys.argv[1]
+            print(user_hash)
+```
+
+![Cache Debug](docs/vhs/cache-debug.gif)
 
 #### Persistence
 
@@ -136,28 +225,55 @@ jackdaw validate hello-world.sw.yaml
 
 ### Cache Providers
 
-
-
 #### in-memory
 
-TODO: make this the default 
+```bash
+jackdaw run cache.sw.yaml --cache-provider memory -i '{ "userData": "user-data-1"}'
+```
 
 #### redb
 
+```bash
+jackdaw run cache.sw.yaml --cache-provider redb -i '{ "userData": "user-data-1"}'
+```
+
 #### sqlite
 
+```bash
+jackdaw run cache.sw.yaml --cache-provider sqlite --sqlite-db-url=cache.sqlite -i '{ "userData": "user-data-1"}'
+```
+
 #### postgres
+
+```bash
+jackdaw run cache.sw.yaml --cache-provider postgres --postgres-db-name=default --postgres-user default_user --postgres-password password --postgres-hostname localhost -i '{ "userData": "user-data-1"}'
+```
 
 ### Persistence Providers
 
 #### in-memory
 
+```bash
+jackdaw run persistence.sw.yaml --persistence-provider memory -i '{ "userData": "user-data-1"}'
+```
+
 #### redb
+
+```bash
+jackdaw run persistence.sw.yaml --persistence-provider redb -i '{ "userData": "user-data-1"}'
+```
 
 #### sqlite
 
+```bash
+jackdaw run persistence.sw.yaml --persistence-provider sqlite --sqlite-db-url=persistence.sqlite -i '{ "userData": "user-data-1"}'
+```
+
 #### postgres
 
+```bash
+jackdaw run persistence.sw.yaml --persistence-provider postgres --postgres-db-name=default --postgres-user default_user --postgres-password password --postgres-hostname localhost -i '{ "userData": "user-data-1"}'
+```
 ### Container Providers
 
 #### Docker
