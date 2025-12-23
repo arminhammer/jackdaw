@@ -397,7 +397,7 @@ impl PythonExecutor {
         });
 
         // Wait for Python thread to complete
-        let exit_code = python_handle.join().map_err(|_| Error::Execution {
+        let _exit_code = python_handle.join().map_err(|_| Error::Execution {
             message: "Python thread panicked".to_string(),
         })??;
 
@@ -413,18 +413,20 @@ impl PythonExecutor {
                 message: format!("Mutex poisoned: {e}"),
             })?
             .join("\n");
-        let stderr_str = stderr_lines
+        let _stderr_str = stderr_lines
             .lock()
             .map_err(|e| Error::Execution {
                 message: format!("Mutex poisoned: {e}"),
             })?
             .join("\n");
 
-        Ok(serde_json::json!({
-            "stdout": stdout_str,
-            "stderr": stderr_str,
-            "exitCode": exit_code
-        }))
+        // Return just stdout on success
+        // Try to parse as JSON first, fall back to plain string
+        if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&stdout_str) {
+            Ok(json_value)
+        } else {
+            Ok(serde_json::Value::String(stdout_str))
+        }
     }
 }
 

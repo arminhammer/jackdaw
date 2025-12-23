@@ -1,0 +1,11 @@
+document:
+  dsl: '1.0.2'
+  namespace: default
+  name: test-task-timeout-inline
+  version: '1.0.0'
+do:
+  - slowTask:
+      wait: PT5S
+      timeout:
+        after:
+          seconds: 2

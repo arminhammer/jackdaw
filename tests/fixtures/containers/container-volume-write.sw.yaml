@@ -1,0 +1,13 @@
+document:
+  dsl: '1.0.2'
+  namespace: default
+  name: test-volume-write
+  version: '1.0.0'
+do:
+  - writeToVolume:
+      run:
+        container:
+          image: alpine:latest
+          command: sh -c "echo 'Hello from container' > /data/test.txt"
+          volumes:
+            /tmp/container-test: /data

@@ -25,6 +25,10 @@ pub struct ContainerConfig {
     pub environment: Option<std::collections::HashMap<String, String>>,
     /// Working directory
     pub working_dir: Option<String>,
+    /// Volume mappings (host_path -> container_path)
+    pub volumes: Option<std::collections::HashMap<String, String>>,
+    /// Port mappings (container_port -> host_port)
+    pub ports: Option<std::collections::HashMap<u16, u16>>,
 }
 
 #[derive(Debug, Snafu)]

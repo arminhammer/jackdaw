@@ -233,8 +233,14 @@ try {
     console.warn = originalWarn;
 }
 
-// Export the result
-export default { stdout: capturedStdout, stderr: capturedStderr, exitCode: 0 };
+// Export just the stdout - try to parse as JSON, fall back to string
+export default (() => {
+    try {
+        return JSON.parse(capturedStdout);
+    } catch {
+        return capturedStdout;
+    }
+})();
 "#,
             );
 

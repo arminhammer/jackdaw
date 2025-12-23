@@ -8,7 +8,6 @@ use crate::context::Context;
 use crate::output;
 use crate::providers::container::DockerProvider;
 use crate::task_output::TaskOutputStreamer;
-use crate::workflow::WorkflowEvent;
 
 use super::super::{DurableEngine, Error, IoSnafu, Result};
 
@@ -49,14 +48,7 @@ pub async fn exec_run_task(
 
     output::format_cache_miss(task_name, &cache_key);
 
-    ctx.services
-        .persistence
-        .save_event(WorkflowEvent::TaskStarted {
-            instance_id: ctx.metadata.instance_id.clone(),
-            task_name: task_name.to_string(),
-            timestamp: Utc::now(),
-        })
-        .await?;
+    // Note: TaskStarted event is now emitted centrally in exec_task()
 
     // Check what type of run task this is
     let result = if let Some(workflow_def) = run_task.run.workflow.as_ref() {
@@ -341,12 +333,13 @@ pub async fn exec_run_task(
             });
         }
 
-        // Return stdout and stderr as result
-        serde_json::json!({
-            "stdout": stdout,
-            "stderr": stderr,
-            "exit_code": exit_code
-        })
+        // Return just stdout as a string on success
+        // Try to parse as JSON first, fall back to plain string
+        if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&stdout) {
+            json_value
+        } else {
+            serde_json::Value::String(stdout)
+        }
     } else if let Some(container) = run_task.run.container.as_ref() {
         // Container execution using provider abstraction
         let image = &container.image;
@@ -393,6 +386,61 @@ pub async fn exec_run_task(
         cmd_with_args.push(String::from("--"));
         cmd_with_args.extend(evaluated_args);
 
+        // Evaluate environment variables if provided
+        let environment = if let Some(env) = container.environment.as_ref() {
+            let mut evaluated_env = std::collections::HashMap::new();
+            for (key, value) in env {
+                let evaluated = crate::expressions::evaluate_value_with_input(
+                    &serde_json::Value::String(value.clone()),
+                    &current_data,
+                    &ctx.metadata.initial_input,
+                )?;
+                // Convert evaluated value to string - handles strings, numbers, bools, etc.
+                let value_str = match evaluated {
+                    serde_json::Value::String(s) => s,
+                    serde_json::Value::Number(n) => n.to_string(),
+                    serde_json::Value::Bool(b) => b.to_string(),
+                    serde_json::Value::Null => String::from("null"),
+                    serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
+                        evaluated.to_string()
+                    } // Arrays and objects as JSON
+                };
+                evaluated_env.insert(key.clone(), value_str);
+            }
+            Some(evaluated_env)
+        } else {
+            None
+        };
+
+        // Evaluate volumes if provided
+        let volumes = if let Some(vols) = container.volumes.as_ref() {
+            let mut evaluated_vols = std::collections::HashMap::new();
+            for (key, value) in vols {
+                // Evaluate both host path and container path for expressions
+                let evaluated_key = crate::expressions::evaluate_value_with_input(
+                    &serde_json::Value::String(key.clone()),
+                    &current_data,
+                    &ctx.metadata.initial_input,
+                )?;
+                let evaluated_value = crate::expressions::evaluate_value_with_input(
+                    &serde_json::Value::String(value.clone()),
+                    &current_data,
+                    &ctx.metadata.initial_input,
+                )?;
+                if let (Some(host_path), Some(container_path)) =
+                    (evaluated_key.as_str(), evaluated_value.as_str())
+                {
+                    evaluated_vols.insert(host_path.to_string(), container_path.to_string());
+                }
+            }
+            Some(evaluated_vols)
+        } else {
+            None
+        };
+
+        // Ports don't need expression evaluation (they're numbers)
+        let ports = container.ports.clone();
+
         // Create container provider (Docker for now, could be configurable later)
         let provider = DockerProvider::new().map_err(|e| Error::TaskExecution {
             message: format!("Failed to create container provider: {e}"),
@@ -403,8 +451,10 @@ pub async fn exec_run_task(
             image: image.clone(),
             command: cmd_with_args,
             stdin: stdin_data,
-            environment: None, // TODO: Add environment variable support from spec
-            working_dir: None, // TODO: Add working directory support from spec
+            environment,
+            working_dir: None, // TODO: Add working directory support if spec adds it
+            volumes,
+            ports,
         };
 
         let result = provider
@@ -424,7 +474,7 @@ pub async fn exec_run_task(
             });
         }
 
-        // Return stdout and stderr as result
+        // Return structured result with stdout, stderr, and exit_code
         serde_json::json!({
             "stdout": result.stdout,
             "stderr": result.stderr,
@@ -435,13 +485,46 @@ pub async fn exec_run_task(
         serde_json::json!({})
     };
 
+    // Apply output filtering if specified
+    let mut final_result = result;
+    if let Some(output_config) = &run_task.common.output
+        && let Some(as_value) = &output_config.as_
+    {
+        let task_input = ctx.state.task_input.read().await.clone();
+
+        // Handle both string (expression) and object (field mapping) forms
+        if let Some(expr_str) = as_value.as_str() {
+            // String form: expression (may be wrapped in ${} or bare JQ)
+            // Use evaluate_expression_with_input which handles both cases
+            final_result = crate::expressions::evaluate_expression_with_input(
+                expr_str,
+                &final_result,
+                &task_input,
+            )?;
+        } else if let Some(as_obj) = as_value.as_object() {
+            // Object form: map fields with expressions (may be wrapped in ${})
+            let mut transformed = serde_json::Map::new();
+            for (key, value) in as_obj {
+                if let Some(expr_str) = value.as_str() {
+                    let evaluated = crate::expressions::evaluate_expression_with_input(
+                        expr_str,
+                        &final_result,
+                        &task_input,
+                    )?;
+                    transformed.insert(key.clone(), evaluated);
+                }
+            }
+            final_result = serde_json::Value::Object(transformed);
+        }
+    }
+
     let cache_entry = CacheEntry {
         key: cache_key.clone(),
         inputs: evaluated_params,
-        output: result.clone(),
+        output: final_result.clone(),
         timestamp: Utc::now(),
     };
     ctx.services.cache.set(cache_entry).await?;
 
-    Ok(result)
+    Ok(final_result)
 }

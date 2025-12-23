@@ -3,6 +3,7 @@
 use serverless_workflow_core::models::input::InputDataModelDefinition;
 use serverless_workflow_core::models::output::OutputDataModelDefinition;
 use serverless_workflow_core::models::task::TaskDefinition;
+use serverless_workflow_core::models::timeout::OneOfTimeoutDefinitionOrReference;
 
 /// Extension trait providing helper methods for `TaskDefinition`
 pub trait TaskDefinitionExt {
@@ -11,6 +12,9 @@ pub trait TaskDefinitionExt {
 
     /// Get the input configuration for this task
     fn input(&self) -> Option<&InputDataModelDefinition>;
+
+    /// Get the timeout configuration for this task
+    fn timeout(&self) -> Option<&OneOfTimeoutDefinitionOrReference>;
 
     /// Get the type name of this task as a string
     fn type_name(&self) -> &'static str;
@@ -48,6 +52,23 @@ impl TaskDefinitionExt for TaskDefinition {
             TaskDefinition::Switch(t) => t.common.input.as_ref(),
             TaskDefinition::Try(t) => t.common.input.as_ref(),
             TaskDefinition::Wait(t) => t.common.input.as_ref(),
+        }
+    }
+
+    fn timeout(&self) -> Option<&OneOfTimeoutDefinitionOrReference> {
+        match self {
+            TaskDefinition::Call(t) => t.common.timeout.as_ref(),
+            TaskDefinition::Do(t) => t.common.timeout.as_ref(),
+            TaskDefinition::Emit(t) => t.common.timeout.as_ref(),
+            TaskDefinition::For(t) => t.common.timeout.as_ref(),
+            TaskDefinition::Fork(t) => t.common.timeout.as_ref(),
+            TaskDefinition::Listen(t) => t.common.timeout.as_ref(),
+            TaskDefinition::Raise(t) => t.common.timeout.as_ref(),
+            TaskDefinition::Run(t) => t.common.timeout.as_ref(),
+            TaskDefinition::Set(t) => t.common.timeout.as_ref(),
+            TaskDefinition::Switch(t) => t.common.timeout.as_ref(),
+            TaskDefinition::Try(t) => t.common.timeout.as_ref(),
+            TaskDefinition::Wait(t) => t.common.timeout.as_ref(),
         }
     }
 

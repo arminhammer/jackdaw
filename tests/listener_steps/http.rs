@@ -72,7 +72,7 @@ async fn when_http_python_add_endpoint_called(world: &mut ListenerWorld, path: S
             serde_yaml::from_str(workflow_yaml).expect("Failed to parse workflow");
 
         let engine = world.engine.as_ref().expect("No engine");
-        
+
         // Create an Abortable future for the workflow execution
         let engine_clone = engine.clone();
         let workflow_clone = workflow.clone();
@@ -81,15 +81,15 @@ async fn when_http_python_add_endpoint_called(world: &mut ListenerWorld, path: S
             async move {
                 let _ = engine_clone.start(workflow_clone).await;
             },
-            abort_registration
+            abort_registration,
         );
-        
+
         // Spawn the workflow in the background using spawn_local (for !Send futures)
         tokio::task::spawn_local(workflow_future);
-        
+
         // Wait a bit for listeners to start
         tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
-        
+
         // Store the abort handle for cleanup
         world.abort_handle = Some(abort_handle);
         world.instance_id = Some(format!("http-workflow-{}", uuid::Uuid::new_v4()));
@@ -117,7 +117,7 @@ async fn when_http_python_add_endpoint_called(world: &mut ListenerWorld, path: S
 
     world.http_response_status = Some(status);
     world.http_responses.insert(path_only.to_string(), body);
-    
+
     // Abort the workflow after receiving the response
     if let Some(handle) = world.abort_handle.take() {
         handle.abort();

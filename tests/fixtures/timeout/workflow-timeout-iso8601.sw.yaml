@@ -1,0 +1,14 @@
+document:
+  dsl: '1.0.2'
+  namespace: default
+  name: test-workflow-timeout
+  version: '1.0.0'
+timeout:
+  after: PT2S
+do:
+  - wait1:
+      wait: PT1S
+  - wait2:
+      wait: PT1S
+  - wait3:
+      wait: PT2S

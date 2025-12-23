@@ -1,0 +1,10 @@
+document:
+  dsl: '1.0.2'
+  namespace: default
+  name: test-wait-inline-composite
+  version: '1.0.0'
+do:
+  - waitTask:
+      wait:
+        seconds: 1
+        milliseconds: 500

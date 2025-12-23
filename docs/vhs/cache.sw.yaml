@@ -1,0 +1,98 @@
+document:
+  dsl: '1.0.0'
+  namespace: examples
+  name: cache-demo
+  version: '1.0.0'
+  description: |
+    Demonstrates caching behavior with an expensive computation.
+    Step 1 performs an expensive calculation (simulated with sleep).
+    Step 2 uses workflow input to process user data.
+    Step 3 combines outputs from both steps.
+
+    When run with different inputs:
+    - First run: All steps execute
+    - Second run with different input: Step 1 uses cached result, Steps 2 and 3 recalculate
+
+do:
+  # Step 1: Expensive computation that doesn't depend on input
+  # This will be cached and reused across runs with different inputs
+  - expensiveComputation:
+      input:
+        from: '{}'
+      run:
+        script:
+          language: python
+          code: |
+            import time
+            import hashlib
+
+            # Simulate expensive computation (e.g., downloading large dataset, complex calculation)
+            # print("Performing expensive computation... (sleeping for 5 seconds)")
+            time.sleep(5)
+
+            # Generate some "expensive" computed data
+            # In a real scenario, this might be:
+            # - Fetching a large dataset from an API
+            # - Training a model
+            # - Processing a large file
+            # - Computing cryptographic hashes
+            result = {
+                "computed_hash": hashlib.sha256(b"expensive-operation").hexdigest(),
+                "dataset_size": 1000000,
+                "processing_time": 5.0,
+                "metadata": {
+                    "algorithm": "sha256",
+                    "iterations": 1000000
+                }
+            }
+
+            # print(f"Expensive computation complete: {result['computed_hash'][:16]}...")
+            print(result["computed_hash"])
+      output:
+        as: '${ { expensiveComputation: . } }'
+
+  # Step 2: Process user input
+  # This depends on workflow input, so it will recalculate when input changes
+  - processUserInput:
+      run: 
+        script:
+          language: python
+          arguments:
+            - ${ .userData }
+            - ${ .expensiveComputation }
+          code: |
+            import sys
+            import hashlib
+            import json
+
+            # Get the user's input from workflow data
+            user_data = sys.argv[1]
+
+            # Get the expensive computation result from previous step
+            expensive_result = str(sys.argv[2])
+
+            # Process the user-specific data
+            user_hash = hashlib.md5(user_data.encode()).hexdigest()
+
+            result = {
+                "user_hash": user_hash,
+                "user_data_length": len(user_data),
+                "processed": True,
+                "expensive_computation": expensive_result
+            }
+
+            print(json.dumps(result))
+
+  # Step 3: Combine results from both previous steps
+  # This depends on outputs from steps 1 and 2
+  - combineResults:
+      run:
+        script:
+          language: python
+          arguments:
+            - ${ .user_hash }
+          code: |
+            import sys
+            import json
+            user_hash = sys.argv[1]
+            print(user_hash)

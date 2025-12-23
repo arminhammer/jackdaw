@@ -1,0 +1,13 @@
+document:
+  dsl: '1.0.2'
+  namespace: default
+  name: test-wait-sequence
+  version: '1.0.0'
+do:
+  - wait1:
+      wait: PT1S
+  - wait2:
+      wait:
+        milliseconds: 500
+  - wait3:
+      wait: PT0.5S

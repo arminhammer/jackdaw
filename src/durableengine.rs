@@ -28,6 +28,7 @@ mod export;
 mod graph;
 mod listeners;
 mod tasks;
+mod timeout;
 
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub))]
@@ -43,6 +44,9 @@ pub enum Error {
 
     #[snafu(display("Configuration error: {message}"))]
     Configuration { message: String },
+
+    #[snafu(display("Timeout: {message}"))]
+    Timeout { message: String },
 
     #[snafu(display("I/O error: {source}"))]
     Io { source: std::io::Error },
@@ -307,9 +311,18 @@ impl DurableEngine {
                         });
                     }
                     WorkflowEvent::WorkflowStarted { .. }
+                    | WorkflowEvent::TaskCreated { .. }
                     | WorkflowEvent::TaskStarted { .. }
+                    | WorkflowEvent::TaskRetried { .. }
                     | WorkflowEvent::TaskEntered { .. }
-                    | WorkflowEvent::TaskCompleted { .. } => {}
+                    | WorkflowEvent::TaskCompleted { .. }
+                    | WorkflowEvent::WorkflowCancelled { .. }
+                    | WorkflowEvent::WorkflowSuspended { .. }
+                    | WorkflowEvent::WorkflowResumed { .. }
+                    | WorkflowEvent::TaskCancelled { .. }
+                    | WorkflowEvent::TaskSuspended { .. }
+                    | WorkflowEvent::TaskResumed { .. }
+                    | WorkflowEvent::TaskFaulted { .. } => {}
                 }
             }
 
@@ -342,6 +355,33 @@ impl DurableEngine {
     }
 
     async fn run_instance(
+        &self,
+        workflow: WorkflowDefinition,
+        instance_id: Option<String>,
+        initial_data: serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        // Check if workflow has a timeout
+        let workflow_timeout = workflow
+            .timeout
+            .as_ref()
+            .and_then(|timeout_def| timeout::parse_timeout_duration(timeout_def).ok());
+
+        // Execute workflow with timeout if specified
+        let execution_future = self.run_instance_inner(workflow, instance_id, initial_data);
+
+        if let Some(timeout_duration) = workflow_timeout {
+            match tokio::time::timeout(timeout_duration, execution_future).await {
+                Ok(result) => result,
+                Err(_) => Err(Error::Timeout {
+                    message: format!("Workflow execution timed out after {:?}", timeout_duration),
+                }),
+            }
+        } else {
+            execution_future.await
+        }
+    }
+
+    async fn run_instance_inner(
         &self,
         workflow: WorkflowDefinition,
         instance_id: Option<String>,
@@ -394,14 +434,60 @@ impl DurableEngine {
             // Save the original context before exec_task (which may apply input.from filtering)
             let original_context = ctx.state.data.read().await.clone();
 
-            let result = self.exec_task(task_name, task, &ctx).await?;
+            let result = match self.exec_task(task_name, task, &ctx).await {
+                Ok(r) => r,
+                Err(e) => {
+                    // Task execution failed - emit task.faulted.v1 event
+                    let _ = ctx
+                        .services
+                        .persistence
+                        .save_event(WorkflowEvent::TaskFaulted {
+                            instance_id: ctx.metadata.instance_id.clone(),
+                            task_name: task_name.clone(),
+                            error: e.to_string(),
+                            timestamp: Utc::now(),
+                        })
+                        .await;
+
+                    return Err(e);
+                }
+            };
 
             // Restore the original context before applying export
             // This ensures that input.from filtering doesn't affect export merging
             *ctx.state.data.write().await = original_context;
 
-            // Format task output
-            output::format_task_output(&result);
+            // Calculate task duration
+            let task_end_time = Utc::now();
+
+            // Find the TaskStarted event to calculate duration
+            let events = ctx
+                .services
+                .persistence
+                .get_events(&ctx.metadata.instance_id)
+                .await?;
+            let task_start_time = events
+                .iter()
+                .rev() // Search in reverse to find most recent TaskStarted
+                .find_map(|event| {
+                    if let WorkflowEvent::TaskStarted {
+                        task_name: name,
+                        timestamp,
+                        ..
+                    } = event
+                    {
+                        if name == task_name {
+                            return Some(*timestamp);
+                        }
+                    }
+                    None
+                })
+                .unwrap_or(task_end_time); // Fallback if not found (shouldn't happen)
+
+            let duration_ms = (task_end_time - task_start_time).num_milliseconds();
+
+            // Format task output with duration
+            output::format_task_output(&result, duration_ms);
 
             ctx.services
                 .persistence
@@ -409,7 +495,8 @@ impl DurableEngine {
                     instance_id: ctx.metadata.instance_id.clone(),
                     task_name: task_name.clone(),
                     result: result.clone(),
-                    timestamp: Utc::now(),
+                    timestamp: task_end_time,
+                    duration_ms,
                 })
                 .await?;
 
@@ -434,8 +521,11 @@ impl DurableEngine {
             if let Some(next_name) = next_task_name {
                 // Task explicitly set the next task (e.g., Switch task)
 
-                // Special case: "end" means terminate the workflow
-                if next_name == "end" {
+                // Special cases for flow directives:
+                // - "end" means gracefully terminate the workflow
+                // - "exit" means exit current scope (terminates workflow since we're in main scope)
+                // Note: In future, "exit" will only exit the current scope for nested workflows
+                if next_name == "end" || next_name == "exit" {
                     break;
                 }
 
@@ -462,28 +552,64 @@ impl DurableEngine {
         // Apply workflow output filter if specified
         if let Some(output_config) = &workflow.output
             && let Some(as_expr) = &output_config.as_
-            && let Some(expr_str) = as_expr.as_str()
         {
-            final_data = crate::expressions::evaluate_expression(expr_str, &final_data)?;
-        }
+            // Handle both string and object forms of the expression
+            let expr_str = if let Some(s) = as_expr.as_str() {
+                s
+            } else {
+                // If it's not a string, convert it to JSON string
+                // This handles complex runtime expressions that are objects
+                &serde_json::to_string(as_expr)?
+            };
 
-        // Remove internal metadata fields from final output
+            // Output filtering can use either:
+            // 1. Wrapped expressions: ${ .field } (newer spec examples)
+            // 2. Bare JQ expressions: .field (older examples)
+            final_data = if expr_str.trim().starts_with("${") {
+                // Wrapped expression - use evaluate_expression which handles ${ } syntax
+                crate::expressions::evaluate_expression(expr_str, &final_data)?
+            } else {
+                // Bare JQ expression - use evaluate_jq directly
+                crate::expressions::evaluate_jq(expr_str, &final_data)?
+            };
+        } // Remove internal metadata fields from final output
         if let serde_json::Value::Object(ref mut obj) = final_data {
             obj.remove("__workflow");
             obj.remove("__runtime");
         }
+
+        // Calculate workflow duration
+        let workflow_end_time = Utc::now();
+        let events = ctx
+            .services
+            .persistence
+            .get_events(&ctx.metadata.instance_id)
+            .await?;
+        let workflow_start_time = events
+            .iter()
+            .find_map(|event| {
+                if let WorkflowEvent::WorkflowStarted { timestamp, .. } = event {
+                    Some(*timestamp)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(workflow_end_time);
+
+        let workflow_duration_ms = (workflow_end_time - workflow_start_time).num_milliseconds();
 
         ctx.services
             .persistence
             .save_event(WorkflowEvent::WorkflowCompleted {
                 instance_id: ctx.metadata.instance_id.clone(),
                 final_data: final_data.clone(),
-                timestamp: Utc::now(),
+                timestamp: workflow_end_time,
+                duration_ms: workflow_duration_ms,
             })
             .await?;
 
-        // Format workflow completion with output
-        output::format_workflow_output(&final_data);
+        // Format workflow completion with output and duration
+        output::format_workflow_output(&final_data, workflow_duration_ms);
 
         Ok(final_data)
     }

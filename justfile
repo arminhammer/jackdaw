@@ -26,6 +26,14 @@ setup-python:
 build:
     cargo build
 
+# Build lite version without embedded Python (faster compile, smaller binary)
+build-lite:
+    cargo build --no-default-features --bin jackdaw-lite
+
+# Build static lite version for Linux x86_64 (uses zigbuild for musl cross-compilation)
+build-lite-static:
+    cargo zigbuild --release --no-default-features --bin jackdaw-lite --target x86_64-unknown-linux-musl
+
 # Build in development mode
 build-release:
     cargo build --release
@@ -161,6 +169,21 @@ build-linux-amd64:
 # Note: Builds V8 from source (takes 30-60 minutes on first build)
 build-linux-arm64:
     V8_FROM_SOURCE=1 cargo zigbuild --release --target aarch64-unknown-linux-musl
+
+# Build static jackdaw-lite for Linux x86_64 (musl, no Python)
+build-lite-linux-amd64:
+    cargo zigbuild --release --no-default-features --bin jackdaw-lite --target x86_64-unknown-linux-musl
+
+# Build static jackdaw-lite for Linux ARM64 (musl, no Python)
+build-lite-linux-arm64:
+    cargo zigbuild --release --no-default-features --bin jackdaw-lite --target aarch64-unknown-linux-musl
+
+# Build static jackdaw-lite for both Linux architectures
+build-lite-linux: build-lite-linux-amd64 build-lite-linux-arm64
+    @echo ""
+    @echo "✓ Static jackdaw-lite binaries built:"
+    @ls -lh target/x86_64-unknown-linux-musl/release/jackdaw-lite
+    @ls -lh target/aarch64-unknown-linux-musl/release/jackdaw-lite
 
 # Build macOS binary (Intel)
 build-macos-amd64:

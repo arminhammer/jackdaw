@@ -724,13 +724,15 @@ fn test_docker_run_openapi_python_listener_with_client() {
 
     let output = http_result.unwrap();
 
-    let container_logs = container_output.map(|o| {
-        format!(
-            "Container stdout:\n{}\n\nContainer stderr:\n{}",
-            String::from_utf8_lossy(&o.stdout),
-            String::from_utf8_lossy(&o.stderr)
-        )
-    }).unwrap_or_else(|| "Could not capture container output".to_string());
+    let container_logs = container_output
+        .map(|o| {
+            format!(
+                "Container stdout:\n{}\n\nContainer stderr:\n{}",
+                String::from_utf8_lossy(&o.stdout),
+                String::from_utf8_lossy(&o.stderr)
+            )
+        })
+        .unwrap_or_else(|| "Could not capture container output".to_string());
 
     assert!(
         output.status.success(),

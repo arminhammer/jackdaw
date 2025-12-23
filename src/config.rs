@@ -18,10 +18,6 @@ pub struct JackdawConfig {
     #[serde(default)]
     pub verbose: bool,
 
-    /// Skip cache hits (force re-execution)
-    #[serde(default)]
-    pub no_cache: bool,
-
     /// Generate workflow visualization after execution
     #[serde(default)]
     pub visualize: bool,
@@ -39,11 +35,10 @@ pub struct JackdawConfig {
 impl Default for JackdawConfig {
     fn default() -> Self {
         Self {
-            durable_db: Some(PathBuf::from("workflow.db")),
+            durable_db: None,
             cache_db: None,
             parallel: false,
             verbose: false,
-            no_cache: false,
             visualize: false,
             viz_tool: Some("d2".to_string()),
             viz_format: Some("svg".to_string()),
