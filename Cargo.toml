@@ -17,7 +17,7 @@ serde_json = "=1.0.120"
 serde_bytes = "=0.11.15"
 serde_yaml = "0.9"
 tokio = { version = "1", features = ["full"] }
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 config = "0.15.15"
 tracing-indicatif = "0.3"
 tracing = "0.1"
@@ -71,6 +71,7 @@ async-recursion = "1.0"
 futures = "0.3"
 lazy_static = "1.4"
 wiremock = "0.6.5"
+sha2 = "0.10.9"
 
 [dev-dependencies]
 cucumber = "0.21"

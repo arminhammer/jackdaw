@@ -89,6 +89,13 @@ async fn main() -> Result<(), Error> {
             let input = args.input.clone();
             let registry = args.registry.clone();
             let debug = args.debug;
+            let persistence_provider = args.persistence_provider.clone();
+            let cache_provider = args.cache_provider.clone();
+            let sqlite_db_url = args.sqlite_db_url.clone();
+            let postgres_db_name = args.postgres_db_name.clone();
+            let postgres_user = args.postgres_user.clone();
+            let postgres_password = args.postgres_password.clone();
+            let postgres_hostname = args.postgres_hostname.clone();
 
             // Merge CLI args with config (CLI takes precedence)
             let config = args.merge_with_config(global_config);
@@ -99,7 +106,7 @@ async fn main() -> Result<(), Error> {
             // Initialize MultiProgress for coordinating progress bars and logs/traces
             let multi_progress = MultiProgress::new();
 
-            handle_run(workflows, input, registry, config, multi_progress, debug)
+            handle_run(workflows, input, registry, config, multi_progress, debug, persistence_provider, cache_provider, sqlite_db_url, postgres_db_name, postgres_user, postgres_password, postgres_hostname)
                 .await
                 .context(RunSnafu)
         }

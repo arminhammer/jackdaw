@@ -13,3 +13,4 @@ do:
           arguments:
             - "arg1"
             - "arg2"
+            - "arg2"

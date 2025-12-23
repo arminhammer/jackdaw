@@ -217,15 +217,26 @@ try {{
 
         let exit_code = status.code().unwrap_or(-1);
 
-        // Join lines with newlines to match embedded executor output format
+        // Join lines with newlines
         let stdout_str = stdout_lines.join("\n");
         let stderr_str = stderr_lines.join("\n");
 
-        Ok(serde_json::json!({
-            "stdout": stdout_str,
-            "stderr": stderr_str,
-            "exitCode": exit_code
-        }))
+        // Check exit code
+        if exit_code != 0 {
+            return Err(Error::Execution {
+                message: format!(
+                    "TypeScript script failed with exit code {exit_code}\nstdout: {stdout_str}\nstderr: {stderr_str}"
+                ),
+            });
+        }
+
+        // Return just stdout on success
+        // Try to parse as JSON first, fall back to plain string
+        if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&stdout_str) {
+            Ok(json_value)
+        } else {
+            Ok(serde_json::Value::String(stdout_str))
+        }
     }
 }
 

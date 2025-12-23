@@ -94,11 +94,15 @@ impl DurableEngine {
                         // Create handler for this route
                         let handler = self.create_handler_from_listen_task(listen_task)?;
 
+                        // Get the read mode and wrap the handler to apply it
+                        let read_mode = listen_task.listen.read.as_deref().unwrap_or("envelope");
+                        let wrapped_handler = wrap_handler_with_read_mode(handler, read_mode);
+
                         // Group by (bind_addr, openapi_path) - different specs can coexist on same port
                         http_routes
                             .entry((bind_addr.clone(), openapi_path.clone()))
                             .or_default()
-                            .push((path, task_name.clone(), handler));
+                            .push((path, task_name.clone(), wrapped_handler));
                     }
                     // Handle gRPC listeners
                     else if event_source.uri.starts_with("grpc://") {
@@ -152,11 +156,15 @@ impl DurableEngine {
                         // Create handler for this method
                         let handler = self.create_handler_from_listen_task(listen_task)?;
 
+                        // Get the read mode and wrap the handler to apply it
+                        let read_mode = listen_task.listen.read.as_deref().unwrap_or("envelope");
+                        let wrapped_handler = wrap_handler_with_read_mode(handler, read_mode);
+
                         // Group by (bind_addr, proto_path, service_name)
                         grpc_methods
                             .entry((bind_addr.clone(), proto_path.clone(), service_name.clone()))
                             .or_default()
-                            .push((method_name, task_name.clone(), handler));
+                            .push((method_name, task_name.clone(), wrapped_handler));
                     }
                 }
             }
@@ -541,4 +549,40 @@ fn json_to_dynamic_message(
     }
 
     msg
+}
+
+/// Wraps a handler with read mode transformation
+///
+/// Read modes:
+/// - `data`: Extract only the `data` field from CloudEvents
+/// - `envelope`: Pass the full CloudEvent (default)
+/// - `raw`: Pass the raw HTTP request body as-is
+fn wrap_handler_with_read_mode(
+    handler: Arc<dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value> + Send + Sync>,
+    read_mode: &str,
+) -> Arc<dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value> + Send + Sync> {
+    let mode = read_mode.to_string();
+    
+    Arc::new(move |payload: serde_json::Value| -> crate::listeners::Result<serde_json::Value> {
+        let transformed_payload = match mode.as_str() {
+            "data" => {
+                // Extract only the data field from CloudEvent
+                if let Some(data) = payload.get("data") {
+                    data.clone()
+                } else {
+                    payload
+                }
+            },
+            "raw" => {
+                // Pass through as-is for raw mode
+                payload
+            },
+            _ => {
+                // Default is "envelope" - pass full CloudEvent
+                payload
+            }
+        };
+        
+        handler(transformed_payload)
+    })
 }

@@ -6,11 +6,13 @@ use snafu::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::cache::CacheProvider;
 use crate::config::JackdawConfig;
 use crate::durableengine::DurableEngine;
 use crate::output::filter_internal_fields;
-use crate::providers::cache::RedbCache;
-use crate::providers::persistence::RedbPersistence;
+use crate::persistence::PersistenceProvider;
+use crate::providers::cache::{mem::InMemoryCache, PostgresCache, RedbCache, SqliteCache};
+use crate::providers::persistence::{PostgresPersistence, RedbPersistence, SqlitePersistence};
 use crate::providers::visualization::DiagramFormat;
 
 #[derive(Debug, Snafu)]
@@ -108,9 +110,33 @@ pub struct RunArgs {
     #[arg(long)]
     pub debug: bool,
 
-    /// Skip cache hits (force re-execution)
-    #[arg(long)]
-    pub no_cache: bool,
+    /// Persistence provider to use (memory, redb, sqlite, postgres)
+    #[arg(long, value_name = "PERSISTENCE_PROVIDER", default_value = "memory")]
+    pub persistence_provider: String,
+
+    /// Cache provider to use (memory, redb, sqlite, postgres)
+    #[arg(long, value_name = "CACHE_PROVIDER", default_value = "memory")]
+    pub cache_provider: String,
+
+    /// SQLite database URL (e.g., 'sqlite:workflow.db' or 'sqlite::memory:')
+    #[arg(long, value_name = "SQLITE_DB_URL", env = "SQLITE_DB_URL")]
+    pub sqlite_db_url: Option<String>,
+
+    /// PostgreSQL database name
+    #[arg(long, value_name = "POSTGRES_DB_NAME", env = "POSTGRES_DB_NAME")]
+    pub postgres_db_name: Option<String>,
+
+    /// PostgreSQL user
+    #[arg(long, value_name = "POSTGRES_USER", env = "POSTGRES_USER")]
+    pub postgres_user: Option<String>,
+
+    /// PostgreSQL password
+    #[arg(long, value_name = "POSTGRES_PASSWORD", env = "POSTGRES_PASSWORD")]
+    pub postgres_password: Option<String>,
+
+    /// PostgreSQL hostname
+    #[arg(long, value_name = "POSTGRES_HOSTNAME", env = "POSTGRES_HOSTNAME")]
+    pub postgres_hostname: Option<String>,
 
     /// Generate workflow visualization after execution
     #[arg(long)]
@@ -146,7 +172,6 @@ impl RunArgs {
             cache_db: self.cache_db.or(config.cache_db),
             parallel: if self.parallel { true } else { config.parallel },
             verbose: if self.verbose { true } else { config.verbose },
-            no_cache: if self.no_cache { true } else { config.no_cache },
             visualize: if self.visualize {
                 true
             } else {
@@ -280,6 +305,29 @@ fn parse_diagram_format(format_str: &str) -> Result<DiagramFormat> {
     }
 }
 
+/// Build PostgreSQL connection URL and validate all required parameters are provided
+fn build_postgres_url(
+    db_name: Option<&String>,
+    user: Option<&String>,
+    password: Option<&String>,
+    hostname: Option<&String>,
+) -> Result<String> {
+    let db_name = db_name.ok_or_else(|| Error::InvalidWorkflowFile {
+        message: "PostgreSQL provider requires --postgres-db-name parameter or POSTGRES_DB_NAME env var".to_string(),
+    })?;
+    let user = user.ok_or_else(|| Error::InvalidWorkflowFile {
+        message: "PostgreSQL provider requires --postgres-user parameter or POSTGRES_USER env var".to_string(),
+    })?;
+    let password = password.ok_or_else(|| Error::InvalidWorkflowFile {
+        message: "PostgreSQL provider requires --postgres-password parameter or POSTGRES_PASSWORD env var".to_string(),
+    })?;
+    let hostname = hostname.ok_or_else(|| Error::InvalidWorkflowFile {
+        message: "PostgreSQL provider requires --postgres-hostname parameter or POSTGRES_HOSTNAME env var".to_string(),
+    })?;
+
+    Ok(format!("postgresql://{}:{}@{}/{}", user, password, hostname, db_name))
+}
+
 /// Handle the run subcommand
 pub async fn handle_run(
     workflows: Vec<PathBuf>,
@@ -288,6 +336,13 @@ pub async fn handle_run(
     config: JackdawConfig,
     multi_progress: MultiProgress,
     debug: bool,
+    persistence_provider: String,
+    cache_provider: String,
+    sqlite_db_url: Option<String>,
+    postgres_db_name: Option<String>,
+    postgres_user: Option<String>,
+    postgres_password: Option<String>,
+    postgres_hostname: Option<String>,
 ) -> Result<()> {
     // Set debug mode
     crate::output::set_debug_mode(debug);
@@ -315,37 +370,88 @@ pub async fn handle_run(
         println!();
     }
 
-    // Get durable_db path, defaulting to "workflow.db" if not set
-    let durable_db = config
-        .durable_db
-        .clone()
-        .unwrap_or_else(|| PathBuf::from("workflow.db"));
-
-    // Initialize persistence and cache
-    if config.verbose {
-        println!("{} Initializing databases...", style("→").cyan());
-        println!("  • Durable DB: {}", durable_db.display());
-        if let Some(ref cache_db) = config.cache_db {
-            println!("  • Cache DB: {}", cache_db.display());
-        } else {
-            println!("  • Cache DB: {} (shared)", durable_db.display());
-        }
+    // Initialize persistence and cache based on provider selection
+    if config.verbose || debug {
+        println!("{} Initializing providers...", style("→").cyan());
+        println!("  • Persistence: {}", persistence_provider);
+        println!("  • Cache: {}", cache_provider);
         println!();
     }
 
-    let persistence = Arc::new(RedbPersistence::new(
-        durable_db.to_str().unwrap_or("workflow.db"),
-    )?);
+    // Create persistence provider
+    let persistence: Arc<dyn PersistenceProvider> = match persistence_provider.as_str() {
+        "memory" => {
+            // Memory persistence doesn't exist yet, so use redb with in-memory path for now
+            // TODO: Implement actual in-memory persistence provider
+            Arc::new(RedbPersistence::new(":memory:")?)
+        }
+        "redb" => {
+            let durable_db = config
+                .durable_db
+                .clone()
+                .unwrap_or_else(|| PathBuf::from("workflow.db"));
+            Arc::new(RedbPersistence::new(
+                durable_db.to_str().unwrap_or("workflow.db"),
+            )?)
+        }
+        "sqlite" => {
+            let db_url = sqlite_db_url.as_ref().ok_or_else(|| Error::InvalidWorkflowFile {
+                message: "SQLite persistence provider requires --sqlite-db-url parameter".to_string(),
+            })?;
+            Arc::new(SqlitePersistence::new(db_url).await?)
+        }
+        "postgres" => {
+            let db_url = build_postgres_url(
+                postgres_db_name.as_ref(),
+                postgres_user.as_ref(),
+                postgres_password.as_ref(),
+                postgres_hostname.as_ref(),
+            )?;
+            Arc::new(PostgresPersistence::new(&db_url).await?)
+        }
+        _ => {
+            return Err(Error::InvalidWorkflowFile {
+                message: format!(
+                    "Invalid persistence provider '{}'. Valid options: memory, redb, sqlite, postgres",
+                    persistence_provider
+                ),
+            });
+        }
+    };
 
-    let cache = if let Some(cache_db_path) = config.cache_db {
-        // Separate cache database
-        let cache_persistence = Arc::new(RedbPersistence::new(
-            cache_db_path.to_str().unwrap_or("cache.db"),
-        )?);
-        Arc::new(RedbCache::new(cache_persistence.db.clone())?)
-    } else {
-        // Shared database
-        Arc::new(RedbCache::new(persistence.db.clone())?)
+    // Create cache provider
+    let cache: Arc<dyn CacheProvider> = match cache_provider.as_str() {
+        "memory" => Arc::new(InMemoryCache::new()),
+        "redb" => {
+            let cache_db_path = config.cache_db.as_ref()
+                .map(|p| p.to_str().unwrap_or("cache.db"))
+                .unwrap_or("cache.db");
+            let cache_persistence = Arc::new(RedbPersistence::new(cache_db_path)?);
+            Arc::new(RedbCache::new(cache_persistence.db.clone())?)
+        }
+        "sqlite" => {
+            let db_url = sqlite_db_url.as_ref().ok_or_else(|| Error::InvalidWorkflowFile {
+                message: "SQLite cache provider requires --sqlite-db-url parameter".to_string(),
+            })?;
+            Arc::new(SqliteCache::new(db_url).await?)
+        }
+        "postgres" => {
+            let db_url = build_postgres_url(
+                postgres_db_name.as_ref(),
+                postgres_user.as_ref(),
+                postgres_password.as_ref(),
+                postgres_hostname.as_ref(),
+            )?;
+            Arc::new(PostgresCache::new(&db_url).await?)
+        }
+        _ => {
+            return Err(Error::InvalidWorkflowFile {
+                message: format!(
+                    "Invalid cache provider '{}'. Valid options: memory, redb, sqlite, postgres",
+                    cache_provider
+                ),
+            });
+        }
     };
 
     let engine = Arc::new(DurableEngine::new(persistence.clone(), cache.clone())?);

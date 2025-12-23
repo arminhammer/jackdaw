@@ -50,8 +50,12 @@ async fn test_container_environment_variables() {
 
     let (_instance_id, output) = result.unwrap();
 
+    // Debug: print the entire output structure
+    eprintln!("Full output: {:?}", output);
+
     // Verify environment variables were used
     let stdout = output.get("stdout").and_then(|v| v.as_str()).unwrap_or("");
+    eprintln!("stdout value: '{}'", stdout);
     assert!(
         stdout.contains("MY_VAR=HelloWorld"),
         "Output should contain MY_VAR value: {}",

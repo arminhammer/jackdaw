@@ -333,12 +333,13 @@ pub async fn exec_run_task(
             });
         }
 
-        // Return stdout and stderr as result
-        serde_json::json!({
-            "stdout": stdout,
-            "stderr": stderr,
-            "exit_code": exit_code
-        })
+        // Return just stdout as a string on success
+        // Try to parse as JSON first, fall back to plain string
+        if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&stdout) {
+            json_value
+        } else {
+            serde_json::Value::String(stdout)
+        }
     } else if let Some(container) = run_task.run.container.as_ref() {
         // Container execution using provider abstraction
         let image = &container.image;
@@ -473,7 +474,7 @@ pub async fn exec_run_task(
             });
         }
 
-        // Return stdout and stderr as result
+        // Return structured result with stdout, stderr, and exit_code
         serde_json::json!({
             "stdout": result.stdout,
             "stderr": result.stderr,
@@ -484,13 +485,46 @@ pub async fn exec_run_task(
         serde_json::json!({})
     };
 
+    // Apply output filtering if specified
+    let mut final_result = result;
+    if let Some(output_config) = &run_task.common.output
+        && let Some(as_value) = &output_config.as_
+    {
+        let task_input = ctx.state.task_input.read().await.clone();
+
+        // Handle both string (expression) and object (field mapping) forms
+        if let Some(expr_str) = as_value.as_str() {
+            // String form: expression (may be wrapped in ${} or bare JQ)
+            // Use evaluate_expression_with_input which handles both cases
+            final_result = crate::expressions::evaluate_expression_with_input(
+                expr_str,
+                &final_result,
+                &task_input,
+            )?;
+        } else if let Some(as_obj) = as_value.as_object() {
+            // Object form: map fields with expressions (may be wrapped in ${})
+            let mut transformed = serde_json::Map::new();
+            for (key, value) in as_obj {
+                if let Some(expr_str) = value.as_str() {
+                    let evaluated = crate::expressions::evaluate_expression_with_input(
+                        expr_str,
+                        &final_result,
+                        &task_input,
+                    )?;
+                    transformed.insert(key.clone(), evaluated);
+                }
+            }
+            final_result = serde_json::Value::Object(transformed);
+        }
+    }
+
     let cache_entry = CacheEntry {
         key: cache_key.clone(),
         inputs: evaluated_params,
-        output: result.clone(),
+        output: final_result.clone(),
         timestamp: Utc::now(),
     };
     ctx.services.cache.set(cache_entry).await?;
 
-    Ok(result)
+    Ok(final_result)
 }

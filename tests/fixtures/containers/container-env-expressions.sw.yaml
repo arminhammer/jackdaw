@@ -16,3 +16,4 @@ do:
           environment:
             USER_NAME: "${ .user }"
             COUNT_VAL: "${ .count }"
+            COUNT_VAL: "${ .count }"

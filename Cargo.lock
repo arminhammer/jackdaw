@@ -2757,6 +2757,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "serverless_workflow_core",
+ "sha2",
  "snafu",
  "sqlx",
  "tempfile",
