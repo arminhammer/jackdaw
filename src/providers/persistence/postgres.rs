@@ -77,10 +77,19 @@ impl PostgresPersistence {
         match event {
             WorkflowEvent::WorkflowStarted { .. } => "WorkflowStarted",
             WorkflowEvent::TaskEntered { .. } => "TaskEntered",
+            WorkflowEvent::TaskCreated { .. } => "TaskCreated",
             WorkflowEvent::TaskStarted { .. } => "TaskStarted",
+            WorkflowEvent::TaskRetried { .. } => "TaskRetried",
             WorkflowEvent::TaskCompleted { .. } => "TaskCompleted",
             WorkflowEvent::WorkflowCompleted { .. } => "WorkflowCompleted",
             WorkflowEvent::WorkflowFailed { .. } => "WorkflowFailed",
+            WorkflowEvent::WorkflowCancelled { .. } => "WorkflowCancelled",
+            WorkflowEvent::WorkflowSuspended { .. } => "WorkflowSuspended",
+            WorkflowEvent::WorkflowResumed { .. } => "WorkflowResumed",
+            WorkflowEvent::TaskCancelled { .. } => "TaskCancelled",
+            WorkflowEvent::TaskSuspended { .. } => "TaskSuspended",
+            WorkflowEvent::TaskResumed { .. } => "TaskResumed",
+            WorkflowEvent::TaskFaulted { .. } => "TaskFaulted",
         }
     }
 }
@@ -334,6 +343,7 @@ mod tests {
                 task_name: format!("task{}", i),
                 result: serde_json::json!({"step": i}),
                 timestamp: Utc::now(),
+                duration_ms: 100,
             };
             persistence.save_event(event).await.unwrap();
         }

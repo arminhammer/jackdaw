@@ -4,9 +4,26 @@
 
 use console::style;
 use serde_json::Value;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Global debug mode flag
+static DEBUG_MODE: AtomicBool = AtomicBool::new(false);
+
+/// Enable debug mode to show detailed execution information
+pub fn set_debug_mode(enabled: bool) {
+    DEBUG_MODE.store(enabled, Ordering::Relaxed);
+}
+
+/// Check if debug mode is enabled
+pub fn is_debug_mode() -> bool {
+    DEBUG_MODE.load(Ordering::Relaxed)
+}
 
 /// Format a workflow start message
 pub fn format_workflow_start(workflow_name: &str, instance_id: &str) {
+    if !is_debug_mode() {
+        return;
+    }
     println!("\n{}", "═".repeat(80));
     println!(
         "{} {} {}",
@@ -24,6 +41,9 @@ pub fn format_workflow_start(workflow_name: &str, instance_id: &str) {
 
 /// Format workflow resumption message
 pub fn format_workflow_resume(instance_id: &str, from_task: Option<&str>) {
+    if !is_debug_mode() {
+        return;
+    }
     println!("\n{}", "═".repeat(80));
     println!(
         "{} {}",
@@ -43,6 +63,9 @@ pub fn format_workflow_resume(instance_id: &str, from_task: Option<&str>) {
 
 /// Format workflow context
 pub fn format_context(title: &str, context: &Value) {
+    if !is_debug_mode() {
+        return;
+    }
     println!("\n{}", style(title).bold());
     println!("{}", "┄".repeat(80));
     if let Some(obj) = context.as_object() {
@@ -61,13 +84,34 @@ pub fn format_context(title: &str, context: &Value) {
 
 /// Format workflow input
 pub fn format_workflow_input(input: &Value) {
+    if !is_debug_mode() {
+        return;
+    }
     format_context("Workflow Input", input);
 }
 
 /// Format workflow output
-pub fn format_workflow_output(output: &Value) {
+pub fn format_workflow_output(output: &Value, duration_ms: i64) {
+    if !is_debug_mode() {
+        return;
+    }
+
+    let duration_str = if duration_ms < 1000 {
+        format!("{}ms", duration_ms)
+    } else if duration_ms < 60_000 {
+        format!("{:.2}s", duration_ms as f64 / 1000.0)
+    } else {
+        let minutes = duration_ms / 60_000;
+        let seconds = (duration_ms % 60_000) as f64 / 1000.0;
+        format!("{}m {:.2}s", minutes, seconds)
+    };
+
     println!("\n{}", "═".repeat(80));
-    println!("{}", style("Workflow Completed").green().bold());
+    println!(
+        "{} {}",
+        style("Workflow Completed").green().bold(),
+        style(format!("({})", duration_str)).dim()
+    );
     println!("{}", "─".repeat(80));
 
     let filtered = filter_internal_fields(output);
@@ -96,6 +140,9 @@ pub fn format_workflow_output(output: &Value) {
 
 /// Format task execution start
 pub fn format_task_start(task_name: &str, task_type: &str) {
+    if !is_debug_mode() {
+        return;
+    }
     println!("\n{}", "─".repeat(80));
     println!(
         "{} {} {} {}",
@@ -109,6 +156,9 @@ pub fn format_task_start(task_name: &str, task_type: &str) {
 
 /// Format task already completed (from checkpoint)
 pub fn format_task_skipped(task_name: &str) {
+    if !is_debug_mode() {
+        return;
+    }
     println!(
         "  {} {}",
         style("⤼").yellow(),
@@ -118,6 +168,9 @@ pub fn format_task_skipped(task_name: &str) {
 
 /// Format cache hit
 pub fn format_cache_hit(_task_name: &str, key: &str, timestamp: Option<&str>) {
+    if !is_debug_mode() {
+        return;
+    }
     println!("  {}", style("Cache Hit").yellow().bold());
     println!("  {}", "·".repeat(78));
     println!("    {} {}", style("Key:").yellow(), style(key).yellow());
@@ -132,6 +185,9 @@ pub fn format_cache_hit(_task_name: &str, key: &str, timestamp: Option<&str>) {
 
 /// Format cache miss
 pub fn format_cache_miss(_task_name: &str, key: &str) {
+    if !is_debug_mode() {
+        return;
+    }
     println!("  {}", style("Cache Miss").yellow());
     println!("  {}", "·".repeat(78));
     println!("    {} {}", style("Key:").yellow(), style(key).yellow());
@@ -154,6 +210,9 @@ pub fn filter_internal_fields(value: &Value) -> Value {
 
 /// Format task context
 pub fn format_task_context(context: &Value) {
+    if !is_debug_mode() {
+        return;
+    }
     println!("  {}", style("Context").white());
     println!("  {}", "·".repeat(78));
     let filtered = filter_internal_fields(context);
@@ -173,6 +232,9 @@ pub fn format_task_context(context: &Value) {
 
 /// Format task input
 pub fn format_task_input(input: &Value) {
+    if !is_debug_mode() {
+        return;
+    }
     println!("  {}", style("Input").cyan());
     println!("  {}", "·".repeat(78));
     let filtered = filter_internal_fields(input);
@@ -197,6 +259,9 @@ pub fn format_run_task_params(
     arguments: Option<&Value>,
     environment: Option<&Value>,
 ) {
+    if !is_debug_mode() {
+        return;
+    }
     if let Some(lang) = language {
         println!("  {} {}", style("Language:").cyan(), style(lang).cyan());
     }
@@ -239,8 +304,22 @@ pub fn format_run_task_params(
 }
 
 /// Format task output
-pub fn format_task_output(output: &Value) {
-    println!("  {}", style("Output").green());
+pub fn format_task_output(output: &Value, duration_ms: i64) {
+    if !is_debug_mode() {
+        return;
+    }
+
+    let duration_str = if duration_ms < 1000 {
+        format!("{}ms", duration_ms)
+    } else if duration_ms < 60_000 {
+        format!("{:.2}s", duration_ms as f64 / 1000.0)
+    } else {
+        let minutes = duration_ms / 60_000;
+        let seconds = (duration_ms % 60_000) as f64 / 1000.0;
+        format!("{}m {:.2}s", minutes, seconds)
+    };
+
+    println!("  {} {}", style("Output").green(), style(format!("({})", duration_str)).dim());
     println!("  {}", "·".repeat(78));
 
     let filtered = filter_internal_fields(output);
@@ -308,6 +387,9 @@ pub fn format_task_output(output: &Value) {
 
 /// Format task stdout/stderr
 pub fn format_task_logs(stdout: Option<&str>, stderr: Option<&str>) {
+    if !is_debug_mode() {
+        return;
+    }
     if let Some(out) = stdout.filter(|s| !s.trim().is_empty()) {
         println!("  {}", style("Stdout").dim());
         for line in out.lines() {
@@ -325,6 +407,9 @@ pub fn format_task_logs(stdout: Option<&str>, stderr: Option<&str>) {
 
 /// Format task completion
 pub fn format_task_complete(task_name: &str) {
+    if !is_debug_mode() {
+        return;
+    }
     println!(
         "  {} {}",
         style("✓").green(),
@@ -334,6 +419,9 @@ pub fn format_task_complete(task_name: &str) {
 
 /// Format task error
 pub fn format_task_error(task_name: &str, error: &str) {
+    if !is_debug_mode() {
+        return;
+    }
     println!(
         "  {} {}",
         style("✗").red().bold(),
@@ -344,6 +432,9 @@ pub fn format_task_error(task_name: &str, error: &str) {
 
 /// Format fork branch execution
 pub fn format_fork_start(fork_name: &str, branch_count: usize) {
+    if !is_debug_mode() {
+        return;
+    }
     println!(
         "\n{} {} {} {}",
         style("⋔").cyan(),
@@ -355,6 +446,9 @@ pub fn format_fork_start(fork_name: &str, branch_count: usize) {
 
 /// Format branch execution
 pub fn format_branch_start(branch_name: &str, task_type: &str) {
+    if !is_debug_mode() {
+        return;
+    }
     println!(
         "  {} {} {}",
         style("├─").dim(),

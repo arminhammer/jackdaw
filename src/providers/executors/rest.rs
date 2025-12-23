@@ -57,13 +57,33 @@ impl Executor for RestExecutor {
             .and_then(|v| v.as_str())
             .unwrap_or("content");
 
+        // Check for redirect setting (default is true - follow redirects)
+        let follow_redirects = params
+            .get("redirect")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(true);
+
+        // Create appropriate client based on redirect policy
+        let client = if follow_redirects {
+            // Use the default client (which follows redirects by default)
+            self.0.clone()
+        } else {
+            // Create a client that doesn't follow redirects
+            reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .map_err(|e| Error::Execution {
+                    message: format!("Failed to create HTTP client: {}", e),
+                })?
+        };
+
         // Build the request
         let mut request_builder = match method.to_lowercase().as_str() {
-            "post" => self.0.post(&endpoint),
-            "put" => self.0.put(&endpoint),
-            "delete" => self.0.delete(&endpoint),
-            "patch" => self.0.patch(&endpoint),
-            _ => self.0.get(&endpoint),
+            "post" => client.post(&endpoint),
+            "put" => client.put(&endpoint),
+            "delete" => client.delete(&endpoint),
+            "patch" => client.patch(&endpoint),
+            _ => client.get(&endpoint),
         };
 
         // Add authentication if specified
@@ -87,7 +107,11 @@ impl Executor for RestExecutor {
                 let headers = response.headers().clone();
 
                 // Check if the response indicates an error
-                if !status.is_success() {
+                // When redirects are disabled, 3xx responses are valid and should be returned
+                let is_redirect = status.is_redirection();
+                let treat_as_error = !status.is_success() && !(is_redirect && !follow_redirects);
+
+                if treat_as_error {
                     // Create a structured error object
                     let error_obj = serde_json::json!({
                         "type": "https://serverlessworkflow.io/dsl/errors/types/communication",

@@ -4,7 +4,9 @@ use bollard::Docker;
 use bollard::container::{
     AttachContainerOptions, Config, RemoveContainerOptions, StartContainerOptions,
 };
+use bollard::models::{HostConfig, Mount, MountTypeEnum, PortBinding};
 use futures::StreamExt;
+use std::collections::HashMap;
 use tokio::io::AsyncWriteExt;
 
 /// Docker container provider using bollard
@@ -52,6 +54,55 @@ impl ContainerProvider for DockerProvider {
             .as_ref()
             .map(|env_map| env_map.iter().map(|(k, v)| format!("{k}={v}")).collect());
 
+        // Prepare volumes (bind mounts)
+        let mounts: Option<Vec<Mount>> = config.volumes.as_ref().map(|vols| {
+            vols.iter()
+                .map(|(host_path, container_path)| Mount {
+                    target: Some(container_path.clone()),
+                    source: Some(host_path.clone()),
+                    typ: Some(MountTypeEnum::BIND),
+                    read_only: Some(false),
+                    ..Default::default()
+                })
+                .collect()
+        });
+
+        // Prepare port bindings
+        let (exposed_ports, port_bindings) = if let Some(ports) = config.ports.as_ref() {
+            let mut exposed = HashMap::new();
+            let mut bindings = HashMap::new();
+
+            for (container_port, host_port) in ports {
+                // Exposed ports format: "8080/tcp" -> {}
+                let port_key = format!("{container_port}/tcp");
+                exposed.insert(port_key.clone(), HashMap::new());
+
+                // Port bindings format: "8080/tcp" -> [{"HostPort": "8080"}]
+                bindings.insert(
+                    port_key,
+                    Some(vec![PortBinding {
+                        host_ip: None,
+                        host_port: Some(host_port.to_string()),
+                    }]),
+                );
+            }
+
+            (Some(exposed), Some(bindings))
+        } else {
+            (None, None)
+        };
+
+        // Create host configuration for volumes and ports
+        let host_config = if mounts.is_some() || port_bindings.is_some() {
+            Some(HostConfig {
+                mounts,
+                port_bindings,
+                ..Default::default()
+            })
+        } else {
+            None
+        };
+
         // Create container configuration
         let container_config = Config {
             image: Some(config.image.clone()),
@@ -64,6 +115,8 @@ impl ContainerProvider for DockerProvider {
             open_stdin: Some(config.stdin.is_some()),
             stdin_once: Some(config.stdin.is_some()),
             tty: Some(false),
+            exposed_ports,
+            host_config,
             ..Default::default()
         };
 
@@ -199,6 +252,8 @@ mod tests {
             stdin: None,
             environment: None,
             working_dir: None,
+            volumes: None,
+            ports: None,
         };
 
         let result = provider.execute(config).await;
@@ -227,6 +282,8 @@ mod tests {
             stdin: Some("test input".to_string()),
             environment: None,
             working_dir: None,
+            volumes: None,
+            ports: None,
         };
 
         let result = provider.execute(config).await;
@@ -262,6 +319,8 @@ mod tests {
             stdin: None,
             environment: Some(env),
             working_dir: None,
+            volumes: None,
+            ports: None,
         };
 
         let result = provider.execute(config).await;

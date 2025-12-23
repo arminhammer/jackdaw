@@ -6,11 +6,13 @@ use snafu::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::cache::CacheProvider;
 use crate::config::JackdawConfig;
 use crate::durableengine::DurableEngine;
 use crate::output::filter_internal_fields;
-use crate::providers::cache::RedbCache;
-use crate::providers::persistence::RedbPersistence;
+use crate::persistence::PersistenceProvider;
+use crate::providers::cache::{mem::InMemoryCache, PostgresCache, RedbCache, SqliteCache};
+use crate::providers::persistence::{PostgresPersistence, RedbPersistence, SqlitePersistence};
 use crate::providers::visualization::DiagramFormat;
 
 #[derive(Debug, Snafu)]
@@ -104,9 +106,37 @@ pub struct RunArgs {
     #[arg(short = 'v', long)]
     pub verbose: bool,
 
-    /// Skip cache hits (force re-execution)
+    /// Enable debug mode (show detailed execution information)
     #[arg(long)]
-    pub no_cache: bool,
+    pub debug: bool,
+
+    /// Persistence provider to use (memory, redb, sqlite, postgres)
+    #[arg(long, value_name = "PERSISTENCE_PROVIDER", default_value = "memory")]
+    pub persistence_provider: String,
+
+    /// Cache provider to use (memory, redb, sqlite, postgres)
+    #[arg(long, value_name = "CACHE_PROVIDER", default_value = "memory")]
+    pub cache_provider: String,
+
+    /// SQLite database URL (e.g., 'sqlite:workflow.db' or 'sqlite::memory:')
+    #[arg(long, value_name = "SQLITE_DB_URL", env = "SQLITE_DB_URL")]
+    pub sqlite_db_url: Option<String>,
+
+    /// PostgreSQL database name
+    #[arg(long, value_name = "POSTGRES_DB_NAME", env = "POSTGRES_DB_NAME")]
+    pub postgres_db_name: Option<String>,
+
+    /// PostgreSQL user
+    #[arg(long, value_name = "POSTGRES_USER", env = "POSTGRES_USER")]
+    pub postgres_user: Option<String>,
+
+    /// PostgreSQL password
+    #[arg(long, value_name = "POSTGRES_PASSWORD", env = "POSTGRES_PASSWORD")]
+    pub postgres_password: Option<String>,
+
+    /// PostgreSQL hostname
+    #[arg(long, value_name = "POSTGRES_HOSTNAME", env = "POSTGRES_HOSTNAME")]
+    pub postgres_hostname: Option<String>,
 
     /// Generate workflow visualization after execution
     #[arg(long)]
@@ -142,7 +172,6 @@ impl RunArgs {
             cache_db: self.cache_db.or(config.cache_db),
             parallel: if self.parallel { true } else { config.parallel },
             verbose: if self.verbose { true } else { config.verbose },
-            no_cache: if self.no_cache { true } else { config.no_cache },
             visualize: if self.visualize {
                 true
             } else {
@@ -240,7 +269,10 @@ async fn execute_workflow(
                 serde_json::from_str(&file_content)?
             } else {
                 return Err(Error::InvalidWorkflowFile {
-                    message: format!("Input '{}' is neither valid JSON nor a valid file path", input_str),
+                    message: format!(
+                        "Input '{}' is neither valid JSON nor a valid file path",
+                        input_str
+                    ),
                 });
             }
         }
@@ -273,6 +305,29 @@ fn parse_diagram_format(format_str: &str) -> Result<DiagramFormat> {
     }
 }
 
+/// Build PostgreSQL connection URL and validate all required parameters are provided
+fn build_postgres_url(
+    db_name: Option<&String>,
+    user: Option<&String>,
+    password: Option<&String>,
+    hostname: Option<&String>,
+) -> Result<String> {
+    let db_name = db_name.ok_or_else(|| Error::InvalidWorkflowFile {
+        message: "PostgreSQL provider requires --postgres-db-name parameter or POSTGRES_DB_NAME env var".to_string(),
+    })?;
+    let user = user.ok_or_else(|| Error::InvalidWorkflowFile {
+        message: "PostgreSQL provider requires --postgres-user parameter or POSTGRES_USER env var".to_string(),
+    })?;
+    let password = password.ok_or_else(|| Error::InvalidWorkflowFile {
+        message: "PostgreSQL provider requires --postgres-password parameter or POSTGRES_PASSWORD env var".to_string(),
+    })?;
+    let hostname = hostname.ok_or_else(|| Error::InvalidWorkflowFile {
+        message: "PostgreSQL provider requires --postgres-hostname parameter or POSTGRES_HOSTNAME env var".to_string(),
+    })?;
+
+    Ok(format!("postgresql://{}:{}@{}/{}", user, password, hostname, db_name))
+}
+
 /// Handle the run subcommand
 pub async fn handle_run(
     workflows: Vec<PathBuf>,
@@ -280,14 +335,25 @@ pub async fn handle_run(
     registry: Option<Vec<PathBuf>>,
     config: JackdawConfig,
     multi_progress: MultiProgress,
+    debug: bool,
+    persistence_provider: String,
+    cache_provider: String,
+    sqlite_db_url: Option<String>,
+    postgres_db_name: Option<String>,
+    postgres_user: Option<String>,
+    postgres_password: Option<String>,
+    postgres_hostname: Option<String>,
 ) -> Result<()> {
-    // Print banner
-    println!(
-        "{}\n",
-        style("Serverless Workflow Runtime Engine v1.0")
-            .bold()
-            .cyan()
-    );
+    // Set debug mode
+    crate::output::set_debug_mode(debug);
+
+    // Print banner (only in debug mode)
+    if debug {
+        println!(
+            "{}\n",
+            style("Jackdaw Serverless Workflow Runtime").bold().cyan()
+        );
+    }
 
     // Discover workflow files
     let workflow_files = discover_workflow_files(&workflows)?;
@@ -304,37 +370,88 @@ pub async fn handle_run(
         println!();
     }
 
-    // Get durable_db path, defaulting to "workflow.db" if not set
-    let durable_db = config
-        .durable_db
-        .clone()
-        .unwrap_or_else(|| PathBuf::from("workflow.db"));
-
-    // Initialize persistence and cache
-    if config.verbose {
-        println!("{} Initializing databases...", style("→").cyan());
-        println!("  • Durable DB: {}", durable_db.display());
-        if let Some(ref cache_db) = config.cache_db {
-            println!("  • Cache DB: {}", cache_db.display());
-        } else {
-            println!("  • Cache DB: {} (shared)", durable_db.display());
-        }
+    // Initialize persistence and cache based on provider selection
+    if config.verbose || debug {
+        println!("{} Initializing providers...", style("→").cyan());
+        println!("  • Persistence: {}", persistence_provider);
+        println!("  • Cache: {}", cache_provider);
         println!();
     }
 
-    let persistence = Arc::new(RedbPersistence::new(
-        durable_db.to_str().unwrap_or("workflow.db"),
-    )?);
+    // Create persistence provider
+    let persistence: Arc<dyn PersistenceProvider> = match persistence_provider.as_str() {
+        "memory" => {
+            // Memory persistence doesn't exist yet, so use redb with in-memory path for now
+            // TODO: Implement actual in-memory persistence provider
+            Arc::new(RedbPersistence::new(":memory:")?)
+        }
+        "redb" => {
+            let durable_db = config
+                .durable_db
+                .clone()
+                .unwrap_or_else(|| PathBuf::from("workflow.db"));
+            Arc::new(RedbPersistence::new(
+                durable_db.to_str().unwrap_or("workflow.db"),
+            )?)
+        }
+        "sqlite" => {
+            let db_url = sqlite_db_url.as_ref().ok_or_else(|| Error::InvalidWorkflowFile {
+                message: "SQLite persistence provider requires --sqlite-db-url parameter".to_string(),
+            })?;
+            Arc::new(SqlitePersistence::new(db_url).await?)
+        }
+        "postgres" => {
+            let db_url = build_postgres_url(
+                postgres_db_name.as_ref(),
+                postgres_user.as_ref(),
+                postgres_password.as_ref(),
+                postgres_hostname.as_ref(),
+            )?;
+            Arc::new(PostgresPersistence::new(&db_url).await?)
+        }
+        _ => {
+            return Err(Error::InvalidWorkflowFile {
+                message: format!(
+                    "Invalid persistence provider '{}'. Valid options: memory, redb, sqlite, postgres",
+                    persistence_provider
+                ),
+            });
+        }
+    };
 
-    let cache = if let Some(cache_db_path) = config.cache_db {
-        // Separate cache database
-        let cache_persistence = Arc::new(RedbPersistence::new(
-            cache_db_path.to_str().unwrap_or("cache.db"),
-        )?);
-        Arc::new(RedbCache::new(cache_persistence.db.clone())?)
-    } else {
-        // Shared database
-        Arc::new(RedbCache::new(persistence.db.clone())?)
+    // Create cache provider
+    let cache: Arc<dyn CacheProvider> = match cache_provider.as_str() {
+        "memory" => Arc::new(InMemoryCache::new()),
+        "redb" => {
+            let cache_db_path = config.cache_db.as_ref()
+                .map(|p| p.to_str().unwrap_or("cache.db"))
+                .unwrap_or("cache.db");
+            let cache_persistence = Arc::new(RedbPersistence::new(cache_db_path)?);
+            Arc::new(RedbCache::new(cache_persistence.db.clone())?)
+        }
+        "sqlite" => {
+            let db_url = sqlite_db_url.as_ref().ok_or_else(|| Error::InvalidWorkflowFile {
+                message: "SQLite cache provider requires --sqlite-db-url parameter".to_string(),
+            })?;
+            Arc::new(SqliteCache::new(db_url).await?)
+        }
+        "postgres" => {
+            let db_url = build_postgres_url(
+                postgres_db_name.as_ref(),
+                postgres_user.as_ref(),
+                postgres_password.as_ref(),
+                postgres_hostname.as_ref(),
+            )?;
+            Arc::new(PostgresCache::new(&db_url).await?)
+        }
+        _ => {
+            return Err(Error::InvalidWorkflowFile {
+                message: format!(
+                    "Invalid cache provider '{}'. Valid options: memory, redb, sqlite, postgres",
+                    cache_provider
+                ),
+            });
+        }
     };
 
     let engine = Arc::new(DurableEngine::new(persistence.clone(), cache.clone())?);
@@ -342,7 +459,10 @@ pub async fn handle_run(
     // Register workflows from registry paths (if provided)
     if let Some(registry_paths) = registry {
         if config.verbose {
-            println!("{} Registering workflows from registry...", style("→").cyan());
+            println!(
+                "{} Registering workflows from registry...",
+                style("→").cyan()
+            );
         }
         let registry_files = discover_workflow_files(&registry_paths)?;
         for workflow_path in &registry_files {
@@ -361,11 +481,13 @@ pub async fn handle_run(
     // Execute workflows
     if config.parallel && workflow_files.len() > 1 {
         // Parallel execution using futures::join_all
-        multi_progress.println(format!(
-            "{} Executing {} workflows in parallel...\n",
-            style("→").cyan(),
-            workflow_files.len()
-        ))?;
+        if debug || config.verbose {
+            multi_progress.println(format!(
+                "{} Executing {} workflows in parallel...\n",
+                style("→").cyan(),
+                workflow_files.len()
+            ))?;
+        }
 
         let futures: Vec<_> = workflow_files
             .iter()
@@ -389,7 +511,14 @@ pub async fn handle_run(
                     pb.set_style(style);
                     pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
-                    let result = execute_workflow(&path, engine_clone, Some(&pb), verbose, input_clone.as_ref()).await;
+                    let result = execute_workflow(
+                        &path,
+                        engine_clone,
+                        Some(&pb),
+                        verbose,
+                        input_clone.as_ref(),
+                    )
+                    .await;
                     pb.finish_and_clear();
                     (path, result)
                 }
@@ -399,19 +528,23 @@ pub async fn handle_run(
         let results = futures::future::join_all(futures).await;
 
         // Print results
-        multi_progress.println(format!("\n{}", style("Results:").bold().green()))?;
+        if debug || config.verbose {
+            multi_progress.println(format!("\n{}", style("Results:").bold().green()))?;
+        }
         for (path, result) in results {
             match result {
                 Ok((instance_id, output, workflow)) => {
-                    multi_progress.println(format!(
-                        "\n{} {}",
-                        style("✓").green(),
-                        style(path.display()).bold()
-                    ))?;
-                    if config.verbose {
-                        let filtered = filter_internal_fields(&output);
-                        multi_progress.println(serde_json::to_string_pretty(&filtered)?)?;
+                    if debug || config.verbose {
+                        multi_progress.println(format!(
+                            "\n{} {}",
+                            style("✓").green(),
+                            style(path.display()).bold()
+                        ))?;
                     }
+
+                    // Always output the final result as JSON (even in non-debug mode)
+                    let filtered = filter_internal_fields(&output);
+                    multi_progress.println(serde_json::to_string_pretty(&filtered)?)?;
 
                     // Visualization if requested
                     if config.visualize {
@@ -458,30 +591,44 @@ pub async fn handle_run(
         }
     } else {
         // Sequential execution with progress
-        multi_progress.println(format!(
-            "{} Executing {} workflow(s)...\n",
-            style("→").cyan(),
-            workflow_files.len()
-        ))?;
+        if debug || config.verbose {
+            multi_progress.println(format!(
+                "{} Executing {} workflow(s)...\n",
+                style("→").cyan(),
+                workflow_files.len()
+            ))?;
+        }
 
-        let pb = multi_progress.add(ProgressBar::new(workflow_files.len() as u64));
-        pb.set_style(
-            ProgressStyle::default_bar()
-                .template("{spinner:.cyan} [{bar:40.cyan/blue}] {pos}/{len} {msg}")
-                .map_err(|e| Error::Progress {
-                    source: std::io::Error::other(e.to_string()),
-                })?
-                .progress_chars("#>-"),
-        );
+        // Only show progress bars in debug/verbose mode
+        let pb = if debug || config.verbose {
+            let progress_bar = multi_progress.add(ProgressBar::new(workflow_files.len() as u64));
+            progress_bar.set_style(
+                ProgressStyle::default_bar()
+                    .template("{spinner:.cyan} [{bar:40.cyan/blue}] {pos}/{len} {msg}")
+                    .map_err(|e| Error::Progress {
+                        source: std::io::Error::other(e.to_string()),
+                    })?
+                    .progress_chars("#>-"),
+            );
+            Some(progress_bar)
+        } else {
+            None
+        };
 
         for workflow_path in workflow_files {
-            match execute_workflow(&workflow_path, engine.clone(), Some(&pb), config.verbose, input.as_ref()).await
+            match execute_workflow(
+                &workflow_path,
+                engine.clone(),
+                pb.as_ref(),
+                config.verbose,
+                input.as_ref(),
+            )
+            .await
             {
                 Ok((instance_id, result, workflow)) => {
-                    if config.verbose {
-                        let filtered = filter_internal_fields(&result);
-                        multi_progress.println(serde_json::to_string_pretty(&filtered)?)?;
-                    }
+                    // Always output the final result as JSON (even in non-debug mode)
+                    let filtered = filter_internal_fields(&result);
+                    multi_progress.println(serde_json::to_string_pretty(&filtered)?)?;
 
                     // Visualization if requested
                     if config.visualize {
@@ -524,10 +671,14 @@ pub async fn handle_run(
                     return Err(e);
                 }
             }
-            pb.inc(1);
+            if let Some(ref progress_bar) = pb {
+                progress_bar.inc(1);
+            }
         }
 
-        pb.finish_with_message("All workflows completed");
+        if let Some(progress_bar) = pb {
+            progress_bar.finish_with_message("All workflows completed");
+        }
     }
 
     Ok(())

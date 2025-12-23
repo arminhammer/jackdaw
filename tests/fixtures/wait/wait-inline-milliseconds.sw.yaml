@@ -1,0 +1,9 @@
+document:
+  dsl: '1.0.2'
+  namespace: default
+  name: test-wait-inline-milliseconds
+  version: '1.0.0'
+do:
+  - waitTask:
+      wait:
+        milliseconds: 500

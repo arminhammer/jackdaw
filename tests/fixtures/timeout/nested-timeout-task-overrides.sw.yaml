@@ -1,0 +1,12 @@
+document:
+  dsl: '1.0.2'
+  namespace: default
+  name: test-nested-timeout
+  version: '1.0.0'
+timeout:
+  after: PT10S
+do:
+  - slowTask:
+      wait: PT5S
+      timeout:
+        after: PT2S

@@ -17,7 +17,7 @@ serde_json = "=1.0.120"
 serde_bytes = "=0.11.15"
 serde_yaml = "0.9"
 tokio = { version = "1", features = ["full"] }
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 config = "0.15.15"
 tracing-indicatif = "0.3"
 tracing = "0.1"
@@ -61,14 +61,17 @@ bollard = "0.18"
 # Python execution with pyo3
 # Using abi3 for stable ABI compatibility, avoiding need for specific libpython version
 # NOTE: Not using auto-initialize to avoid libpython linking requirement for binaries
-pyo3 = { version = "0.22", features = ["abi3-py310"] }
+pyo3 = { version = "0.22", features = ["abi3-py310"], optional = true }
 
 # TypeScript/JavaScript execution with rustyscript (embedded Deno runtime)
-rustyscript = "0.12.3"
+# Made optional to support external deno executor
+rustyscript = { version = "0.12.3", optional = true }
 petgraph = "0.6"
 async-recursion = "1.0"
 futures = "0.3"
 lazy_static = "1.4"
+wiremock = "0.6.5"
+sha2 = "0.10.9"
 
 [dev-dependencies]
 cucumber = "0.21"
@@ -97,6 +100,21 @@ name = "validate_tests"
 [[test]]
 name = "docker_integration_tests"
 required-features = []
+
+[[bin]]
+name = "jackdaw"
+path = "src/main.rs"
+required-features = []
+
+[[bin]]
+name = "jackdaw-lite"
+path = "src/main.rs"
+required-features = []
+
+[features]
+default = ["python-embedded", "typescript-embedded"]
+python-embedded = ["pyo3"]
+typescript-embedded = ["rustyscript"]
 
 # Optimized release profile for smaller, faster binaries
 [profile.release]

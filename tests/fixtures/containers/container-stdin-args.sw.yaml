@@ -1,0 +1,16 @@
+document:
+  dsl: '1.0.2'
+  namespace: default
+  name: test-stdin-args
+  version: '1.0.0'
+do:
+  - useStdinArgs:
+      run:
+        container:
+          image: alpine:latest
+          command: input=$(cat); echo STDIN:$input ARGS:$1,$2
+          stdin: "test input"
+          arguments:
+            - "arg1"
+            - "arg2"
+            - "arg2"

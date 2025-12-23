@@ -186,7 +186,9 @@ impl Listener for GrpcListener {
 
             // Build reflection service from file descriptor set
             let reflection_service = ReflectionBuilder::configure()
-                .register_encoded_file_descriptor_set(file_descriptor_set.encode_to_vec().as_slice())
+                .register_encoded_file_descriptor_set(
+                    file_descriptor_set.encode_to_vec().as_slice(),
+                )
                 .build_v1()
                 .unwrap_or_else(|e| {
                     eprintln!("  Failed to build reflection service: {e}");
@@ -278,8 +280,16 @@ impl http_body::Body for GrpcResponseBody {
         if !self.trailers_sent {
             self.trailers_sent = true;
             let mut trailers = http::HeaderMap::new();
-            trailers.insert("grpc-status", "0".parse().unwrap());
-            trailers.insert("grpc-message", "".parse().unwrap());
+            trailers.insert(
+                "grpc-status",
+                "0".parse()
+                    .unwrap_or_else(|_| http::HeaderValue::from_static("0")),
+            );
+            trailers.insert(
+                "grpc-message",
+                "".parse()
+                    .unwrap_or_else(|_| http::HeaderValue::from_static("")),
+            );
             return Poll::Ready(Some(Ok(http_body::Frame::trailers(trailers))));
         }
 
@@ -317,8 +327,19 @@ impl http_body::Body for GrpcErrorBody {
         if !self.trailers_sent {
             self.trailers_sent = true;
             let mut trailers = http::HeaderMap::new();
-            trailers.insert("grpc-status", (self.status_code as i32).to_string().parse().unwrap());
-            trailers.insert("grpc-message", self.status_message.parse().unwrap());
+            trailers.insert(
+                "grpc-status",
+                (self.status_code as i32)
+                    .to_string()
+                    .parse()
+                    .unwrap_or_else(|_| http::HeaderValue::from_static("13")),
+            );
+            trailers.insert(
+                "grpc-message",
+                self.status_message
+                    .parse()
+                    .unwrap_or_else(|_| http::HeaderValue::from_static("internal error")),
+            );
             return Poll::Ready(Some(Ok(http_body::Frame::trailers(trailers))));
         }
 
@@ -598,7 +619,7 @@ impl Service<http::Request<BoxBody>> for MultiMethodServiceWrapper {
                     // Create body with trailers support
                     let body = GrpcResponseBody::new(Bytes::from(framed_response));
                     let boxed = BoxBody::new(body);
-                    
+
                     let response = http::Response::builder()
                         .status(200)
                         .header("content-type", "application/grpc")
@@ -614,13 +635,16 @@ impl Service<http::Request<BoxBody>> for MultiMethodServiceWrapper {
                     // Create error body with trailers
                     let body = GrpcErrorBody::new(status.code(), status.message());
                     let boxed = BoxBody::new(body);
-                    
+
                     let response = http::Response::builder()
                         .status(200)
                         .header("content-type", "application/grpc")
                         .body(boxed)
                         .unwrap_or_else(|_| {
-                            let body = GrpcErrorBody::new(tonic::Code::Internal, "Failed to build response");
+                            let body = GrpcErrorBody::new(
+                                tonic::Code::Internal,
+                                "Failed to build response",
+                            );
                             let boxed = BoxBody::new(body);
                             http::Response::new(boxed)
                         });
