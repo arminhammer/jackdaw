@@ -10,6 +10,32 @@ use crate::providers::executors::{PythonExecutor, TypeScriptExecutor};
 
 use super::{DurableEngine, Error, Result};
 
+/// Convert OpenAPI-style path parameters `{param}` to Axum-style `:param`
+///
+/// Example: `/api/v1/pet/{petId}` → `/api/v1/pet/:petId`
+fn convert_path_params_to_axum(path: &str) -> String {
+    let mut result = String::with_capacity(path.len());
+    let mut chars = path.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '{' {
+            // Found opening brace, replace with : and collect param name
+            result.push(':');
+            // Collect characters until closing brace
+            while let Some(param_char) = chars.next() {
+                if param_char == '}' {
+                    break;
+                }
+                result.push(param_char);
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+
+    result
+}
+
 impl DurableEngine {
     /// Initialize all listeners from the workflow before task execution begins
     ///
@@ -177,8 +203,10 @@ impl DurableEngine {
             // Build route handlers map
             let mut route_handlers = std::collections::HashMap::new();
             for (path, task_name, handler) in routes {
-                route_handlers.insert(path.clone(), handler);
-                println!("  Registering route {path} for task {task_name} on {bind_addr}");
+                // Convert OpenAPI-style path params {param} to Axum-style :param
+                let axum_path = convert_path_params_to_axum(&path);
+                route_handlers.insert(axum_path.clone(), handler);
+                println!("  Registering route {axum_path} (from {path}) for task {task_name} on {bind_addr}");
             }
 
             // Create and start the listener with all routes

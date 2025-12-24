@@ -330,8 +330,78 @@ fn build_postgres_url(
     Ok(format!("postgresql://{}:{}@{}/{}", user, password, hostname, db_name))
 }
 
-/// Handle the run subcommand
+/// Handle the run subcommand with graceful shutdown support
 pub async fn handle_run(
+    workflows: Vec<PathBuf>,
+    input: Option<String>,
+    registry: Option<Vec<PathBuf>>,
+    config: JackdawConfig,
+    multi_progress: MultiProgress,
+    debug: bool,
+    persistence_provider: String,
+    cache_provider: String,
+    sqlite_db_url: Option<String>,
+    postgres_db_name: Option<String>,
+    postgres_user: Option<String>,
+    postgres_password: Option<String>,
+    postgres_hostname: Option<String>,
+) -> Result<()> {
+    // Set up signal handler for graceful shutdown
+    let shutdown_signal = async {
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{signal, SignalKind};
+            let mut sigint = signal(SignalKind::interrupt()).expect("Failed to create SIGINT handler");
+            let mut sigterm = signal(SignalKind::terminate()).expect("Failed to create SIGTERM handler");
+
+            tokio::select! {
+                _ = sigint.recv() => {
+                    eprintln!("\nReceived SIGINT (Ctrl+C), shutting down gracefully...");
+                }
+                _ = sigterm.recv() => {
+                    eprintln!("\nReceived SIGTERM, shutting down gracefully...");
+                }
+            }
+        }
+
+        #[cfg(not(unix))]
+        {
+            tokio::signal::ctrl_c()
+                .await
+                .expect("Failed to listen for Ctrl+C");
+            eprintln!("\nReceived Ctrl+C, shutting down gracefully...");
+        }
+    };
+
+    // Run the workflow execution with shutdown signal handling
+    tokio::select! {
+        result = run_workflows_internal(
+            workflows,
+            input,
+            registry,
+            config,
+            multi_progress,
+            debug,
+            persistence_provider,
+            cache_provider,
+            sqlite_db_url,
+            postgres_db_name,
+            postgres_user,
+            postgres_password,
+            postgres_hostname,
+        ) => {
+            result
+        }
+        _ = shutdown_signal => {
+            // Graceful shutdown - just exit cleanly
+            eprintln!("Shutdown complete.");
+            std::process::exit(0);
+        }
+    }
+}
+
+/// Internal function that runs workflows (separated for signal handling)
+async fn run_workflows_internal(
     workflows: Vec<PathBuf>,
     input: Option<String>,
     registry: Option<Vec<PathBuf>>,

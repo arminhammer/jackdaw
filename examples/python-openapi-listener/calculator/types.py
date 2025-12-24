@@ -25,3 +25,13 @@ class MultiplyRequest(TypedDict):
 class MultiplyResponse(TypedDict):
     """Response type for Multiply operation matching proto MultiplyResponse"""
     result: int
+
+
+class PetResponse(TypedDict, total=False):
+    """Response type for getPet operation - fetches pet from petstore API"""
+    id: int
+    name: str
+    status: str
+    category: dict
+    photoUrls: list[str]
+    tags: list[dict]

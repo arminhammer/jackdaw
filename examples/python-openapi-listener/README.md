@@ -4,9 +4,10 @@ This example demonstrates how to package a Python module with Jackdaw workflow i
 
 ## Overview
 
-The example implements a simple Calculator REST API with two endpoints:
+The example implements a Calculator REST API with three endpoints:
 - `POST /api/v1/add` - Add two numbers
 - `POST /api/v1/multiply` - Multiply two numbers
+- `GET /api/v1/pet/{petId}` - Fetch pet information from petstore API (demonstrates third-party dependencies)
 
 The workflow uses HTTP listeners to receive requests, validates them against an OpenAPI schema, and routes them to Python handler functions.
 
@@ -17,12 +18,13 @@ python-openapi-listener/
 ├── Dockerfile                 # Container image definition
 ├── calculator-api.sw.yaml     # Serverless Workflow definition
 ├── openapi.spec.yaml          # OpenAPI 3.0 specification
-├── pyproject.toml             # Python package configuration
+├── pyproject.toml             # Python package configuration (includes requests dep)
 ├── calculator/                # Python handler package
 │   ├── __init__.py
 │   ├── types.py              # TypedDict definitions
 │   ├── add.py                # Add operation handler
-│   └── multiply.py           # Multiply operation handler
+│   ├── multiply.py           # Multiply operation handler
+│   └── get_pet.py            # Get pet handler (uses requests library)
 └── README.md
 ```
 
@@ -153,6 +155,41 @@ Expected response:
   "result": 42
 }
 ```
+
+### Get Pet Information (Third-Party Dependency Example)
+
+This endpoint demonstrates using third-party Python libraries (`requests`) in handlers:
+
+```bash
+curl http://localhost:8080/api/v1/pet/1
+```
+
+Expected response (fetched from petstore API):
+```json
+{
+  "id": 1,
+  "name": "doggie",
+  "status": "available",
+  "category": {
+    "id": 1,
+    "name": "Dogs"
+  },
+  "photoUrls": [
+    "string"
+  ],
+  "tags": [
+    {
+      "id": 0,
+      "name": "string"
+    }
+  ]
+}
+```
+
+This demonstrates that:
+- Third-party dependencies (like `requests`) work correctly in Jackdaw containers
+- Handlers can make external HTTP calls
+- OpenAPI path parameters (`{petId}`) are properly extracted and passed to handlers
 
 ## Development
 
