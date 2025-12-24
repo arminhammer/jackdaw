@@ -24,7 +24,7 @@ do:
 
             print(json.dumps(result))
       output:
-        as: .python_result
+        as: .message
 
 output:
-  as: .python_result
+  as: .

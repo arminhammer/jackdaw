@@ -21,7 +21,7 @@ do:
 
             console.log(JSON.stringify(result));
       output:
-        as: .javascript_result
+        as: .message
 
 output:
-  as: .javascript_result
+  as: .

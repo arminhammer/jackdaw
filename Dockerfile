@@ -100,6 +100,8 @@ RUN strip target/release/jackdaw
 # =============================================================================
 FROM python:3.14-slim AS final
 
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
 # Copy the jackdaw binary
 COPY --from=builder /build/target/release/jackdaw /usr/local/bin/jackdaw
 

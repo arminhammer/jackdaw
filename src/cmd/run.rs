@@ -12,7 +12,9 @@ use crate::durableengine::DurableEngine;
 use crate::output::filter_internal_fields;
 use crate::persistence::PersistenceProvider;
 use crate::providers::cache::{mem::InMemoryCache, PostgresCache, RedbCache, SqliteCache};
-use crate::providers::persistence::{PostgresPersistence, RedbPersistence, SqlitePersistence};
+use crate::providers::persistence::{
+    InMemoryPersistence, PostgresPersistence, RedbPersistence, SqlitePersistence,
+};
 use crate::providers::visualization::DiagramFormat;
 
 #[derive(Debug, Snafu)]
@@ -381,9 +383,8 @@ pub async fn handle_run(
     // Create persistence provider
     let persistence: Arc<dyn PersistenceProvider> = match persistence_provider.as_str() {
         "memory" => {
-            // Memory persistence doesn't exist yet, so use redb with in-memory path for now
-            // TODO: Implement actual in-memory persistence provider
-            Arc::new(RedbPersistence::new(":memory:")?)
+            // Use in-memory persistence provider (no files created)
+            Arc::new(InMemoryPersistence::new())
         }
         "redb" => {
             let durable_db = config

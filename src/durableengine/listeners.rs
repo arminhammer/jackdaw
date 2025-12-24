@@ -369,13 +369,16 @@ impl DurableEngine {
         })?;
 
         // Get the first (and likely only) task from the entry
-        let (_task_name, task_def) =
+        let (task_name, task_def) =
             first_entry
                 .iter()
                 .next()
                 .ok_or_else(|| Error::Configuration {
                     message: "Empty task entry in foreach.do".to_string(),
                 })?;
+
+        // Clone task name for logging
+        let task_name_clone = task_name.clone();
 
         // Extract call task details
         if let TaskDefinition::Call(call_task) = task_def {
@@ -415,6 +418,17 @@ impl DurableEngine {
                     dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value> + Send + Sync,
                 > = Arc::new(
                     move |payload: serde_json::Value| -> crate::listeners::Result<serde_json::Value> {
+                        // Log task execution if debug mode is enabled
+                        if crate::output::is_debug_mode() {
+                            eprintln!("\n{}", "─".repeat(80));
+                            eprintln!("  ▸ Task: {} [call]", task_name_clone);
+                            eprintln!("{}", "┄".repeat(80));
+                            eprintln!("  Input:");
+                            eprintln!("{}", indent_json(&payload, 4));
+                        }
+
+                        let start_time = std::time::Instant::now();
+
                         // Load and call the Python handler
                         // Loading happens at request time, not initialization time,
                         // so PYTHONPATH can be set by the test environment
@@ -422,6 +436,20 @@ impl DurableEngine {
                             .map_err(|e| crate::listeners::Error::Execution { message: format!("Failed to load Python function: {e}") })?;
                         let result = python_executor.execute_function(&func, &[payload])
                             .map_err(|e| crate::listeners::Error::Execution { message: format!("Failed to execute Python function: {e}") })?;
+
+                        if crate::output::is_debug_mode() {
+                            let duration_ms = start_time.elapsed().as_millis() as i64;
+                            let duration_str = if duration_ms < 1000 {
+                                format!("{}ms", duration_ms)
+                            } else {
+                                format!("{:.2}s", duration_ms as f64 / 1000.0)
+                            };
+                            eprintln!("  Output ({})", duration_str);
+                            eprintln!("{}", "┄".repeat(80));
+                            eprintln!("{}", indent_json(&result, 4));
+                            eprintln!("  ✓ Completed '{}'", task_name_clone);
+                        }
+
                         Ok(result)
                     },
                 );
@@ -431,11 +459,36 @@ impl DurableEngine {
                     dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value> + Send + Sync,
                 > = Arc::new(
                     move |payload: serde_json::Value| -> crate::listeners::Result<serde_json::Value> {
+                        // Log task execution if debug mode is enabled
+                        if crate::output::is_debug_mode() {
+                            eprintln!("\n{}", "─".repeat(80));
+                            eprintln!("  ▸ Task: {} [call]", task_name_clone);
+                            eprintln!("{}", "┄".repeat(80));
+                            eprintln!("  Input:");
+                            eprintln!("{}", indent_json(&payload, 4));
+                        }
+
+                        let start_time = std::time::Instant::now();
+
                         // For external executor, load_function just creates a reference
                         let func = python_executor.load_function(&module_owned, &function_owned)
                             .map_err(|e| crate::listeners::Error::Execution { message: format!("Failed to load Python function: {e}") })?;
                         let result = python_executor.execute_function(&func, &[payload])
                             .map_err(|e| crate::listeners::Error::Execution { message: format!("Failed to execute Python function: {e}") })?;
+
+                        if crate::output::is_debug_mode() {
+                            let duration_ms = start_time.elapsed().as_millis() as i64;
+                            let duration_str = if duration_ms < 1000 {
+                                format!("{}ms", duration_ms)
+                            } else {
+                                format!("{:.2}s", duration_ms as f64 / 1000.0)
+                            };
+                            eprintln!("  Output ({})", duration_str);
+                            eprintln!("{}", "┄".repeat(80));
+                            eprintln!("{}", indent_json(&result, 4));
+                            eprintln!("  ✓ Completed '{}'", task_name_clone);
+                        }
+
                         Ok(result)
                     },
                 );
@@ -450,6 +503,17 @@ impl DurableEngine {
                     dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value> + Send + Sync,
                 > = Arc::new(
                     move |payload: serde_json::Value| -> crate::listeners::Result<serde_json::Value> {
+                        // Log task execution if debug mode is enabled
+                        if crate::output::is_debug_mode() {
+                            eprintln!("\n{}", "─".repeat(80));
+                            eprintln!("  ▸ Task: {} [call]", task_name_clone);
+                            eprintln!("{}", "┄".repeat(80));
+                            eprintln!("  Input:");
+                            eprintln!("{}", indent_json(&payload, 4));
+                        }
+
+                        let start_time = std::time::Instant::now();
+
                         // Run TypeScript execution in a blocking task to avoid runtime-within-runtime panic
                         // rustyscript creates its own Tokio runtime internally
                         let module_path_clone = module_path.clone();
@@ -463,6 +527,19 @@ impl DurableEngine {
                                 &[payload],
                             )
                         }).map_err(|e| crate::listeners::Error::Execution { message: format!("Failed to execute TypeScript function: {e}") })?;
+
+                        if crate::output::is_debug_mode() {
+                            let duration_ms = start_time.elapsed().as_millis() as i64;
+                            let duration_str = if duration_ms < 1000 {
+                                format!("{}ms", duration_ms)
+                            } else {
+                                format!("{:.2}s", duration_ms as f64 / 1000.0)
+                            };
+                            eprintln!("  Output ({})", duration_str);
+                            eprintln!("{}", "┄".repeat(80));
+                            eprintln!("{}", indent_json(&result, 4));
+                            eprintln!("  ✓ Completed '{}'", task_name_clone);
+                        }
 
                         Ok(result)
                     },
@@ -558,31 +635,46 @@ fn json_to_dynamic_message(
 /// - `envelope`: Pass the full CloudEvent (default)
 /// - `raw`: Pass the raw HTTP request body as-is
 fn wrap_handler_with_read_mode(
-    handler: Arc<dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value> + Send + Sync>,
+    handler: Arc<
+        dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value> + Send + Sync,
+    >,
     read_mode: &str,
 ) -> Arc<dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value> + Send + Sync> {
     let mode = read_mode.to_string();
-    
-    Arc::new(move |payload: serde_json::Value| -> crate::listeners::Result<serde_json::Value> {
-        let transformed_payload = match mode.as_str() {
-            "data" => {
-                // Extract only the data field from CloudEvent
-                if let Some(data) = payload.get("data") {
-                    data.clone()
-                } else {
+
+    Arc::new(
+        move |payload: serde_json::Value| -> crate::listeners::Result<serde_json::Value> {
+            let transformed_payload = match mode.as_str() {
+                "data" => {
+                    // Extract only the data field from CloudEvent
+                    if let Some(data) = payload.get("data") {
+                        data.clone()
+                    } else {
+                        payload
+                    }
+                }
+                "raw" => {
+                    // Pass through as-is for raw mode
                     payload
                 }
-            },
-            "raw" => {
-                // Pass through as-is for raw mode
-                payload
-            },
-            _ => {
-                // Default is "envelope" - pass full CloudEvent
-                payload
-            }
-        };
-        
-        handler(transformed_payload)
-    })
+                _ => {
+                    // Default is "envelope" - pass full CloudEvent
+                    payload
+                }
+            };
+
+            handler(transformed_payload)
+        },
+    )
+}
+
+/// Helper: Indent JSON output for logging
+fn indent_json(value: &serde_json::Value, indent: usize) -> String {
+    let json_str = serde_json::to_string_pretty(value).unwrap_or_else(|_| "{}".to_string());
+    let indent_str = " ".repeat(indent);
+    json_str
+        .lines()
+        .map(|line| format!("{indent_str}{line}"))
+        .collect::<Vec<_>>()
+        .join("\n")
 }

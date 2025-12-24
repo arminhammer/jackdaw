@@ -14,7 +14,7 @@ do:
           arguments:
             - "Hello from Docker!"
       output:
-        as: .message
+        as: .
 
 output:
-  as: .message
+  as: .

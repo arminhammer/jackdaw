@@ -50,21 +50,17 @@ async fn test_container_environment_variables() {
 
     let (_instance_id, output) = result.unwrap();
 
-    // Debug: print the entire output structure
-    eprintln!("Full output: {:?}", output);
-
-    // Verify environment variables were used
-    let stdout = output.get("stdout").and_then(|v| v.as_str()).unwrap_or("");
-    eprintln!("stdout value: '{}'", stdout);
+    // The output is now the direct string result, not an object with stdout/stderr/exitCode
+    let output_str = output.as_str().expect("Output should be a string");
     assert!(
-        stdout.contains("MY_VAR=HelloWorld"),
+        output_str.contains("MY_VAR=HelloWorld"),
         "Output should contain MY_VAR value: {}",
-        stdout
+        output_str
     );
     assert!(
-        stdout.contains("ANOTHER=TestValue"),
+        output_str.contains("ANOTHER=TestValue"),
         "Output should contain ANOTHER value: {}",
-        stdout
+        output_str
     );
 }
 
@@ -158,17 +154,17 @@ async fn test_container_environment_with_expressions() {
 
     let (_instance_id, output) = result.unwrap();
 
-    // Verify expressions were evaluated
-    let stdout = output.get("stdout").and_then(|v| v.as_str()).unwrap_or("");
+    // The output is now the direct string result, not an object with stdout/stderr/exitCode
+    let output_str = output.as_str().expect("Output should be a string");
     assert!(
-        stdout.contains("USER=Alice"),
+        output_str.contains("USER=Alice"),
         "Should contain evaluated user: {}",
-        stdout
+        output_str
     );
     assert!(
-        stdout.contains("COUNT=42"),
+        output_str.contains("COUNT=42"),
         "Should contain evaluated count: {}",
-        stdout
+        output_str
     );
 }
 
@@ -190,15 +186,16 @@ async fn test_container_stdin_and_arguments() {
 
     let (_instance_id, output) = result.unwrap();
 
-    let stdout = output.get("stdout").and_then(|v| v.as_str()).unwrap_or("");
+    // The output is now the direct string result, not an object with stdout/stderr/exitCode
+    let output_str = output.as_str().expect("Output should be a string");
     assert!(
-        stdout.contains("STDIN:test input"),
+        output_str.contains("STDIN:test input"),
         "Should contain stdin: {}",
-        stdout
+        output_str
     );
     assert!(
-        stdout.contains("ARGS:arg1,arg2"),
+        output_str.contains("ARGS:arg1,arg2"),
         "Should contain arguments: {}",
-        stdout
+        output_str
     );
 }

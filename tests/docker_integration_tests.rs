@@ -341,6 +341,7 @@ fn test_docker_run_javascript_script() {
             "jackdaw:latest",
             "run",
             "/workflows/javascript-script.sw.yaml",
+            "--debug", // Use debug mode to get workflow output
             "--durable-db",
             "/workflows/test.db",
             "--cache-db",
@@ -356,7 +357,12 @@ fn test_docker_run_javascript_script() {
         String::from_utf8_lossy(&output.stderr)
     );
 
+    // In non-debug mode, only streaming logs are output (e.g., [runJavaScript:stdout] ...)
+    // The final workflow output JSON is not printed unless --debug is used
+    // So we verify the workflow succeeded and check for the message in the streaming output
     let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // The output should contain the message in the streaming log or final JSON
     assert!(
         stdout.contains("Hello from JavaScript!"),
         "Output doesn't contain expected JavaScript message: {}",
@@ -394,6 +400,7 @@ fn test_docker_run_python_script() {
             "jackdaw:latest",
             "run",
             "/workflows/python-script.sw.yaml",
+            "--debug", // Use debug mode to get workflow output
             "--durable-db",
             "/workflows/test.db",
             "--cache-db",
@@ -409,7 +416,12 @@ fn test_docker_run_python_script() {
         String::from_utf8_lossy(&output.stderr)
     );
 
+    // In non-debug mode, only streaming logs are output (e.g., [runPython:stdout] ...)
+    // The final workflow output JSON is not printed unless --debug is used
+    // So we verify the workflow succeeded and check for the message in the streaming output
     let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // The output should contain the message in the streaming log or final JSON
     assert!(
         stdout.contains("Hello from Python!"),
         "Output doesn't contain expected Python message: {}",
