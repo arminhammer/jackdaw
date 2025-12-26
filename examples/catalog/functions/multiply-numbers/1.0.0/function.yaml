@@ -1,0 +1,30 @@
+document:
+  dsl: '1.0.2'
+  namespace: examples.functions
+  name: multiply-numbers
+  version: '1.0.0'
+  description: 'Multiply two numbers together'
+
+input:
+  schema:
+    type: object
+    properties:
+      a:
+        type: number
+      b:
+        type: number
+    required:
+      - a
+      - b
+
+output:
+  schema:
+    type: object
+    properties:
+      result:
+        type: number
+
+do:
+  - multiply:
+      set:
+        result: '${ .a * .b }'

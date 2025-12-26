@@ -86,7 +86,12 @@ if __name__ == '__main__':
     # Execute strongly-typed handler
     output = handler(input_data)
 
-    # Return just the all_sources hash as the output
-    # (all hashes are logged to stderr for debugging)
-    print(json.dumps({"all_sources_hash": output.get("all_sources", "")}), file=sys.stderr)
-    print(output.get("all_sources", output.get("all_sources", "")))
+    # Log all hashes to stderr for debugging
+    print(json.dumps(output), file=sys.stderr)
+
+    # Return structured output with hash in stdout field
+    result = {
+        "stdout": output.get("all_sources", ""),
+        "hashes": output
+    }
+    print(json.dumps(result))

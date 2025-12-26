@@ -16,15 +16,15 @@ async fn then_output_contains_stdout(world: &mut ExampleWorld, expected_text: St
         .as_ref()
         .expect("No workflow output found");
 
-    // Handle both string output (scripts) and structured output with stdout field (containers)
-    let stdout = if let Some(stdout_field) = output.get("stdout") {
-        // Structured output like {"stdout": "...", "stderr": "...", "exit_code": 0}
-        stdout_field
-            .as_str()
-            .expect("stdout field is not a string")
-    } else if let Some(output_str) = output.as_str() {
-        // Direct string output from scripts
-        output_str
+    // The output can be either:
+    // 1. A string (new format - direct stdout)
+    // 2. An object with stdout field (old format)
+    let stdout = if let Some(stdout_str) = output.as_str() {
+        // New format: output is the stdout string directly
+        stdout_str
+    } else if let Some(stdout_field) = output.get("stdout") {
+        // Old format: output has a stdout field
+        stdout_field.as_str().expect("stdout is not a string")
     } else {
         panic!("Output is neither a string nor an object with stdout field: {:?}", output);
     };

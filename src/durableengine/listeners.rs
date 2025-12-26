@@ -206,7 +206,9 @@ impl DurableEngine {
                 // Convert OpenAPI-style path params {param} to Axum-style :param
                 let axum_path = convert_path_params_to_axum(&path);
                 route_handlers.insert(axum_path.clone(), handler);
-                println!("  Registering route {axum_path} (from {path}) for task {task_name} on {bind_addr}");
+                println!(
+                    "  Registering route {axum_path} (from {path}) for task {task_name} on {bind_addr}"
+                );
             }
 
             // Create and start the listener with all routes
@@ -522,9 +524,9 @@ impl DurableEngine {
                 );
 
                 Ok(handler)
-            } else if call_type == "typescript" {
+            } else if call_type == "javascript" {
                 let ts_executor = Arc::new(TypeScriptExecutor::new());
-                let module_path = module.to_string(); // For TypeScript, this is a file path
+                let module_path = module.to_string(); // File path to .js or .ts file
                 let function_owned = function.to_string();
 
                 let handler: Arc<
@@ -542,7 +544,7 @@ impl DurableEngine {
 
                         let start_time = std::time::Instant::now();
 
-                        // Run TypeScript execution in a blocking task to avoid runtime-within-runtime panic
+                        // Run JavaScript/TypeScript execution in a blocking task to avoid runtime-within-runtime panic
                         // rustyscript creates its own Tokio runtime internally
                         let module_path_clone = module_path.clone();
                         let function_clone = function_owned.clone();
@@ -554,7 +556,7 @@ impl DurableEngine {
                                 &function_clone,
                                 &[payload],
                             )
-                        }).map_err(|e| crate::listeners::Error::Execution { message: format!("Failed to execute TypeScript function: {e}") })?;
+                        }).map_err(|e| crate::listeners::Error::Execution { message: format!("Failed to execute JavaScript/TypeScript function: {e}") })?;
 
                         if crate::output::is_debug_mode() {
                             let duration_ms = start_time.elapsed().as_millis() as i64;
@@ -577,7 +579,7 @@ impl DurableEngine {
             } else {
                 Err(Error::Configuration {
                     message: format!(
-                        "Unsupported call type: {call_type}. Only 'python' and 'typescript' are currently supported"
+                        "Unsupported call type: {call_type}. Only 'python' and 'javascript' are currently supported"
                     ),
                 })
             }

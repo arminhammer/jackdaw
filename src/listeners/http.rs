@@ -2,11 +2,11 @@ use super::{Listener, Result};
 use async_trait::async_trait;
 use axum::{
     Json, Router,
+    body::Body,
     extract::Request,
     http::StatusCode,
     response::IntoResponse,
-    routing::{any, MethodRouter},
-    body::Body,
+    routing::{MethodRouter, any},
 };
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -26,7 +26,9 @@ fn create_method_router(
             let method = parts.method.clone();
 
             // Build the payload based on HTTP method
-            let payload = if method == axum::http::Method::GET || method == axum::http::Method::DELETE {
+            let payload = if method == axum::http::Method::GET
+                || method == axum::http::Method::DELETE
+            {
                 // For GET/DELETE, extract path parameters from the URI
                 // The path params are in the URI path segments after the base path
                 let uri_path = parts.uri.path();
@@ -62,7 +64,8 @@ fn create_method_router(
                             Json(serde_json::json!({
                                 "error": format!("Failed to read request body: {}", e)
                             })),
-                        ).into_response();
+                        )
+                            .into_response();
                     }
                 };
 
@@ -77,7 +80,8 @@ fn create_method_router(
                                 Json(serde_json::json!({
                                     "error": format!("Invalid JSON: {}", e)
                                 })),
-                            ).into_response();
+                            )
+                                .into_response();
                         }
                     }
                 }
@@ -93,7 +97,8 @@ fn create_method_router(
                         Json(serde_json::json!({
                             "error": e.to_string()
                         })),
-                    ).into_response()
+                    )
+                        .into_response()
                 }
             }
         }

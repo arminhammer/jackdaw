@@ -810,6 +810,46 @@ fn test_docker_run_grpc_typescript_listener_with_client() {
     // Wait for listener to start
     thread::sleep(Duration::from_secs(5));
 
+    // Check if container is still running
+    let running_check = Command::new("docker")
+        .args(["ps", "--filter", "name=jackdaw-grpc-ts-test", "--format", "{{.Names}}"])
+        .output()
+        .expect("Failed to check container status");
+
+    let running_containers = String::from_utf8_lossy(&running_check.stdout);
+
+    // If container isn't running, get logs and fail
+    if !running_containers.contains("jackdaw-grpc-ts-test") {
+        let logs_output = Command::new("docker")
+            .args(["logs", "jackdaw-grpc-ts-test"])
+            .output();
+
+        let (logs, logs_err) = if let Ok(output) = logs_output {
+            (String::from_utf8_lossy(&output.stdout).to_string(),
+             String::from_utf8_lossy(&output.stderr).to_string())
+        } else {
+            ("Could not fetch logs".to_string(), "Container not found".to_string())
+        };
+
+        // Cleanup
+        let _ = child.kill();
+        let _ = child.wait();
+
+        panic!(
+            "Container 'jackdaw-grpc-ts-test' is not running!\n\nContainer stdout:\n{}\n\nContainer stderr:\n{}",
+            logs, logs_err
+        );
+    }
+
+    // Get container logs for debugging
+    let logs_output = Command::new("docker")
+        .args(["logs", "jackdaw-grpc-ts-test"])
+        .output()
+        .expect("Failed to get container logs");
+
+    let logs = String::from_utf8_lossy(&logs_output.stdout);
+    let logs_err = String::from_utf8_lossy(&logs_output.stderr);
+
     // Make gRPC client call
     let grpc_result = Command::new("grpcurl")
         .args([
@@ -832,8 +872,10 @@ fn test_docker_run_grpc_typescript_listener_with_client() {
     if let Ok(output) = grpc_result {
         assert!(
             output.status.success(),
-            "gRPC TypeScript call failed: {}",
-            String::from_utf8_lossy(&output.stderr)
+            "gRPC TypeScript call failed: {}\n\nContainer stdout:\n{}\n\nContainer stderr:\n{}",
+            String::from_utf8_lossy(&output.stderr),
+            logs,
+            logs_err
         );
 
         let response = String::from_utf8_lossy(&output.stdout);
@@ -895,6 +937,15 @@ fn test_docker_run_openapi_typescript_listener_with_client() {
     // Wait for listener to start
     thread::sleep(Duration::from_secs(5));
 
+    // Check container logs to see if it started properly
+    let logs_output = Command::new("docker")
+        .args(["logs", "jackdaw-http-ts-test"])
+        .output()
+        .expect("Failed to get container logs");
+
+    let logs = String::from_utf8_lossy(&logs_output.stdout);
+    let logs_err = String::from_utf8_lossy(&logs_output.stderr);
+
     // Make HTTP client call
     let http_result = Command::new("curl")
         .args([
@@ -921,8 +972,10 @@ fn test_docker_run_openapi_typescript_listener_with_client() {
     let output = http_result.unwrap();
     assert!(
         output.status.success(),
-        "HTTP TypeScript call failed: {}",
-        String::from_utf8_lossy(&output.stderr)
+        "HTTP TypeScript call failed: {}\n\nContainer stdout:\n{}\n\nContainer stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr),
+        logs,
+        logs_err
     );
 
     let response = String::from_utf8_lossy(&output.stdout);

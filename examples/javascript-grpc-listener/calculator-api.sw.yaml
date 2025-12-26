@@ -1,0 +1,91 @@
+document:
+  dsl: '1.0.2'
+  namespace: examples
+  name: calculator-js-grpc-api
+  version: '1.0.0'
+  description: |
+    Calculator gRPC API service using JavaScript (ES2024) handlers.
+
+    Listens on three gRPC methods:
+    - grpc://localhost:50051/calculator.Calculator/Add - Add two numbers
+    - grpc://localhost:50051/calculator.Calculator/Multiply - Multiply two numbers
+    - grpc://localhost:50051/calculator.Calculator/GetPet - Fetch pet from petstore API
+
+    Each request is validated against the protobuf schema and routed
+    to the appropriate JavaScript handler function.
+
+do:
+  # Listen for Add requests on calculator.Calculator/Add method
+  - handleAddRequests:
+      listen:
+        to:
+          any:
+            - with:
+                source:
+                  uri: grpc://0.0.0.0:50051/calculator.Calculator/Add
+                  schema:
+                    format: grpc
+                    resource:
+                      endpoint: spec.proto
+                      name: AddRequest
+          until: '${ false }'  # Listen forever
+      foreach:
+        item: event
+        do:
+          - executeAdd:
+              call: javascript
+              with:
+                module: src/add.js
+                function: handler
+                arguments:
+                  - ${ $event }
+
+  # Listen for Multiply requests on calculator.Calculator/Multiply method
+  - handleMultiplyRequests:
+      listen:
+        to:
+          any:
+            - with:
+                source:
+                  uri: grpc://0.0.0.0:50051/calculator.Calculator/Multiply
+                  schema:
+                    format: grpc
+                    resource:
+                      endpoint: spec.proto
+                      name: MultiplyRequest
+          until: '${ false }'  # Listen forever
+      foreach:
+        item: event
+        do:
+          - executeMultiply:
+              call: javascript
+              with:
+                module: src/multiply.js
+                function: handler
+                arguments:
+                  - ${ $event }
+
+  # Listen for GetPet requests on calculator.Calculator/GetPet method
+  - handleGetPetRequests:
+      listen:
+        to:
+          any:
+            - with:
+                source:
+                  uri: grpc://0.0.0.0:50051/calculator.Calculator/GetPet
+                  schema:
+                    format: grpc
+                    resource:
+                      endpoint: spec.proto
+                      name: GetPetRequest
+          until: '${ false }'  # Listen forever
+      foreach:
+        item: event
+        do:
+          - executeGetPet:
+              call: javascript
+              with:
+                module: src/get_pet.js
+                function: handler
+                arguments:
+                  - ${ $event }
