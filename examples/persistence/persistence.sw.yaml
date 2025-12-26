@@ -1,0 +1,101 @@
+document:
+  dsl: '1.0.2'
+  namespace: examples
+  name: persistence-demo
+  version: '1.0.0'
+  description: |
+    Demonstrates workflow persistence and resumption after failure.
+
+    First run: The workflow will execute steps 1 and 2, save state, then fail on step 3.
+    Second run: The workflow will resume from the saved state and complete step 3 successfully.
+
+    Run with persistence enabled:
+      jackdaw run persistence.sw.yaml --persistence-provider redb --input '{"attempt": 1}'
+      jackdaw run persistence.sw.yaml --persistence-provider redb --input '{"attempt": 2}'
+
+do:
+  - step1:
+      run:
+        script:
+          language: python
+          code: |
+            import json
+            import time
+
+            print("Step 1: Processing initial data...")
+            time.sleep(1)
+
+            result = {
+                "step": 1,
+                "status": "completed",
+                "timestamp": time.time(),
+                "data": "Important data from step 1"
+            }
+
+            print(json.dumps(result))
+      output:
+        as: '${ { step1: . } }'
+
+  - step2:
+      run:
+        script:
+          language: python
+          arguments:
+            - ${ .step1 }
+          code: |
+            import json
+            import time
+            import sys
+
+            step1_data = json.loads(sys.argv[1])
+
+            print("Step 2: Building on step 1 results...")
+            time.sleep(1)
+
+            result = {
+                "step": 2,
+                "status": "completed",
+                "timestamp": time.time(),
+                "data": "Processed data from step 2",
+                "previous_data": step1_data["data"]
+            }
+
+            print(json.dumps(result))
+      output:
+        as: '${ { step2: . } }'
+
+  - step3_mayFail:
+      run:
+        script:
+          language: python
+          arguments:
+            - ${ .step2 }
+            - ${ .attempt }
+          code: |
+            import json
+            import time
+            import sys
+
+            step2_data = json.loads(sys.argv[1])
+            attempt = int(sys.argv[2])
+
+            print(f"Step 3: Attempting to complete workflow (attempt #{attempt})...")
+            time.sleep(1)
+
+            # Fail on first attempt to demonstrate persistence
+            if attempt == 1:
+                print("ERROR: Step 3 failed! This demonstrates workflow failure.")
+                print("State has been persisted. Re-run with attempt=2 to resume.")
+                sys.exit(1)
+
+            # Succeed on second attempt
+            result = {
+                "step": 3,
+                "status": "completed",
+                "timestamp": time.time(),
+                "data": "Final result after resuming from persisted state",
+                "previous_data": step2_data["data"],
+                "message": "Workflow completed successfully after resuming!"
+            }
+
+            print(json.dumps(result))

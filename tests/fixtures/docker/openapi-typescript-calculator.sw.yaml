@@ -24,7 +24,7 @@ do:
         item: event
         do:
           - executeAdd:
-              call: typescript
+              call: javascript
               with:
                 module: tests/fixtures/listeners/handlers/typescript-handlers/src/add.ts
                 function: handler

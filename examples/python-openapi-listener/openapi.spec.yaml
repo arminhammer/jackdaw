@@ -1,0 +1,180 @@
+openapi: 3.0.0
+info:
+  title: Calculator API
+  description: Basic arithmetic operations API matching the gRPC Calculator service
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+
+paths:
+  /add:
+    post:
+      summary: Add two numbers
+      operationId: add
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddRequest'
+      responses:
+        '200':
+          description: Successful addition
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AddResponse'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /multiply:
+    post:
+      summary: Multiply two numbers
+      operationId: multiply
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MultiplyRequest'
+      responses:
+        '200':
+          description: Successful multiplication
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MultiplyResponse'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /pet/{petId}:
+    get:
+      summary: Get pet information from petstore API
+      operationId: getPet
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int32
+          description: ID of pet to fetch
+      responses:
+        '200':
+          description: Pet information retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PetResponse'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Pet not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    AddRequest:
+      type: object
+      required:
+        - a
+        - b
+      properties:
+        a:
+          type: integer
+          format: int32
+          description: First operand
+        b:
+          type: integer
+          format: int32
+          description: Second operand
+
+    AddResponse:
+      type: object
+      required:
+        - result
+      properties:
+        result:
+          type: integer
+          format: int32
+          description: Sum of a and b
+
+    MultiplyRequest:
+      type: object
+      required:
+        - a
+        - b
+      properties:
+        a:
+          type: integer
+          format: int32
+          description: First operand
+        b:
+          type: integer
+          format: int32
+          description: Second operand
+
+    MultiplyResponse:
+      type: object
+      required:
+        - result
+      properties:
+        result:
+          type: integer
+          format: int32
+          description: Product of a and b
+
+    PetResponse:
+      type: object
+      required:
+        - id
+        - name
+        - status
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Pet ID
+        name:
+          type: string
+          description: Pet name
+        status:
+          type: string
+          description: Pet status
+        category:
+          type: object
+          description: Pet category
+        photoUrls:
+          type: array
+          items:
+            type: string
+          description: Pet photo URLs
+        tags:
+          type: array
+          items:
+            type: object
+          description: Pet tags
+
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+          description: Error message

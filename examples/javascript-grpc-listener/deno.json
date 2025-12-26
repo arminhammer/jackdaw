@@ -1,0 +1,19 @@
+{
+  "name": "@calculator/handlers",
+  "version": "0.1.0",
+  "exports": {
+    "./add": "./src/add.js",
+    "./multiply": "./src/multiply.js",
+    "./get_pet": "./src/get_pet.js"
+  },
+  "fmt": {
+    "indentWidth": 2,
+    "lineWidth": 100,
+    "semiColons": true
+  },
+  "lint": {
+    "rules": {
+      "tags": ["recommended"]
+    }
+  }
+}

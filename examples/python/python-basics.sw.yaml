@@ -1,0 +1,60 @@
+document:
+  dsl: '1.0.2'
+  namespace: examples
+  name: python-basics
+  version: '1.0.0'
+  description: |
+    Demonstrates basic Python script execution in jackdaw.
+    Shows how to use embedded Python to perform calculations
+    and data processing.
+
+do:
+  - calculateFactorial:
+      run:
+        script:
+          language: python
+          arguments:
+            - "10"
+          code: |
+            import sys
+            import json
+
+            def factorial(n):
+                if n <= 1:
+                    return 1
+                return n * factorial(n - 1)
+
+            n = int(sys.argv[1])
+            result = {
+                "input": n,
+                "factorial": factorial(n),
+                "message": f"The factorial of {n} is {factorial(n)}"
+            }
+
+            print(json.dumps(result))
+      output:
+        as: '${ { result: . } }'
+
+  - processData:
+      run:
+        script:
+          language: python
+          arguments:
+            - ${ .result.factorial }
+          code: |
+            import sys
+            import json
+
+            factorial_value = int(sys.argv[1])
+
+            # Demonstrate using Python libraries
+            import math
+
+            result = {
+                "factorial": factorial_value,
+                "log10": math.log10(factorial_value),
+                "sqrt": math.sqrt(factorial_value),
+                "formatted": f"{factorial_value:,}"
+            }
+
+            print(json.dumps(result))

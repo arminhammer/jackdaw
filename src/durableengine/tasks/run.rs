@@ -474,12 +474,13 @@ pub async fn exec_run_task(
             });
         }
 
-        // Return structured result with stdout, stderr, and exit_code
-        serde_json::json!({
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "exit_code": result.exit_code
-        })
+        // Return just stdout as a string on success
+        // Try to parse as JSON first, fall back to plain string
+        if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&result.stdout) {
+            json_value
+        } else {
+            serde_json::Value::String(result.stdout)
+        }
     } else {
         // Other run types not yet implemented
         serde_json::json!({})
@@ -494,9 +495,9 @@ pub async fn exec_run_task(
 
         // Handle both string (expression) and object (field mapping) forms
         if let Some(expr_str) = as_value.as_str() {
-            // String form: expression (may be wrapped in ${} or bare JQ)
-            // Use evaluate_expression_with_input which handles both cases
-            final_result = crate::expressions::evaluate_expression_with_input(
+            // String form: jq expression (not wrapped in ${})
+            // Evaluate the jq expression on the result with access to $input
+            final_result = crate::expressions::evaluate_jq_expression_with_context(
                 expr_str,
                 &final_result,
                 &task_input,

@@ -319,7 +319,11 @@ pub fn format_task_output(output: &Value, duration_ms: i64) {
         format!("{}m {:.2}s", minutes, seconds)
     };
 
-    println!("  {} {}", style("Output").green(), style(format!("({})", duration_str)).dim());
+    println!(
+        "  {} {}",
+        style("Output").green(),
+        style(format!("({})", duration_str)).dim()
+    );
     println!("  {}", "·".repeat(78));
 
     let filtered = filter_internal_fields(output);
