@@ -38,6 +38,7 @@ impl TypeScriptExecutor {
         // called from spawn_blocking or a non-async context.
 
         // Create a fresh runtime for this execution
+        // The node_experimental feature enables npm: import support
         let mut runtime =
             Runtime::new(RuntimeOptions::default()).map_err(|e| Error::Execution {
                 message: format!("Failed to create Deno runtime: {e}"),

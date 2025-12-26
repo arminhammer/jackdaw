@@ -1,0 +1,91 @@
+document:
+  dsl: '1.0.2'
+  namespace: examples
+  name: calculator-js-api
+  version: '1.0.0'
+  description: |
+    Calculator REST API service using JavaScript (ES2024) handlers.
+
+    Listens on three HTTP endpoints:
+    - POST http://localhost:8080/api/v1/add - Add two numbers
+    - POST http://localhost:8080/api/v1/multiply - Multiply two numbers
+    - GET http://localhost:8080/api/v1/pet/{petId} - Fetch pet from petstore API
+
+    Each request is validated against the OpenAPI schema and routed
+    to the appropriate JavaScript handler function.
+
+do:
+  # Listen for Add requests on /api/v1/add endpoint
+  - handleAddRequests:
+      listen:
+        to:
+          any:
+            - with:
+                source:
+                  uri: http://0.0.0.0:8080/api/v1/add
+                  schema:
+                    format: openapi
+                    resource:
+                      endpoint: openapi.spec.yaml
+                      name: AddRequest
+          until: '${ false }'  # Listen forever
+      foreach:
+        item: event
+        do:
+          - executeAdd:
+              call: javascript
+              with:
+                module: src/add.js
+                function: handler
+                arguments:
+                  - ${ $event }
+
+  # Listen for Multiply requests on /api/v1/multiply endpoint
+  - handleMultiplyRequests:
+      listen:
+        to:
+          any:
+            - with:
+                source:
+                  uri: http://0.0.0.0:8080/api/v1/multiply
+                  schema:
+                    format: openapi
+                    resource:
+                      endpoint: openapi.spec.yaml
+                      name: MultiplyRequest
+          until: '${ false }'  # Listen forever
+      foreach:
+        item: event
+        do:
+          - executeMultiply:
+              call: javascript
+              with:
+                module: src/multiply.js
+                function: handler
+                arguments:
+                  - ${ $event }
+
+  # Listen for GetPet requests on /api/v1/pet/{petId} endpoint
+  - handleGetPetRequests:
+      listen:
+        to:
+          any:
+            - with:
+                source:
+                  uri: http://0.0.0.0:8080/api/v1/pet/{petId}
+                  schema:
+                    format: openapi
+                    resource:
+                      endpoint: openapi.spec.yaml
+                      name: PetResponse
+          until: '${ false }'  # Listen forever
+      foreach:
+        item: event
+        do:
+          - executeGetPet:
+              call: javascript
+              with:
+                module: src/get_pet.js
+                function: handler
+                arguments:
+                  - ${ $event }

@@ -1,0 +1,19 @@
+document:
+  dsl: '1.0.2'
+  namespace: examples
+  name: container-env-vars
+  version: '1.0.0'
+  description: |
+    Demonstrates running commands in containers with environment variables.
+    This example uses a Docker container to execute a shell command that
+    prints environment variables.
+
+do:
+  - printEnv:
+      run:
+        container:
+          image: alpine:latest
+          command: sh -c "echo MY_VAR=$MY_VAR ANOTHER=$ANOTHER"
+          environment:
+            MY_VAR: "HelloWorld"
+            ANOTHER: "TestValue"

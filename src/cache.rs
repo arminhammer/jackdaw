@@ -61,17 +61,17 @@ fn filter_internal_fields(value: &serde_json::Value) -> serde_json::Value {
 #[must_use]
 pub fn compute_cache_key(task_name: &str, inputs: &serde_json::Value) -> String {
     use sha2::{Digest, Sha256};
-    
+
     let filtered_inputs = filter_internal_fields(inputs);
-    
+
     // Normalize the JSON by sorting keys for deterministic serialization
     let normalized = normalize_json(&filtered_inputs);
     let inputs_json = serde_json::to_string(&normalized).unwrap_or_default();
-    
+
     let mut hasher = Sha256::new();
     hasher.update(format!("{task_name}:{inputs_json}"));
     let result = hasher.finalize();
-    
+
     format!("{}:{:x}", task_name, result)
 }
 

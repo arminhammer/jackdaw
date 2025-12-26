@@ -10,6 +10,32 @@ use crate::providers::executors::{PythonExecutor, TypeScriptExecutor};
 
 use super::{DurableEngine, Error, Result};
 
+/// Convert OpenAPI-style path parameters `{param}` to Axum-style `:param`
+///
+/// Example: `/api/v1/pet/{petId}` → `/api/v1/pet/:petId`
+fn convert_path_params_to_axum(path: &str) -> String {
+    let mut result = String::with_capacity(path.len());
+    let mut chars = path.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '{' {
+            // Found opening brace, replace with : and collect param name
+            result.push(':');
+            // Collect characters until closing brace
+            while let Some(param_char) = chars.next() {
+                if param_char == '}' {
+                    break;
+                }
+                result.push(param_char);
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+
+    result
+}
+
 impl DurableEngine {
     /// Initialize all listeners from the workflow before task execution begins
     ///
@@ -177,8 +203,12 @@ impl DurableEngine {
             // Build route handlers map
             let mut route_handlers = std::collections::HashMap::new();
             for (path, task_name, handler) in routes {
-                route_handlers.insert(path.clone(), handler);
-                println!("  Registering route {path} for task {task_name} on {bind_addr}");
+                // Convert OpenAPI-style path params {param} to Axum-style :param
+                let axum_path = convert_path_params_to_axum(&path);
+                route_handlers.insert(axum_path.clone(), handler);
+                println!(
+                    "  Registering route {axum_path} (from {path}) for task {task_name} on {bind_addr}"
+                );
             }
 
             // Create and start the listener with all routes
@@ -369,13 +399,16 @@ impl DurableEngine {
         })?;
 
         // Get the first (and likely only) task from the entry
-        let (_task_name, task_def) =
+        let (task_name, task_def) =
             first_entry
                 .iter()
                 .next()
                 .ok_or_else(|| Error::Configuration {
                     message: "Empty task entry in foreach.do".to_string(),
                 })?;
+
+        // Clone task name for logging
+        let task_name_clone = task_name.clone();
 
         // Extract call task details
         if let TaskDefinition::Call(call_task) = task_def {
@@ -415,6 +448,17 @@ impl DurableEngine {
                     dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value> + Send + Sync,
                 > = Arc::new(
                     move |payload: serde_json::Value| -> crate::listeners::Result<serde_json::Value> {
+                        // Log task execution if debug mode is enabled
+                        if crate::output::is_debug_mode() {
+                            eprintln!("\n{}", "─".repeat(80));
+                            eprintln!("  ▸ Task: {} [call]", task_name_clone);
+                            eprintln!("{}", "┄".repeat(80));
+                            eprintln!("  Input:");
+                            eprintln!("{}", indent_json(&payload, 4));
+                        }
+
+                        let start_time = std::time::Instant::now();
+
                         // Load and call the Python handler
                         // Loading happens at request time, not initialization time,
                         // so PYTHONPATH can be set by the test environment
@@ -422,6 +466,20 @@ impl DurableEngine {
                             .map_err(|e| crate::listeners::Error::Execution { message: format!("Failed to load Python function: {e}") })?;
                         let result = python_executor.execute_function(&func, &[payload])
                             .map_err(|e| crate::listeners::Error::Execution { message: format!("Failed to execute Python function: {e}") })?;
+
+                        if crate::output::is_debug_mode() {
+                            let duration_ms = start_time.elapsed().as_millis() as i64;
+                            let duration_str = if duration_ms < 1000 {
+                                format!("{}ms", duration_ms)
+                            } else {
+                                format!("{:.2}s", duration_ms as f64 / 1000.0)
+                            };
+                            eprintln!("  Output ({})", duration_str);
+                            eprintln!("{}", "┄".repeat(80));
+                            eprintln!("{}", indent_json(&result, 4));
+                            eprintln!("  ✓ Completed '{}'", task_name_clone);
+                        }
+
                         Ok(result)
                     },
                 );
@@ -431,26 +489,62 @@ impl DurableEngine {
                     dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value> + Send + Sync,
                 > = Arc::new(
                     move |payload: serde_json::Value| -> crate::listeners::Result<serde_json::Value> {
+                        // Log task execution if debug mode is enabled
+                        if crate::output::is_debug_mode() {
+                            eprintln!("\n{}", "─".repeat(80));
+                            eprintln!("  ▸ Task: {} [call]", task_name_clone);
+                            eprintln!("{}", "┄".repeat(80));
+                            eprintln!("  Input:");
+                            eprintln!("{}", indent_json(&payload, 4));
+                        }
+
+                        let start_time = std::time::Instant::now();
+
                         // For external executor, load_function just creates a reference
                         let func = python_executor.load_function(&module_owned, &function_owned)
                             .map_err(|e| crate::listeners::Error::Execution { message: format!("Failed to load Python function: {e}") })?;
                         let result = python_executor.execute_function(&func, &[payload])
                             .map_err(|e| crate::listeners::Error::Execution { message: format!("Failed to execute Python function: {e}") })?;
+
+                        if crate::output::is_debug_mode() {
+                            let duration_ms = start_time.elapsed().as_millis() as i64;
+                            let duration_str = if duration_ms < 1000 {
+                                format!("{}ms", duration_ms)
+                            } else {
+                                format!("{:.2}s", duration_ms as f64 / 1000.0)
+                            };
+                            eprintln!("  Output ({})", duration_str);
+                            eprintln!("{}", "┄".repeat(80));
+                            eprintln!("{}", indent_json(&result, 4));
+                            eprintln!("  ✓ Completed '{}'", task_name_clone);
+                        }
+
                         Ok(result)
                     },
                 );
 
                 Ok(handler)
-            } else if call_type == "typescript" {
+            } else if call_type == "javascript" {
                 let ts_executor = Arc::new(TypeScriptExecutor::new());
-                let module_path = module.to_string(); // For TypeScript, this is a file path
+                let module_path = module.to_string(); // File path to .js or .ts file
                 let function_owned = function.to_string();
 
                 let handler: Arc<
                     dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value> + Send + Sync,
                 > = Arc::new(
                     move |payload: serde_json::Value| -> crate::listeners::Result<serde_json::Value> {
-                        // Run TypeScript execution in a blocking task to avoid runtime-within-runtime panic
+                        // Log task execution if debug mode is enabled
+                        if crate::output::is_debug_mode() {
+                            eprintln!("\n{}", "─".repeat(80));
+                            eprintln!("  ▸ Task: {} [call]", task_name_clone);
+                            eprintln!("{}", "┄".repeat(80));
+                            eprintln!("  Input:");
+                            eprintln!("{}", indent_json(&payload, 4));
+                        }
+
+                        let start_time = std::time::Instant::now();
+
+                        // Run JavaScript/TypeScript execution in a blocking task to avoid runtime-within-runtime panic
                         // rustyscript creates its own Tokio runtime internally
                         let module_path_clone = module_path.clone();
                         let function_clone = function_owned.clone();
@@ -462,7 +556,20 @@ impl DurableEngine {
                                 &function_clone,
                                 &[payload],
                             )
-                        }).map_err(|e| crate::listeners::Error::Execution { message: format!("Failed to execute TypeScript function: {e}") })?;
+                        }).map_err(|e| crate::listeners::Error::Execution { message: format!("Failed to execute JavaScript/TypeScript function: {e}") })?;
+
+                        if crate::output::is_debug_mode() {
+                            let duration_ms = start_time.elapsed().as_millis() as i64;
+                            let duration_str = if duration_ms < 1000 {
+                                format!("{}ms", duration_ms)
+                            } else {
+                                format!("{:.2}s", duration_ms as f64 / 1000.0)
+                            };
+                            eprintln!("  Output ({})", duration_str);
+                            eprintln!("{}", "┄".repeat(80));
+                            eprintln!("{}", indent_json(&result, 4));
+                            eprintln!("  ✓ Completed '{}'", task_name_clone);
+                        }
 
                         Ok(result)
                     },
@@ -472,7 +579,7 @@ impl DurableEngine {
             } else {
                 Err(Error::Configuration {
                     message: format!(
-                        "Unsupported call type: {call_type}. Only 'python' and 'typescript' are currently supported"
+                        "Unsupported call type: {call_type}. Only 'python' and 'javascript' are currently supported"
                     ),
                 })
             }
@@ -558,31 +665,46 @@ fn json_to_dynamic_message(
 /// - `envelope`: Pass the full CloudEvent (default)
 /// - `raw`: Pass the raw HTTP request body as-is
 fn wrap_handler_with_read_mode(
-    handler: Arc<dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value> + Send + Sync>,
+    handler: Arc<
+        dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value> + Send + Sync,
+    >,
     read_mode: &str,
 ) -> Arc<dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value> + Send + Sync> {
     let mode = read_mode.to_string();
-    
-    Arc::new(move |payload: serde_json::Value| -> crate::listeners::Result<serde_json::Value> {
-        let transformed_payload = match mode.as_str() {
-            "data" => {
-                // Extract only the data field from CloudEvent
-                if let Some(data) = payload.get("data") {
-                    data.clone()
-                } else {
+
+    Arc::new(
+        move |payload: serde_json::Value| -> crate::listeners::Result<serde_json::Value> {
+            let transformed_payload = match mode.as_str() {
+                "data" => {
+                    // Extract only the data field from CloudEvent
+                    if let Some(data) = payload.get("data") {
+                        data.clone()
+                    } else {
+                        payload
+                    }
+                }
+                "raw" => {
+                    // Pass through as-is for raw mode
                     payload
                 }
-            },
-            "raw" => {
-                // Pass through as-is for raw mode
-                payload
-            },
-            _ => {
-                // Default is "envelope" - pass full CloudEvent
-                payload
-            }
-        };
-        
-        handler(transformed_payload)
-    })
+                _ => {
+                    // Default is "envelope" - pass full CloudEvent
+                    payload
+                }
+            };
+
+            handler(transformed_payload)
+        },
+    )
+}
+
+/// Helper: Indent JSON output for logging
+fn indent_json(value: &serde_json::Value, indent: usize) -> String {
+    let json_str = serde_json::to_string_pretty(value).unwrap_or_else(|_| "{}".to_string());
+    let indent_str = " ".repeat(indent);
+    json_str
+        .lines()
+        .map(|line| format!("{indent_str}{line}"))
+        .collect::<Vec<_>>()
+        .join("\n")
 }

@@ -1,0 +1,51 @@
+document:
+  dsl: '1.0.2'
+  namespace: examples
+  name: use-catalog
+  version: '1.0.0'
+  description: 'Demonstrates using tasks from a catalog'
+
+use:
+  catalogs:
+    local:
+      endpoint:
+        uri: file://./examples/catalog/functions
+
+do:
+  - addNumbers:
+      call: add-numbers:1.0.0
+      with:
+        a: 10
+        b: 5
+      output:
+        as: '${ { addResult: .result } }'
+
+  - multiplyNumbers:
+      call: multiply-numbers:1.0.0
+      with:
+        a: '${ .addResult }'
+        b: 3
+      output:
+        as: '${ { multiplyResult: .result } }'
+
+  - displayResults:
+      run:
+        script:
+          language: python
+          arguments:
+            - '${ .addResult }'
+            - '${ .multiplyResult }'
+          code: |
+            import sys
+            import json
+
+            add_result = int(sys.argv[1])
+            multiply_result = int(sys.argv[2])
+
+            result = {
+                "addition": f"10 + 5 = {add_result}",
+                "multiplication": f"{add_result} * 3 = {multiply_result}",
+                "final_result": multiply_result
+            }
+
+            print(json.dumps(result))

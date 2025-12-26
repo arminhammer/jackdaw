@@ -124,6 +124,7 @@ try {{
         let mut cmd = Command::new(&self.deno_path);
         cmd.arg("eval") // Execute code from command line
             .arg("--no-check") // Skip type checking for faster execution
+            .arg("--config=deno.json") // Use deno.json for import maps and settings
             .arg(script)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

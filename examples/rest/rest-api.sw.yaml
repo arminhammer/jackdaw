@@ -1,0 +1,51 @@
+document:
+  dsl: '1.0.2'
+  namespace: examples
+  name: rest-api-calls
+  version: '1.0.0'
+  description: |
+    Demonstrates making REST API calls using the REST executor.
+    This example calls a public API (JSONPlaceholder) to fetch
+    and process data.
+
+do:
+  - fetchUser:
+      call: http
+      with:
+        method: get
+        endpoint:
+          uri: https://jsonplaceholder.typicode.com/users/1
+      output:
+        as: '${ { user: . } }'
+
+  - fetchUserPosts:
+      call: http
+      with:
+        method: get
+        endpoint:
+          uri: 'https://jsonplaceholder.typicode.com/posts?userId=${ .user.id }'
+      output:
+        as: '${ { posts: . } }'
+
+  - summarizeData:
+      run:
+        script:
+          language: python
+          arguments:
+            - ${ .user }
+            - ${ .posts }
+          code: |
+            import sys
+            import json
+
+            user = json.loads(sys.argv[1])
+            posts = json.loads(sys.argv[2])
+
+            result = {
+                "user_name": user["name"],
+                "user_email": user["email"],
+                "total_posts": len(posts),
+                "post_titles": [post["title"] for post in posts]
+            }
+
+            print(json.dumps(result))

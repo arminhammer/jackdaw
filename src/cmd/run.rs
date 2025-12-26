@@ -11,8 +11,10 @@ use crate::config::JackdawConfig;
 use crate::durableengine::DurableEngine;
 use crate::output::filter_internal_fields;
 use crate::persistence::PersistenceProvider;
-use crate::providers::cache::{mem::InMemoryCache, PostgresCache, RedbCache, SqliteCache};
-use crate::providers::persistence::{PostgresPersistence, RedbPersistence, SqlitePersistence};
+use crate::providers::cache::{PostgresCache, RedbCache, SqliteCache, mem::InMemoryCache};
+use crate::providers::persistence::{
+    InMemoryPersistence, PostgresPersistence, RedbPersistence, SqlitePersistence,
+};
 use crate::providers::visualization::DiagramFormat;
 
 #[derive(Debug, Snafu)]
@@ -313,10 +315,13 @@ fn build_postgres_url(
     hostname: Option<&String>,
 ) -> Result<String> {
     let db_name = db_name.ok_or_else(|| Error::InvalidWorkflowFile {
-        message: "PostgreSQL provider requires --postgres-db-name parameter or POSTGRES_DB_NAME env var".to_string(),
+        message:
+            "PostgreSQL provider requires --postgres-db-name parameter or POSTGRES_DB_NAME env var"
+                .to_string(),
     })?;
     let user = user.ok_or_else(|| Error::InvalidWorkflowFile {
-        message: "PostgreSQL provider requires --postgres-user parameter or POSTGRES_USER env var".to_string(),
+        message: "PostgreSQL provider requires --postgres-user parameter or POSTGRES_USER env var"
+            .to_string(),
     })?;
     let password = password.ok_or_else(|| Error::InvalidWorkflowFile {
         message: "PostgreSQL provider requires --postgres-password parameter or POSTGRES_PASSWORD env var".to_string(),
@@ -325,11 +330,86 @@ fn build_postgres_url(
         message: "PostgreSQL provider requires --postgres-hostname parameter or POSTGRES_HOSTNAME env var".to_string(),
     })?;
 
-    Ok(format!("postgresql://{}:{}@{}/{}", user, password, hostname, db_name))
+    Ok(format!(
+        "postgresql://{}:{}@{}/{}",
+        user, password, hostname, db_name
+    ))
 }
 
-/// Handle the run subcommand
+/// Handle the run subcommand with graceful shutdown support
 pub async fn handle_run(
+    workflows: Vec<PathBuf>,
+    input: Option<String>,
+    registry: Option<Vec<PathBuf>>,
+    config: JackdawConfig,
+    multi_progress: MultiProgress,
+    debug: bool,
+    persistence_provider: String,
+    cache_provider: String,
+    sqlite_db_url: Option<String>,
+    postgres_db_name: Option<String>,
+    postgres_user: Option<String>,
+    postgres_password: Option<String>,
+    postgres_hostname: Option<String>,
+) -> Result<()> {
+    // Set up signal handler for graceful shutdown
+    let shutdown_signal = async {
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{SignalKind, signal};
+            let mut sigint =
+                signal(SignalKind::interrupt()).expect("Failed to create SIGINT handler");
+            let mut sigterm =
+                signal(SignalKind::terminate()).expect("Failed to create SIGTERM handler");
+
+            tokio::select! {
+                _ = sigint.recv() => {
+                    eprintln!("\nReceived SIGINT (Ctrl+C), shutting down gracefully...");
+                }
+                _ = sigterm.recv() => {
+                    eprintln!("\nReceived SIGTERM, shutting down gracefully...");
+                }
+            }
+        }
+
+        #[cfg(not(unix))]
+        {
+            tokio::signal::ctrl_c()
+                .await
+                .expect("Failed to listen for Ctrl+C");
+            eprintln!("\nReceived Ctrl+C, shutting down gracefully...");
+        }
+    };
+
+    // Run the workflow execution with shutdown signal handling
+    tokio::select! {
+        result = run_workflows_internal(
+            workflows,
+            input,
+            registry,
+            config,
+            multi_progress,
+            debug,
+            persistence_provider,
+            cache_provider,
+            sqlite_db_url,
+            postgres_db_name,
+            postgres_user,
+            postgres_password,
+            postgres_hostname,
+        ) => {
+            result
+        }
+        _ = shutdown_signal => {
+            // Graceful shutdown - just exit cleanly
+            eprintln!("Shutdown complete.");
+            std::process::exit(0);
+        }
+    }
+}
+
+/// Internal function that runs workflows (separated for signal handling)
+async fn run_workflows_internal(
     workflows: Vec<PathBuf>,
     input: Option<String>,
     registry: Option<Vec<PathBuf>>,
@@ -381,9 +461,8 @@ pub async fn handle_run(
     // Create persistence provider
     let persistence: Arc<dyn PersistenceProvider> = match persistence_provider.as_str() {
         "memory" => {
-            // Memory persistence doesn't exist yet, so use redb with in-memory path for now
-            // TODO: Implement actual in-memory persistence provider
-            Arc::new(RedbPersistence::new(":memory:")?)
+            // Use in-memory persistence provider (no files created)
+            Arc::new(InMemoryPersistence::new())
         }
         "redb" => {
             let durable_db = config
@@ -395,9 +474,12 @@ pub async fn handle_run(
             )?)
         }
         "sqlite" => {
-            let db_url = sqlite_db_url.as_ref().ok_or_else(|| Error::InvalidWorkflowFile {
-                message: "SQLite persistence provider requires --sqlite-db-url parameter".to_string(),
-            })?;
+            let db_url = sqlite_db_url
+                .as_ref()
+                .ok_or_else(|| Error::InvalidWorkflowFile {
+                    message: "SQLite persistence provider requires --sqlite-db-url parameter"
+                        .to_string(),
+                })?;
             Arc::new(SqlitePersistence::new(db_url).await?)
         }
         "postgres" => {
@@ -423,16 +505,20 @@ pub async fn handle_run(
     let cache: Arc<dyn CacheProvider> = match cache_provider.as_str() {
         "memory" => Arc::new(InMemoryCache::new()),
         "redb" => {
-            let cache_db_path = config.cache_db.as_ref()
+            let cache_db_path = config
+                .cache_db
+                .as_ref()
                 .map(|p| p.to_str().unwrap_or("cache.db"))
                 .unwrap_or("cache.db");
             let cache_persistence = Arc::new(RedbPersistence::new(cache_db_path)?);
             Arc::new(RedbCache::new(cache_persistence.db.clone())?)
         }
         "sqlite" => {
-            let db_url = sqlite_db_url.as_ref().ok_or_else(|| Error::InvalidWorkflowFile {
-                message: "SQLite cache provider requires --sqlite-db-url parameter".to_string(),
-            })?;
+            let db_url = sqlite_db_url
+                .as_ref()
+                .ok_or_else(|| Error::InvalidWorkflowFile {
+                    message: "SQLite cache provider requires --sqlite-db-url parameter".to_string(),
+                })?;
             Arc::new(SqliteCache::new(db_url).await?)
         }
         "postgres" => {

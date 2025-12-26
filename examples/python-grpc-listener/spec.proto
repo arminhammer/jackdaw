@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package calculator;
+
+// Calculator service provides basic arithmetic operations and external API calls
+service Calculator {
+  // Add two numbers
+  rpc Add(AddRequest) returns (AddResponse);
+
+  // Multiply two numbers
+  rpc Multiply(MultiplyRequest) returns (MultiplyResponse);
+
+  // Get pet information from petstore API (demonstrates third-party dependencies)
+  rpc GetPet(GetPetRequest) returns (GetPetResponse);
+}
+
+// Request message for Add operation
+message AddRequest {
+  int32 a = 1;
+  int32 b = 2;
+}
+
+// Response message for Add operation
+message AddResponse {
+  int32 result = 1;
+}
+
+// Request message for Multiply operation
+message MultiplyRequest {
+  int32 a = 1;
+  int32 b = 2;
+}
+
+// Response message for Multiply operation
+message MultiplyResponse {
+  int32 result = 1;
+}
+
+// Request message for GetPet operation
+message GetPetRequest {
+  int32 pet_id = 1;
+}
+
+// Response message for GetPet operation
+message GetPetResponse {
+  int32 id = 1;
+  string name = 2;
+  string status = 3;
+}

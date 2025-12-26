@@ -106,9 +106,23 @@ async fn main() -> Result<(), Error> {
             // Initialize MultiProgress for coordinating progress bars and logs/traces
             let multi_progress = MultiProgress::new();
 
-            handle_run(workflows, input, registry, config, multi_progress, debug, persistence_provider, cache_provider, sqlite_db_url, postgres_db_name, postgres_user, postgres_password, postgres_hostname)
-                .await
-                .context(RunSnafu)
+            handle_run(
+                workflows,
+                input,
+                registry,
+                config,
+                multi_progress,
+                debug,
+                persistence_provider,
+                cache_provider,
+                sqlite_db_url,
+                postgres_db_name,
+                postgres_user,
+                postgres_password,
+                postgres_hostname,
+            )
+            .await
+            .context(RunSnafu)
         }
         Commands::Validate(args) => {
             // Initialize tracing/logging with indicatif bridge

@@ -1,0 +1,16 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+      - id: end-of-file-fixer
+
+  - repo: local
+    hooks:
+      - id: jackdaw-ci
+        name: Run Jackdaw CI Pipeline
+        entry: just ci
+        language: system
+        pass_filenames: false
+        always_run: true
+        verbose: true

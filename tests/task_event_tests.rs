@@ -357,7 +357,7 @@ do:
     println!("Retry events: {:?}", retried_events);
 }
 
-#[tokio::test] 
+#[tokio::test]
 async fn test_task_retried_includes_attempt_number() {
     let (engine, persistence, _temp_dir) = setup_test_engine().await;
 

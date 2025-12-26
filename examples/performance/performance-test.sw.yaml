@@ -1,0 +1,57 @@
+document:
+  dsl: '1.0.2'
+  namespace: examples
+  name: performance-test
+  version: '1.0.0'
+  description: |
+    Performance testing workflow that executes N iterations of a simple task.
+
+    Tests workflow execution speed by running a loop of lightweight set operations.
+    Each iteration adds a counter to the context.
+
+    Input format:
+    {
+      "iterations": 100
+    }
+
+    Where iterations is the number of loop iterations to execute (default: 100).
+
+    This measures the overhead of workflow execution itself, not task complexity.
+
+do:
+  # Step 1: Generate array of indices based on input
+  - generateIndices:
+      run:
+        script:
+          language: python
+          arguments:
+            - ${ .iterations }
+          code: |
+            import sys
+            import json
+
+            iterations = int(sys.argv[1])
+            indices = list(range(iterations))
+
+            print(json.dumps({
+                "iterations": iterations,
+                "indices": indices
+            }))
+
+  # Step 2: Execute loop - each iteration does a simple set operation
+  - executeLoop:
+      for:
+        each: index
+        in: .indices
+      do:
+        - incrementCounter:
+            set:
+              counter: ${ $index }
+              iteration: ${ $index + 1 }
+
+  # Step 3: Summarize results
+  - summarize:
+      set:
+        totalIterations: ${ .iterations }
+        finalCounter: ${ .counter }
+        finalIteration: ${ .iteration }

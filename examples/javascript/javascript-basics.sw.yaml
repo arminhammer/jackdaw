@@ -1,0 +1,54 @@
+document:
+  dsl: '1.0.2'
+  namespace: examples
+  name: javascript-basics
+  version: '1.0.0'
+  description: |
+    Demonstrates basic JavaScript execution in jackdaw.
+    Shows how to use embedded JavaScript/TypeScript to process data
+    and perform calculations.
+
+do:
+  - fibonacci:
+      run:
+        script:
+          language: javascript
+          arguments:
+            - "15"
+          code: |
+            const n = parseInt(process.argv[2]);
+
+            function fibonacci(num) {
+              if (num <= 1) return num;
+              return fibonacci(num - 1) + fibonacci(num - 2);
+            }
+
+            const result = {
+              input: n,
+              fibonacci: fibonacci(n),
+              sequence: Array.from({length: n + 1}, (_, i) => fibonacci(i)),
+              message: `The ${n}th Fibonacci number is ${fibonacci(n)}`
+            };
+
+            console.log(JSON.stringify(result));
+      output:
+        as: '${ { result: . } }'
+
+  - processSequence:
+      run:
+        script:
+          language: javascript
+          arguments:
+            - ${ .result.sequence }
+          code: |
+            const sequence = JSON.parse(process.argv[2]);
+
+            const result = {
+              sequence: sequence,
+              sum: sequence.reduce((a, b) => a + b, 0),
+              average: sequence.reduce((a, b) => a + b, 0) / sequence.length,
+              max: Math.max(...sequence),
+              min: Math.min(...sequence)
+            };
+
+            console.log(JSON.stringify(result));

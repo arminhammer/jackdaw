@@ -65,7 +65,8 @@ pyo3 = { version = "0.22", features = ["abi3-py310"], optional = true }
 
 # TypeScript/JavaScript execution with rustyscript (embedded Deno runtime)
 # Made optional to support external deno executor
-rustyscript = { version = "0.12.3", optional = true }
+# Enable url_import to allow CDN imports (https://esm.sh, etc.)
+rustyscript = { version = "0.12.3", optional = true, features = ["url_import"] }
 petgraph = "0.6"
 async-recursion = "1.0"
 futures = "0.3"
