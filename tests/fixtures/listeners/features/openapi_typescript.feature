@@ -34,7 +34,7 @@ Feature: HTTP REST Calculator API with TypeScript Interface Handlers
                 - executeAdd:
                     call: javascript
                     with:
-                      module: tests/fixtures/listeners/handlers/typescript-handlers/src/add.ts
+                      module: tests/fixtures/listeners/handlers/typescript-handlers/src/add.js
                       function: handler
                       arguments:
                         - ${ $event }
@@ -57,7 +57,7 @@ Feature: HTTP REST Calculator API with TypeScript Interface Handlers
                 - executeMultiply:
                     call: javascript
                     with:
-                      module: tests/fixtures/listeners/handlers/typescript-handlers/src/multiply.ts
+                      module: tests/fixtures/listeners/handlers/typescript-handlers/src/multiply.js
                       function: handler
                       arguments:
                         - ${ $event }
@@ -106,7 +106,7 @@ Feature: HTTP REST Calculator API with TypeScript Interface Handlers
                 - executeAdd:
                     call: javascript
                     with:
-                      module: tests/fixtures/listeners/handlers/typescript-handlers/src/add.ts
+                      module: tests/fixtures/listeners/handlers/typescript-handlers/src/add.js
                       function: handler
                       arguments:
                         - ${ $event }
@@ -129,7 +129,7 @@ Feature: HTTP REST Calculator API with TypeScript Interface Handlers
                 - executeMultiply:
                     call: javascript
                     with:
-                      module: tests/fixtures/listeners/handlers/typescript-handlers/src/multiply.ts
+                      module: tests/fixtures/listeners/handlers/typescript-handlers/src/multiply.js
                       function: handler
                       arguments:
                         - ${ $event }

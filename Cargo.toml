@@ -14,7 +14,6 @@ categories = ["development-tools", "asynchronous"]
 [dependencies]
 serde = { version = "=1.0.219", features = ["derive"] }
 serde_json = "=1.0.120"
-serde_bytes = "=0.11.15"
 serde_yaml = "0.9"
 tokio = { version = "1", features = ["full"] }
 clap = { version = "4", features = ["derive", "env"] }
@@ -32,7 +31,6 @@ chrono = { version = "0.4", features = ["serde"] }
 async-trait = "0.1"
 jaq-interpret = "1.2"
 jaq-parse = "1.0"
-indexmap = "2"
 jaq-core = "2.2.1"
 jaq-std = "2.1"
 jaq-json = { version = "1.1.3", features = ["serde_json"] }
@@ -58,26 +56,16 @@ sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "postgres", "ch
 reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls"] }
 bollard = "0.18"
 
-# Python execution with pyo3
-# Using abi3 for stable ABI compatibility, avoiding need for specific libpython version
-# NOTE: Not using auto-initialize to avoid libpython linking requirement for binaries
-pyo3 = { version = "0.22", features = ["abi3-py310"], optional = true }
-
-# TypeScript/JavaScript execution with rustyscript (embedded Deno runtime)
-# Made optional to support external deno executor
-# Enable url_import to allow CDN imports (https://esm.sh, etc.)
-rustyscript = { version = "0.12.3", optional = true, features = ["url_import"] }
 petgraph = "0.6"
 async-recursion = "1.0"
 futures = "0.3"
-lazy_static = "1.4"
-wiremock = "0.6.5"
 sha2 = "0.10.9"
 
 [dev-dependencies]
 cucumber = "0.21"
 testcontainers = "0.23"
 testcontainers-modules = { version = "0.11", features = ["postgres"] }
+wiremock = "0.6.5"
 
 [[test]]
 name = "ctk_conformance"
@@ -106,16 +94,6 @@ required-features = []
 name = "jackdaw"
 path = "src/main.rs"
 required-features = []
-
-[[bin]]
-name = "jackdaw-lite"
-path = "src/main.rs"
-required-features = []
-
-[features]
-default = ["python-embedded", "typescript-embedded"]
-python-embedded = ["pyo3"]
-typescript-embedded = ["rustyscript"]
 
 # Optimized release profile for smaller, faster binaries
 [profile.release]
