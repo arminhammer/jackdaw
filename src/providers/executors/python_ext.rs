@@ -44,7 +44,7 @@ impl PythonExtExecutor {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            python_path: "python3".to_string(),
+            python_path: "python".to_string(),
         }
     }
 
@@ -111,10 +111,43 @@ impl PythonExtExecutor {
             message: format!("Failed to serialize arguments: {e}"),
         })?;
 
+        // Extract the base module path to add to PYTHONPATH
+        // For "calculator.add", we want to add the directory containing "calculator"
+        // Assume the module path is relative to the current working directory
+        let module_parts: Vec<&str> = func.module.split('.').collect();
+        let pythonpath_addition = if module_parts.len() > 1 {
+            // Get current directory and look for the first module component
+            std::env::current_dir().ok().and_then(|cwd| {
+                // Try to find where the module package is located
+                // Common patterns: tests/fixtures/.../handlers/python-handlers
+                let base_module = module_parts.first()?;
+
+                // Search for the module in common test directories
+                for search_path in &[
+                    cwd.join("tests/fixtures/listeners/handlers/python-handlers"),
+                    cwd.join("handlers/python-handlers"),
+                    cwd.join("python-handlers"),
+                    cwd.clone(),
+                ] {
+                    if search_path.join(base_module).exists() {
+                        return Some(search_path.to_string_lossy().to_string());
+                    }
+                }
+                None
+            })
+        } else {
+            None
+        };
+
         let script = format!(
             r#"
 import json
 import sys
+import os
+
+# Add module path to PYTHONPATH if needed
+{}
+
 from {} import {}
 
 # Parse arguments
@@ -128,17 +161,29 @@ except Exception as e:
     print(json.dumps({{"error": str(e)}}), file=sys.stderr)
     sys.exit(1)
 "#,
+            pythonpath_addition.map_or(String::new(), |path| {
+                format!("sys.path.insert(0, '{}')", path.replace('\'', "\\'"))
+            }),
             func.module,
             func.function,
             args_json.replace('\'', "\\'"),
             func.function
         );
 
-        // Execute synchronously using tokio::task::block_in_place
-        tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current()
-                .block_on(async { self.exec_script(&script, None, None, None, None).await })
+        // Execute synchronously by spawning a blocking thread with its own runtime
+        // This works even when called from within an async context
+        let python_path = self.python_path.clone();
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().map_err(|e| Error::Execution {
+                message: format!("Failed to create tokio runtime: {e}"),
+            })?;
+            let executor = PythonExtExecutor { python_path };
+            rt.block_on(async { executor.exec_script(&script, None, None, None, None).await })
         })
+        .join()
+        .map_err(|_| Error::Execution {
+            message: "Thread panicked while executing Python function".to_string(),
+        })?
     }
 
     /// Execute a Python script using the system Python binary
@@ -291,14 +336,17 @@ impl Executor for PythonExtExecutor {
         _ctx: &Context,
         streamer: Option<TaskOutputStreamer>,
     ) -> Result<serde_json::Value> {
-        // For external executor, we only support script execution (code parameter)
+        // For external executor, we only support script execution
         // Module-based calls are not supported as they require the pyo3 embedded interpreter
+        // Support both 'script' (from run task) and 'code' (legacy) parameters
 
         let script = params
-            .get("code")
+            .get("script")
+            .or_else(|| params.get("code"))
             .and_then(|c| c.as_str())
             .ok_or(Error::Execution {
-                message: "Missing 'code' parameter for Python script execution".to_string(),
+                message: "Missing 'script' or 'code' parameter for Python script execution"
+                    .to_string(),
             })?;
 
         let stdin = params.get("stdin").and_then(|s| s.as_str());
@@ -337,7 +385,6 @@ impl Executor for PythonExtExecutor {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 
     // Note: These tests are disabled because they require a proper Context setup
     // which involves persistence and cache providers. The python_ext executor

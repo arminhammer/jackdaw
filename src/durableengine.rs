@@ -475,10 +475,9 @@ impl DurableEngine {
                         timestamp,
                         ..
                     } = event
+                        && name == task_name
                     {
-                        if name == task_name {
-                            return Some(*timestamp);
-                        }
+                        return Some(*timestamp);
                     }
                     None
                 })

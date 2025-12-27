@@ -120,7 +120,7 @@ pub struct RunArgs {
     #[arg(long, value_name = "CACHE_PROVIDER", default_value = "memory")]
     pub cache_provider: String,
 
-    /// SQLite database URL (e.g., 'sqlite:workflow.db' or 'sqlite::memory:')
+    /// SQLite database URL (e.g., 'workflow.db' or ':memory:')
     #[arg(long, value_name = "SQLITE_DB_URL", env = "SQLITE_DB_URL")]
     pub sqlite_db_url: Option<String>,
 
@@ -357,27 +357,30 @@ pub async fn handle_run(
         #[cfg(unix)]
         {
             use tokio::signal::unix::{SignalKind, signal};
-            let mut sigint =
-                signal(SignalKind::interrupt()).expect("Failed to create SIGINT handler");
-            let mut sigterm =
-                signal(SignalKind::terminate()).expect("Failed to create SIGTERM handler");
+            let sigint_result = signal(SignalKind::interrupt());
+            let sigterm_result = signal(SignalKind::terminate());
 
-            tokio::select! {
-                _ = sigint.recv() => {
-                    eprintln!("\nReceived SIGINT (Ctrl+C), shutting down gracefully...");
+            if let (Ok(mut sigint), Ok(mut sigterm)) = (sigint_result, sigterm_result) {
+                tokio::select! {
+                    _ = sigint.recv() => {
+                        eprintln!("\nReceived SIGINT (Ctrl+C), shutting down gracefully...");
+                    }
+                    _ = sigterm.recv() => {
+                        eprintln!("\nReceived SIGTERM, shutting down gracefully...");
+                    }
                 }
-                _ = sigterm.recv() => {
-                    eprintln!("\nReceived SIGTERM, shutting down gracefully...");
-                }
+            } else {
+                eprintln!("Warning: Failed to set up signal handlers");
             }
         }
 
         #[cfg(not(unix))]
         {
-            tokio::signal::ctrl_c()
-                .await
-                .expect("Failed to listen for Ctrl+C");
-            eprintln!("\nReceived Ctrl+C, shutting down gracefully...");
+            if let Ok(()) = tokio::signal::ctrl_c().await {
+                eprintln!("\nReceived Ctrl+C, shutting down gracefully...");
+            } else {
+                eprintln!("Warning: Failed to listen for Ctrl+C");
+            }
         }
     };
 

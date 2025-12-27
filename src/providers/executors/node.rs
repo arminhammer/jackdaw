@@ -1,6 +1,6 @@
-/// External TypeScript executor that calls the system `deno` binary
+/// External Node.js executor that calls the system `node` binary
 ///
-/// This executor spawns the system Deno runtime as a subprocess,
+/// This executor spawns the system Node.js runtime as a subprocess,
 /// providing an alternative to the embedded rustyscript executor.
 /// It supports:
 /// - Script execution with stdin/stdout/stderr streaming
@@ -19,44 +19,44 @@ use crate::{
     task_output::TaskOutputStreamer,
 };
 
-/// TypeScript executor that uses the system `deno` binary
-pub struct TypeScriptExtExecutor {
-    /// Path to the Deno binary (defaults to "deno")
-    deno_path: String,
+/// Node.js executor that uses the system `node` binary
+pub struct NodeExecutor {
+    /// Path to the Node.js binary (defaults to "node")
+    node_path: String,
 }
 
-impl Default for TypeScriptExtExecutor {
+impl Default for NodeExecutor {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl TypeScriptExtExecutor {
-    /// Create a new external TypeScript executor with default deno binary
+impl NodeExecutor {
+    /// Create a new external Node.js executor with default node binary
     #[must_use]
     pub fn new() -> Self {
         Self {
-            deno_path: "deno".to_string(),
+            node_path: "node".to_string(),
         }
     }
 
-    /// Create a new external TypeScript executor with a custom Deno binary path
+    /// Create a new external Node.js executor with a custom Node.js binary path
     #[must_use]
     #[allow(dead_code)]
-    pub fn with_deno_path(deno_path: String) -> Self {
-        Self { deno_path }
+    pub fn with_node_path(node_path: String) -> Self {
+        Self { node_path }
     }
 
-    /// Execute a TypeScript function (used by listeners)
+    /// Execute a JavaScript function (used by listeners)
     ///
     /// Since this is an external executor, we need to serialize the function and arguments
-    /// to a script that can be executed by the external Deno runtime.
+    /// to a script that can be executed by the external Node.js runtime.
     ///
     /// # Errors
     ///
     /// Returns an error if:
-    /// - The function cannot be serialized to TypeScript code
-    /// - The Deno runtime fails to execute
+    /// - The function cannot be serialized to JavaScript code
+    /// - The Node.js runtime fails to execute
     /// - The result cannot be parsed as JSON
     pub fn execute_function(
         &self,
@@ -64,44 +64,74 @@ impl TypeScriptExtExecutor {
         function_name: &str,
         args: &[serde_json::Value],
     ) -> Result<serde_json::Value> {
-        // Generate a TypeScript script that imports the module, loads the function, and executes it
+        // Generate a JavaScript script that imports the module, loads the function, and executes it
         let args_json = serde_json::to_string(args).map_err(|e| Error::Execution {
             message: format!("Failed to serialize arguments: {e}"),
         })?;
 
+        // Convert module path to absolute file URL for Node.js ESM
+        // Node.js requires absolute paths with file:// protocol or relative paths starting with ./
+        let import_path = if module_path.starts_with('/') {
+            // Already absolute path
+            format!("file://{}", module_path)
+        } else if module_path.starts_with("./") || module_path.starts_with("../") {
+            // Already relative path
+            module_path.to_string()
+        } else {
+            // Convert relative path to absolute path
+            let absolute_path = std::env::current_dir()
+                .map_err(|e| Error::Execution {
+                    message: format!("Failed to get current directory: {e}"),
+                })?
+                .join(module_path);
+            format!("file://{}", absolute_path.display())
+        };
+
+        // Use dynamic import for ESM modules
         let script = format!(
             r#"
-import {{ {} }} from "{}";
+(async () => {{
+    try {{
+        const module = await import("{}");
+        const func = module.{};
 
-// Parse arguments
-const args = JSON.parse(`{}`);
+        // Parse arguments
+        const args = JSON.parse(`{}`);
 
-// Execute function
-try {{
-    const result = await {}(...args);
-    console.log(JSON.stringify(result));
-}} catch (e) {{
-    console.error(JSON.stringify({{ error: String(e) }}));
-    Deno.exit(1);
-}}
+        // Execute function
+        const result = await func(...args);
+        console.log(JSON.stringify(result));
+    }} catch (e) {{
+        console.error(JSON.stringify({{ error: String(e) }}));
+        process.exit(1);
+    }}
+}})();
 "#,
+            import_path,
             function_name,
-            module_path,
-            args_json.replace('`', "\\`"),
-            function_name
+            args_json.replace('`', "\\`")
         );
 
-        // Execute synchronously using tokio::task::block_in_place
-        tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current()
-                .block_on(async { self.exec_script(&script, None, None, None, None).await })
+        // Execute synchronously by spawning a blocking thread with its own runtime
+        // This works even when called from within an async context
+        let node_path = self.node_path.clone();
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().map_err(|e| Error::Execution {
+                message: format!("Failed to create tokio runtime: {e}"),
+            })?;
+            let executor = NodeExecutor { node_path };
+            rt.block_on(async { executor.exec_script(&script, None, None, None, None).await })
         })
+        .join()
+        .map_err(|_| Error::Execution {
+            message: "Thread panicked while executing JavaScript function".to_string(),
+        })?
     }
 
-    /// Execute a TypeScript/JavaScript script using the system Deno binary
+    /// Execute a JavaScript script using the system Node.js binary
     ///
     /// # Arguments
-    /// * `script` - The TypeScript/JavaScript code to execute
+    /// * `script` - The JavaScript code to execute
     /// * `stdin` - Optional stdin data to pass to the script
     /// * `arguments` - Optional command-line arguments
     /// * `environment` - Optional environment variables
@@ -109,7 +139,7 @@ try {{
     ///
     /// # Errors
     /// Returns an error if:
-    /// - The Deno binary cannot be found or executed
+    /// - The Node.js binary cannot be found or executed
     /// - Script execution fails
     /// - I/O operations fail during streaming
     async fn exec_script(
@@ -120,20 +150,30 @@ try {{
         environment: Option<&HashMap<String, String>>,
         streamer: Option<TaskOutputStreamer>,
     ) -> Result<serde_json::Value> {
+        // When using -e, Node.js doesn't include a script path in argv,
+        // so argv[1] is the first argument instead of argv[2].
+        // To match the behavior expected by CTK tests (which assume a script file),
+        // we prepend a dummy value to argv to shift indices.
+        let wrapped_script = if arguments.is_some() {
+            format!("process.argv.splice(1, 0, '[eval]');\n{}", script)
+        } else {
+            script.to_string()
+        };
+
         // Build command
-        let mut cmd = Command::new(&self.deno_path);
-        cmd.arg("eval") // Execute code from command line
-            .arg("--no-check") // Skip type checking for faster execution
-            .arg("--config=deno.json") // Use deno.json for import maps and settings
-            .arg(script)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        let mut cmd = Command::new(&self.node_path);
+        cmd.arg("--input-type=module") // Treat input as ESM module
+            .arg("-e") // Execute code from command line
+            .arg(&wrapped_script);
 
         // Add command-line arguments if provided
         if let Some(args) = arguments {
             cmd.args(args);
         }
+
+        cmd.stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
 
         // Set environment variables if provided
         if let Some(env) = environment {
@@ -144,7 +184,7 @@ try {{
 
         // Spawn the process
         let mut child = cmd.spawn().map_err(|e| Error::Execution {
-            message: format!("Failed to spawn Deno process: {e}"),
+            message: format!("Failed to spawn Node.js process: {e}"),
         })?;
 
         // Handle stdin if provided
@@ -205,7 +245,7 @@ try {{
 
         // Wait for process to complete
         let status = child.wait().await.map_err(|e| Error::Execution {
-            message: format!("Failed to wait for Deno process: {e}"),
+            message: format!("Failed to wait for Node.js process: {e}"),
         })?;
 
         // Collect output
@@ -226,7 +266,7 @@ try {{
         if exit_code != 0 {
             return Err(Error::Execution {
                 message: format!(
-                    "TypeScript script failed with exit code {exit_code}\nstdout: {stdout_str}\nstderr: {stderr_str}"
+                    "Node.js script failed with exit code {exit_code}\nstdout: {stdout_str}\nstderr: {stderr_str}"
                 ),
             });
         }
@@ -242,7 +282,7 @@ try {{
 }
 
 #[async_trait]
-impl Executor for TypeScriptExtExecutor {
+impl Executor for NodeExecutor {
     async fn exec(
         &self,
         _task_name: &str,
@@ -250,12 +290,14 @@ impl Executor for TypeScriptExtExecutor {
         _ctx: &Context,
         streamer: Option<TaskOutputStreamer>,
     ) -> Result<serde_json::Value> {
-        // For external executor, we only support script execution (code parameter)
+        // Support both 'script' (from run task) and 'code' (legacy) parameters
         let script = params
-            .get("code")
+            .get("script")
+            .or_else(|| params.get("code"))
             .and_then(|c| c.as_str())
             .ok_or(Error::Execution {
-                message: "Missing 'code' parameter for TypeScript script execution".to_string(),
+                message: "Missing 'script' or 'code' parameter for JavaScript script execution"
+                    .to_string(),
             })?;
 
         let stdin = params.get("stdin").and_then(|s| s.as_str());
@@ -294,10 +336,8 @@ impl Executor for TypeScriptExtExecutor {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     // Note: These tests are disabled because they require a proper Context setup
-    // which involves persistence and cache providers. The typescript_ext executor
+    // which involves persistence and cache providers. The node executor
     // works fine in practice but cannot be easily unit tested in isolation.
     // Integration tests with real workflows should be used instead.
 

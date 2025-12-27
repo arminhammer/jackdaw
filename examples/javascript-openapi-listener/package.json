@@ -1,0 +1,15 @@
+{
+  "name": "javascript-openapi-listener",
+  "version": "1.0.0",
+  "description": "This example demonstrates how to build an HTTP REST API service using Jackdaw with JavaScript ES2024 handlers.",
+  "license": "ISC",
+  "author": "",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "axios": "^1.7.9"
+  }
+}

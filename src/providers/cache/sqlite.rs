@@ -14,7 +14,7 @@ impl SqliteCache {
     /// Create a new ``SQLite`` cache provider
     ///
     /// # Arguments
-    /// * `database_url` - ``SQLite`` connection string (e.g., `sqlite:cache.db` or `sqlite::memory:`)
+    /// * `database_url` - ``SQLite`` connection string (e.g., `cache.db` or `:memory:`)
     ///
     /// # Errors
     /// Returns an error if the database connection fails or if the schema initialization fails.
@@ -23,7 +23,7 @@ impl SqliteCache {
     /// ```no_run
     /// # use jackdaw::providers::cache::SqliteCache;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let cache = SqliteCache::new("sqlite::memory:").await?;
+    /// let cache = SqliteCache::new(":memory:").await?;
     /// # Ok(())
     /// # }
     /// ```
@@ -137,7 +137,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_sqlite_cache_basic_operations() {
-        let cache = SqliteCache::new("sqlite::memory:").await.unwrap();
+        let cache = SqliteCache::new(":memory:").await.unwrap();
 
         // Test set and get
         let entry = CacheEntry {
@@ -164,7 +164,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_sqlite_cache_upsert() {
-        let cache = SqliteCache::new("sqlite::memory:").await.unwrap();
+        let cache = SqliteCache::new(":memory:").await.unwrap();
 
         let entry1 = CacheEntry {
             key: "key1".to_string(),
@@ -191,7 +191,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_sqlite_cache_get_nonexistent() {
-        let cache = SqliteCache::new("sqlite::memory:").await.unwrap();
+        let cache = SqliteCache::new(":memory:").await.unwrap();
         let result = cache.get("nonexistent").await.unwrap();
         assert!(result.is_none());
     }

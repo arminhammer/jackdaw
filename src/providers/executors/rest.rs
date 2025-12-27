@@ -109,7 +109,7 @@ impl Executor for RestExecutor {
                 // Check if the response indicates an error
                 // When redirects are disabled, 3xx responses are valid and should be returned
                 let is_redirect = status.is_redirection();
-                let treat_as_error = !status.is_success() && !(is_redirect && !follow_redirects);
+                let treat_as_error = !status.is_success() && (!is_redirect || follow_redirects);
 
                 if treat_as_error {
                     // Create a structured error object
