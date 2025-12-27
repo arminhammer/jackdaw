@@ -15,14 +15,14 @@ use super::{DurableEngine, Error, Result};
 /// Example: `/api/v1/pet/{petId}` → `/api/v1/pet/:petId`
 fn convert_path_params_to_axum(path: &str) -> String {
     let mut result = String::with_capacity(path.len());
-    let mut chars = path.chars().peekable();
+    let mut chars = path.chars();
 
     while let Some(ch) = chars.next() {
         if ch == '{' {
             // Found opening brace, replace with : and collect param name
             result.push(':');
             // Collect characters until closing brace
-            while let Some(param_char) = chars.next() {
+            for param_char in chars.by_ref() {
                 if param_char == '}' {
                     break;
                 }
@@ -443,7 +443,6 @@ impl DurableEngine {
                 let module_owned = module.to_string();
                 let function_owned = function.to_string();
 
-                #[cfg(feature = "python-embedded")]
                 let handler: Arc<
                     dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value> + Send + Sync,
                 > = Arc::new(
@@ -460,47 +459,6 @@ impl DurableEngine {
                         let start_time = std::time::Instant::now();
 
                         // Load and call the Python handler
-                        // Loading happens at request time, not initialization time,
-                        // so PYTHONPATH can be set by the test environment
-                        let func = python_executor.load_function(&module_owned, &function_owned)
-                            .map_err(|e| crate::listeners::Error::Execution { message: format!("Failed to load Python function: {e}") })?;
-                        let result = python_executor.execute_function(&func, &[payload])
-                            .map_err(|e| crate::listeners::Error::Execution { message: format!("Failed to execute Python function: {e}") })?;
-
-                        if crate::output::is_debug_mode() {
-                            let duration_ms = start_time.elapsed().as_millis() as i64;
-                            let duration_str = if duration_ms < 1000 {
-                                format!("{}ms", duration_ms)
-                            } else {
-                                format!("{:.2}s", duration_ms as f64 / 1000.0)
-                            };
-                            eprintln!("  Output ({})", duration_str);
-                            eprintln!("{}", "┄".repeat(80));
-                            eprintln!("{}", indent_json(&result, 4));
-                            eprintln!("  ✓ Completed '{}'", task_name_clone);
-                        }
-
-                        Ok(result)
-                    },
-                );
-
-                #[cfg(not(feature = "python-embedded"))]
-                let handler: Arc<
-                    dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value> + Send + Sync,
-                > = Arc::new(
-                    move |payload: serde_json::Value| -> crate::listeners::Result<serde_json::Value> {
-                        // Log task execution if debug mode is enabled
-                        if crate::output::is_debug_mode() {
-                            eprintln!("\n{}", "─".repeat(80));
-                            eprintln!("  ▸ Task: {} [call]", task_name_clone);
-                            eprintln!("{}", "┄".repeat(80));
-                            eprintln!("  Input:");
-                            eprintln!("{}", indent_json(&payload, 4));
-                        }
-
-                        let start_time = std::time::Instant::now();
-
-                        // For external executor, load_function just creates a reference
                         let func = python_executor.load_function(&module_owned, &function_owned)
                             .map_err(|e| crate::listeners::Error::Execution { message: format!("Failed to load Python function: {e}") })?;
                         let result = python_executor.execute_function(&func, &[payload])

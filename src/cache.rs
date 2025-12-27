@@ -50,7 +50,10 @@ fn filter_internal_fields(value: &serde_json::Value) -> serde_json::Value {
         serde_json::Value::Array(arr) => {
             serde_json::Value::Array(arr.iter().map(filter_internal_fields).collect())
         }
-        _ => value.clone(),
+        serde_json::Value::Null
+        | serde_json::Value::Bool(_)
+        | serde_json::Value::Number(_)
+        | serde_json::Value::String(_) => value.clone(),
     }
 }
 
@@ -90,7 +93,10 @@ fn normalize_json(value: &serde_json::Value) -> serde_json::Value {
         serde_json::Value::Array(arr) => {
             serde_json::Value::Array(arr.iter().map(normalize_json).collect())
         }
-        _ => value.clone(),
+        serde_json::Value::Null
+        | serde_json::Value::Bool(_)
+        | serde_json::Value::Number(_)
+        | serde_json::Value::String(_) => value.clone(),
     }
 }
 

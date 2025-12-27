@@ -26,13 +26,9 @@ setup-python:
 build:
     cargo build
 
-# Build lite version without embedded Python (faster compile, smaller binary)
-build-lite:
-    cargo build --no-default-features --bin jackdaw-lite
-
 # Build static lite version for Linux x86_64 (uses zigbuild for musl cross-compilation)
-build-lite-static:
-    cargo zigbuild --release --no-default-features --bin jackdaw-lite --target x86_64-unknown-linux-musl
+build-static:
+    cargo zigbuild --release --target x86_64-unknown-linux-musl
 
 # Build in development mode
 build-release:

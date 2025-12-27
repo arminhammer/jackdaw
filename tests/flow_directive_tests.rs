@@ -57,7 +57,7 @@ do:
     // Assert: workflow should complete successfully
     assert!(result.is_ok(), "Workflow should complete successfully");
 
-    let (instance_id, output) = result.unwrap();
+    let (_instance_id, output) = result.unwrap();
 
     // The workflow should exit after switchTask, so shouldNotRun should not have executed
     assert_eq!(
@@ -126,7 +126,7 @@ do:
     // Assert: workflow should complete successfully
     assert!(result.is_ok(), "Workflow should complete successfully");
 
-    let (instance_id, output) = result.unwrap();
+    let (_instance_id, output) = result.unwrap();
 
     // The workflow should end after switchTask, so shouldNotRun should not have executed
     assert_eq!(
@@ -215,11 +215,11 @@ do:
     let workflow_end: WorkflowDefinition = serde_yaml::from_str(workflow_end_yaml).unwrap();
 
     // Execute both workflows
-    let (instance_id_exit, output_exit) = engine_exit
+    let (_instance_id_exit, output_exit) = engine_exit
         .start_with_input(workflow_exit, json!({}))
         .await
         .unwrap();
-    let (instance_id_end, output_end) = engine_end
+    let (_instance_id_end, output_end) = engine_end
         .start_with_input(workflow_end, json!({}))
         .await
         .unwrap();

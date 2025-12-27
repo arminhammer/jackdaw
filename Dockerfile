@@ -1,8 +1,7 @@
 # Multi-platform Dockerfile for jackdaw
 # Supports: linux/amd64, linux/arm64
-# Uses Python 3.13 from Ubuntu 25.10 (Oracular Oriole)
-# Produces minimal distroless final image with only jackdaw binary + Python shared library
-# Uses glibc (not musl) for maximum compatibility
+# Uses static compilation with musl for minimal binary size
+# Final image includes Python 3 and Node.js for external script execution
 # Optimized for dependency caching
 #
 # Build with:
@@ -10,43 +9,27 @@
 #   docker buildx build --platform linux/amd64,linux/arm64 -t jackdaw:latest --push .
 
 # =============================================================================
-# Builder Stage - Uses Ubuntu 25.10 for Python 3.13 support
+# Builder Stage - Static compilation with Alpine + musl
 # =============================================================================
-FROM python:3.14-slim AS builder
+FROM rust:alpine AS builder
 
 # Set platform args (provided by buildx)
 ARG TARGETPLATFORM
 ARG TARGETARCH
-ARG PYTHONVERSION=3.13
 
-# Prevent interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Install build dependencies and Python 3.13
-# Ubuntu 25.10 (Oracular) includes Python 3.13 by default
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    pkg-config \
-    libssl-dev \
+# Install build dependencies for static compilation
+RUN apk add --no-cache \
+    musl-dev \
+    openssl-dev \
+    openssl-libs-static \
+    pkgconfig \
     git \
-    curl \
-    ca-certificates \
-    python${PYTHONVERSION} \
-    python${PYTHONVERSION}-dev \
-    libpython${PYTHONVERSION} \
-    libpython${PYTHONVERSION}-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Set Python as default
-RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python${PYTHONVERSION} 1
-
-# Verify Python installation
-RUN python3 --version
+    ca-certificates
 
 # Install Rust nightly for edition 2024 support
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
-    sh -s -- -y --default-toolchain nightly --profile minimal
-ENV PATH="/root/.cargo/bin:${PATH}"
+RUN rustup toolchain install nightly && \
+    rustup default nightly && \
+    rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
 
 # Set working directory
 WORKDIR /build
@@ -65,14 +48,21 @@ RUN mkdir -p src && \
     echo "fn main() {}" > src/main.rs && \
     echo "pub fn lib() {}" > src/lib.rs
 
-# Build dependencies only (this layer will be cached)
-# This downloads and compiles all dependencies including rustyscript with pre-built V8
-# The || true allows this to "fail" gracefully as it's building dummy source
-RUN cargo build --release 2>&1 | head -100 || true
+# Determine target based on platform
+# Use build arg to set the target triple
+ARG RUST_TARGET
+RUN if [ -z "$RUST_TARGET" ]; then \
+      case "$TARGETPLATFORM" in \
+        "linux/amd64") export RUST_TARGET=x86_64-unknown-linux-musl ;; \
+        "linux/arm64") export RUST_TARGET=aarch64-unknown-linux-musl ;; \
+        *) export RUST_TARGET=x86_64-unknown-linux-musl ;; \
+      esac; \
+    fi && \
+    echo "Building for target: $RUST_TARGET" && \
+    cargo build --release --target $RUST_TARGET 2>&1 | head -100 || true
 
 # Clean up the dummy build artifacts but keep the dependency cache
-RUN rm -rf src target/release/jackdaw target/release/deps/jackdaw* \
-    target/release/.fingerprint/jackdaw*
+RUN rm -rf src
 
 # =============================================================================
 # ACTUAL BUILD LAYER
@@ -82,26 +72,62 @@ RUN rm -rf src target/release/jackdaw target/release/deps/jackdaw* \
 COPY src ./src
 COPY tests ./tests
 
-# Build the actual jackdaw binary with release optimizations
+# Build the actual jackdaw binary with static linking
 # The release profile in Cargo.toml uses:
 # - opt-level = "z" (optimize for size)
 # - lto = true (link-time optimization)
 # - codegen-units = 1 (better optimization)
 # - strip = true (remove debug symbols)
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/app/target \
-    cargo build --release
+RUN case "$TARGETPLATFORM" in \
+      "linux/amd64") export RUST_TARGET=x86_64-unknown-linux-musl ;; \
+      "linux/arm64") export RUST_TARGET=aarch64-unknown-linux-musl ;; \
+      *) export RUST_TARGET=x86_64-unknown-linux-musl ;; \
+    esac && \
+    echo "Building jackdaw for target: $RUST_TARGET" && \
+    cargo build --release --target $RUST_TARGET --bin jackdaw && \
+    cp target/$RUST_TARGET/release/jackdaw /build/jackdaw
 
-# Additional stripping to ensure minimal size
-RUN strip target/release/jackdaw
+# Additional stripping to ensure minimal size (if not already stripped)
+RUN strip /build/jackdaw || true
+
+# Verify the binary is static
+RUN ldd /build/jackdaw || echo "Static binary (no dependencies)"
 
 # =============================================================================
-# Final Stage - Distroless Python3 runtime image
+# Final Stage - Minimal runtime image with Python + Node.js
 # =============================================================================
-FROM python:3.14-slim AS final
+FROM alpine:latest AS final
 
-# Copy the jackdaw binary
-COPY --from=builder /build/target/release/jackdaw /usr/local/bin/jackdaw
+# Install Python 3 and Node.js for script execution
+# These are required by the external executors
+RUN apk add --no-cache \
+    python3 \
+    nodejs \
+    npm \
+    ca-certificates
+
+# Create a non-root user for running jackdaw
+RUN addgroup -S jackdaw && adduser -S jackdaw -G jackdaw
+
+# Copy the statically-linked jackdaw binary
+COPY --from=builder /build/jackdaw /usr/local/bin/jackdaw
+
+# Ensure binary is executable
+RUN chmod +x /usr/local/bin/jackdaw
+
+# Set working directory
+WORKDIR /workspace
+
+# Change ownership to jackdaw user
+RUN chown -R jackdaw:jackdaw /workspace
+
+# Switch to non-root user
+USER jackdaw
+
+# Verify installations
+RUN python3 --version && \
+    node --version && \
+    jackdaw --version || jackdaw --help
 
 # Set entrypoint to jackdaw binary
 ENTRYPOINT ["/usr/local/bin/jackdaw"]

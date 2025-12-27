@@ -20,13 +20,14 @@ async fn then_output_contains_stdout(world: &mut ExampleWorld, expected_text: St
     // 1. A string (new format - direct stdout)
     // 2. An object with stdout field (old format)
     let stdout = if let Some(stdout_str) = output.as_str() {
-        // New format: output is the stdout string directly
         stdout_str
     } else if let Some(stdout_field) = output.get("stdout") {
-        // Old format: output has a stdout field
         stdout_field.as_str().expect("stdout is not a string")
     } else {
-        panic!("Output is neither a string nor an object with stdout field: {:?}", output);
+        panic!(
+            "Output is neither a string nor an object with stdout field: {:?}",
+            output
+        );
     };
 
     assert!(

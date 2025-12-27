@@ -185,15 +185,19 @@ impl Listener for GrpcListener {
             let service_wrapper = service.into_service();
 
             // Build reflection service from file descriptor set
-            let reflection_service = ReflectionBuilder::configure()
+            let reflection_service = match ReflectionBuilder::configure()
                 .register_encoded_file_descriptor_set(
                     file_descriptor_set.encode_to_vec().as_slice(),
                 )
                 .build_v1()
-                .unwrap_or_else(|e| {
+            {
+                Ok(service) => service,
+                Err(e) => {
                     eprintln!("  Failed to build reflection service: {e}");
-                    panic!("Failed to build reflection service");
-                });
+                    tracing::error!("Failed to build reflection service: {e}");
+                    return;
+                }
+            };
 
             println!("  Starting tonic server on {addr} with reflection support");
 

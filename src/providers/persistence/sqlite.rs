@@ -195,7 +195,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_sqlite_persistence_events() {
-        let persistence = SqlitePersistence::new("sqlite::memory:").await.unwrap();
+        let persistence = SqlitePersistence::new(":memory:").await.unwrap();
 
         let instance_id = "test-instance-1";
 
@@ -237,7 +237,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_sqlite_persistence_checkpoint() {
-        let persistence = SqlitePersistence::new("sqlite::memory:").await.unwrap();
+        let persistence = SqlitePersistence::new(":memory:").await.unwrap();
 
         let checkpoint = WorkflowCheckpoint {
             instance_id: "test-instance-2".to_string(),
@@ -264,7 +264,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_sqlite_persistence_checkpoint_upsert() {
-        let persistence = SqlitePersistence::new("sqlite::memory:").await.unwrap();
+        let persistence = SqlitePersistence::new(":memory:").await.unwrap();
 
         let checkpoint1 = WorkflowCheckpoint {
             instance_id: "test-instance-3".to_string(),
@@ -297,7 +297,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_sqlite_persistence_event_ordering() {
-        let persistence = SqlitePersistence::new("sqlite::memory:").await.unwrap();
+        let persistence = SqlitePersistence::new(":memory:").await.unwrap();
 
         let instance_id = "test-instance-4";
 

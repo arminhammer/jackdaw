@@ -812,7 +812,13 @@ fn test_docker_run_grpc_typescript_listener_with_client() {
 
     // Check if container is still running
     let running_check = Command::new("docker")
-        .args(["ps", "--filter", "name=jackdaw-grpc-ts-test", "--format", "{{.Names}}"])
+        .args([
+            "ps",
+            "--filter",
+            "name=jackdaw-grpc-ts-test",
+            "--format",
+            "{{.Names}}",
+        ])
         .output()
         .expect("Failed to check container status");
 
@@ -825,10 +831,15 @@ fn test_docker_run_grpc_typescript_listener_with_client() {
             .output();
 
         let (logs, logs_err) = if let Ok(output) = logs_output {
-            (String::from_utf8_lossy(&output.stdout).to_string(),
-             String::from_utf8_lossy(&output.stderr).to_string())
+            (
+                String::from_utf8_lossy(&output.stdout).to_string(),
+                String::from_utf8_lossy(&output.stderr).to_string(),
+            )
         } else {
-            ("Could not fetch logs".to_string(), "Container not found".to_string())
+            (
+                "Could not fetch logs".to_string(),
+                "Container not found".to_string(),
+            )
         };
 
         // Cleanup

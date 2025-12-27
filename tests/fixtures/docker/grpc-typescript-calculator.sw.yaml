@@ -25,7 +25,7 @@ do:
           - executeAdd:
               call: javascript
               with:
-                module: tests/fixtures/listeners/handlers/typescript-handlers/src/add.ts
+                module: tests/fixtures/listeners/handlers/typescript-handlers/src/add.js
                 function: handler
                 arguments:
                   - ${ $event }

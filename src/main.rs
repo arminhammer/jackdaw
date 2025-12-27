@@ -47,6 +47,7 @@ struct Cli {
     command: Commands,
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Parser, Debug)]
 enum Commands {
     /// Execute workflow(s)

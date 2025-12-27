@@ -35,10 +35,7 @@ impl PersistenceProvider for InMemoryPersistence {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        events
-            .entry(instance_id)
-            .or_insert_with(Vec::new)
-            .push(event);
+        events.entry(instance_id).or_default().push(event);
 
         Ok(())
     }
