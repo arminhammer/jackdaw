@@ -1,7 +1,3 @@
-"""
-Type definitions for Calculator service.
-These types match the protobuf and OpenAPI specifications exactly.
-"""
 from typing import TypedDict
 
 

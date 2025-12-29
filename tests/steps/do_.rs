@@ -3,7 +3,6 @@ use crate::common::{WorkflowStatus, parse_docstring};
 use cucumber::then;
 use serde_json::Value;
 
-// Do-specific step: check output matches expected YAML
 #[then(expr = "the workflow should complete with output:")]
 async fn then_output(world: &mut CtKWorld, step: &cucumber::gherkin::Step) {
     assert_eq!(

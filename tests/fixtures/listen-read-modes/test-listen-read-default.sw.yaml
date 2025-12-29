@@ -1,0 +1,24 @@
+document:
+  dsl: '1.0.2'
+  namespace: default
+  name: test-listen-read-default
+  version: '1.0.0'
+do:
+  - startListener:
+      listen:
+        to:
+          one:
+            with:
+              source:
+                uri: http://localhost:8084/webhook
+                schema:
+                  format: openapi
+                  resource:
+                    endpoint: tests/schemas/webhook.yaml
+      foreach:
+        do:
+          - processEvent:
+              call: python
+              with:
+                module: test_handlers
+                function: echo_handler

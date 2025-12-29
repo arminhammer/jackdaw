@@ -235,10 +235,6 @@ fn test_00_docker_image_available() {
     );
 }
 
-// =============================================================================
-// Script Execution Tests (Python, TypeScript, JavaScript)
-// =============================================================================
-
 #[test]
 fn test_docker_validate_python_script() {
     // Test validating a workflow with Python script
@@ -428,10 +424,6 @@ fn test_docker_run_python_script() {
         stdout
     );
 }
-
-// =============================================================================
-// Listener Tests (gRPC and OpenAPI with Python/TypeScript)
-// =============================================================================
 
 #[test]
 fn test_docker_validate_grpc_python_listener() {
@@ -996,10 +988,6 @@ fn test_docker_run_openapi_typescript_listener_with_client() {
         response
     );
 }
-
-// =============================================================================
-// Nested Workflow Tests
-// =============================================================================
 
 #[test]
 fn test_docker_validate_nested_workflows() {

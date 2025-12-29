@@ -1,9 +1,4 @@
 /**
- * JavaScript handler for Calculator.Multiply operation.
- * Takes MultiplyRequest and returns MultiplyResponse
- */
-
-/**
  * Multiply two numbers.
  *
  * @param {Object} request - MultiplyRequest with 'a' and 'b' as int32 values

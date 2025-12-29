@@ -1,0 +1,15 @@
+document:
+  dsl: '1.0.2'
+  namespace: default
+  name: test-multiple-tasks
+  version: '1.0.0'
+do:
+  - task1:
+      set:
+        a: 1
+  - task2:
+      set:
+        b: 2
+  - task3:
+      set:
+        c: 3

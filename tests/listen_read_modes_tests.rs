@@ -6,6 +6,7 @@
 /// - "raw": Return the raw HTTP body (before CloudEvent parsing)
 use serde_json::json;
 use std::env;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tempfile::TempDir;
 
@@ -43,36 +44,10 @@ async fn test_listen_read_mode_data() {
     let temp_dir = tempfile::tempdir().unwrap();
     let engine = setup_test_engine(&temp_dir).await;
 
-    // Create workflow with listen task using "data" read mode
-    let workflow_yaml = r#"
-document:
-  dsl: '1.0.2'
-  namespace: default
-  name: test-listen-read-data
-  version: '1.0.0'
-do:
-  - startListener:
-      listen:
-        to:
-          one:
-            with:
-              source:
-                uri: http://localhost:8081/webhook
-                schema:
-                  format: openapi
-                  resource:
-                    endpoint: tests/schemas/webhook.yaml
-        read: data
-      foreach:
-        do:
-          - processEvent:
-              call: python
-              with:
-                module: test_handlers
-                function: echo_handler
-"#;
-
-    let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml).unwrap();
+    let fixture = PathBuf::from("tests/fixtures/listen-read-modes/test-listen-read-data.sw.yaml");
+    let workflow_yaml =
+        std::fs::read_to_string(&fixture).expect("Failed to read test-listen-read-data.sw.yaml");
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     // Start workflow (this initializes the listener)
     let result = engine.start_with_input(workflow, json!({})).await;
@@ -135,36 +110,11 @@ async fn test_listen_read_mode_envelope() {
     let temp_dir = tempfile::tempdir().unwrap();
     let engine = setup_test_engine(&temp_dir).await;
 
-    // Create workflow with listen task using "envelope" read mode (default)
-    let workflow_yaml = r#"
-document:
-  dsl: '1.0.2'
-  namespace: default
-  name: test-listen-read-envelope
-  version: '1.0.0'
-do:
-  - startListener:
-      listen:
-        to:
-          one:
-            with:
-              source:
-                uri: http://localhost:8082/webhook
-                schema:
-                  format: openapi
-                  resource:
-                    endpoint: tests/schemas/webhook.yaml
-        read: envelope
-      foreach:
-        do:
-          - processEvent:
-              call: python
-              with:
-                module: test_handlers
-                function: echo_handler
-"#;
-
-    let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml).unwrap();
+    let fixture =
+        PathBuf::from("tests/fixtures/listen-read-modes/test-listen-read-envelope.sw.yaml");
+    let workflow_yaml = std::fs::read_to_string(&fixture)
+        .expect("Failed to read test-listen-read-envelope.sw.yaml");
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     // Start workflow
     let result = engine.start_with_input(workflow, json!({})).await;
@@ -243,36 +193,10 @@ async fn test_listen_read_mode_raw() {
     let temp_dir = tempfile::tempdir().unwrap();
     let engine = setup_test_engine(&temp_dir).await;
 
-    // Create workflow with listen task using "raw" read mode
-    let workflow_yaml = r#"
-document:
-  dsl: '1.0.2'
-  namespace: default
-  name: test-listen-read-raw
-  version: '1.0.0'
-do:
-  - startListener:
-      listen:
-        to:
-          one:
-            with:
-              source:
-                uri: http://localhost:8083/webhook
-                schema:
-                  format: openapi
-                  resource:
-                    endpoint: tests/schemas/webhook.yaml
-        read: raw
-      foreach:
-        do:
-          - processEvent:
-              call: python
-              with:
-                module: test_handlers
-                function: echo_handler
-"#;
-
-    let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml).unwrap();
+    let fixture = PathBuf::from("tests/fixtures/listen-read-modes/test-listen-read-raw.sw.yaml");
+    let workflow_yaml =
+        std::fs::read_to_string(&fixture).expect("Failed to read test-listen-read-raw.sw.yaml");
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     // Start workflow
     let result = engine.start_with_input(workflow, json!({})).await;
@@ -333,35 +257,11 @@ async fn test_listen_read_mode_default_is_envelope() {
     let temp_dir = tempfile::tempdir().unwrap();
     let engine = setup_test_engine(&temp_dir).await;
 
-    // Create workflow with listen task WITHOUT specifying read mode (should default to envelope)
-    let workflow_yaml = r#"
-document:
-  dsl: '1.0.2'
-  namespace: default
-  name: test-listen-read-default
-  version: '1.0.0'
-do:
-  - startListener:
-      listen:
-        to:
-          one:
-            with:
-              source:
-                uri: http://localhost:8084/webhook
-                schema:
-                  format: openapi
-                  resource:
-                    endpoint: tests/schemas/webhook.yaml
-      foreach:
-        do:
-          - processEvent:
-              call: python
-              with:
-                module: test_handlers
-                function: echo_handler
-"#;
-
-    let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml).unwrap();
+    let fixture =
+        PathBuf::from("tests/fixtures/listen-read-modes/test-listen-read-default.sw.yaml");
+    let workflow_yaml =
+        std::fs::read_to_string(&fixture).expect("Failed to read test-listen-read-default.sw.yaml");
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     // Start workflow
     let result = engine.start_with_input(workflow, json!({})).await;

@@ -1,7 +1,3 @@
-"""
-Python handler for Calculator.Multiply operation.
-Strongly typed: takes MultiplyRequest returns MultiplyResponse
-"""
 from calculator.types import MultiplyRequest, MultiplyResponse
 
 

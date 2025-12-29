@@ -85,33 +85,6 @@ do:
               output:
                 as: .branch3_iterations
 
-  # # Stage 3: For loop with 3 sequential executions
-  # - stage3For:
-  #     for:
-  #       each: iteration
-  #       in: '${ [1, 2, 3] | .[] }'
-  #     do:
-  #       - loopTask:
-  #           run:
-  #             shell:
-  #               command: bash
-  #               arguments:
-  #                 - -c
-  #                 - |
-  #                   iteration_num=$1
-  #                   max=$((RANDOM % 6 + 5))
-  #                   echo "Stage 3 Iteration $iteration_num: Starting with max=$max"
-  #                   for ((i=1; i<=max; i++)); do
-  #                     echo "Stage 3 Iteration $iteration_num: Loop $i/$max"
-  #                     sleep 2
-  #                   done
-  #                   echo "Stage 3 Iteration $iteration_num: Completed after $max iterations"
-  #                   echo $max
-  #                 - _
-  #                 - '${ .iteration }'
-  #           output:
-  #             as: .iterations
-
 output:
   as: |
     ${

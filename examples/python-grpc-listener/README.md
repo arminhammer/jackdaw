@@ -159,11 +159,6 @@ Expected response (fetched from petstore API):
 }
 ```
 
-This demonstrates that:
-- Third-party dependencies (like `requests`) work correctly in Jackdaw containers
-- Handlers can make external HTTP calls
-- Protobuf field naming (snake_case in proto, converted to/from Python conventions)
-
 ## Development
 
 To work on the handlers locally:
@@ -178,14 +173,3 @@ To work on the handlers locally:
    ```bash
    jackdaw run calculator-api.sw.yaml --debug
    ```
-
-## Production Considerations
-
-For production deployments:
-
-1. **Remove `--debug` flag** from the Dockerfile CMD
-2. **Add health checks** using gRPC health checking protocol
-3. **Configure TLS** for secure gRPC communication
-4. **Set resource limits** in your container orchestrator
-5. **Add monitoring** and distributed tracing
-6. **Use connection pooling** for external API calls (like petstore)
