@@ -46,7 +46,7 @@ foreach:
   item: event
   do:
     - executeAdd:
-        call: typescript  # Uses Deno runtime for ES2024 JavaScript
+        call: javascript
         with:
           module: src/add.js
           function: handler
@@ -151,14 +151,4 @@ To work on the handlers locally:
 1. Run the workflow directly (without Docker):
    ```bash
    jackdaw run calculator-api.sw.yaml --debug
-   ```
-
-2. Format JavaScript code:
-   ```bash
-   deno fmt src/
-   ```
-
-3. Lint JavaScript code:
-   ```bash
-   deno lint src/
    ```

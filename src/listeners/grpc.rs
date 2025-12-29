@@ -660,7 +660,5 @@ impl Service<http::Request<BoxBody>> for MultiMethodServiceWrapper {
 }
 
 impl NamedService for MultiMethodServiceWrapper {
-    // TEMPORARY: Hardcoded name to test if tonic routing works at all
-    // TODO: This needs to be dynamic or we need a different approach
-    const NAME: &'static str = "calculator.Calculator";
+    const NAME: &'static str = "default.DefaultService";
 }

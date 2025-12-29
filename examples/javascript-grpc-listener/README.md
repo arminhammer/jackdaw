@@ -48,7 +48,7 @@ foreach:
   item: event
   do:
     - executeAdd:
-        call: javascript  # Uses Deno runtime for ES2024 JavaScript
+        call: javascript
         with:
           module: src/add.js
           function: handler
