@@ -18,7 +18,8 @@ do:
         a: 10
         b: 5
       output:
-        as: '${ { addResult: .result } }'
+        as:
+          addResult: ${ .result }
 
   - multiplyNumbers:
       call: multiply-numbers:1.0.0
@@ -26,7 +27,8 @@ do:
         a: '${ .addResult }'
         b: 3
       output:
-        as: '${ { multiplyResult: .result } }'
+        as:
+          multiplyResult: ${ .result }
 
   - displayResults:
       run:

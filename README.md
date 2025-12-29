@@ -1163,3 +1163,4 @@ All task types inherit from `taskBase` with these common properties:
 - Import & Export from other workflow specifications, like Argo Workflows and Kubeflow Pipelines
 - Native `jackdaw` bindings for [sdk-typescript](https://github.com/serverlessworkflow/sdk-typescript)
 - Native `jackdaw` bindings for [sdk-python](https://github.com/serverlessworkflow/sdk-python)
+- Complete OpenTelemetry-compatible intrumentation and metrics

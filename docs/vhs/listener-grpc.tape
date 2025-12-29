@@ -4,7 +4,6 @@ Set Shell bash
 Set FontSize 14
 Set Width 1400
 Set Height 900
-Set Theme "Catppuccin Mocha"
 
 Type "# Start gRPC Listener (Calculator API)"
 Sleep 500ms

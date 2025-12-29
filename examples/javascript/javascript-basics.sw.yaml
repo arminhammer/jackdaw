@@ -32,14 +32,15 @@ do:
 
             console.log(JSON.stringify(result));
       output:
-        as: '${ { result: . } }'
+        as:
+          result: ${ . }
 
   - processSequence:
       run:
         script:
           language: javascript
           arguments:
-            - ${ .result.sequence }
+            - ${ .result.sequence | tojson }
           code: |
             const sequence = JSON.parse(process.argv[2]);
 

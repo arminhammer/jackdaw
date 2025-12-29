@@ -256,3 +256,16 @@ docker-build-all: docker-build-linux build-macos-universal
     @echo "All release binaries ready:"
     @ls -lh ./dist/jackdaw-*
     @ls -lh ./target/universal-apple-darwin/release/jackdaw
+
+vhs:
+    vhs docs/vhs/hello-world.tape
+    vhs docs/vhs/hello-world-debug.tape
+    vhs docs/vhs/run-container.tape
+    vhs docs/vhs/run-python.tape
+    vhs docs/vhs/run-javascript.tape
+    vhs docs/vhs/cache-debug.tape
+    vhs docs/vhs/persistence-demo.tape
+    # vhs docs/vhs/openapi-listener.tape
+    # vhs docs/vhs/grpc-listener.tape
+    # vhs docs/vhs/durable-workflow.tape
+

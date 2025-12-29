@@ -21,8 +21,9 @@ do:
           code: |
             import json
             import time
+            import sys
 
-            print("Step 1: Processing initial data...")
+            print("Step 1: Processing initial data...", file=sys.stderr)
             time.sleep(1)
 
             result = {
@@ -34,14 +35,15 @@ do:
 
             print(json.dumps(result))
       output:
-        as: '${ { step1: . } }'
+        as:
+          step1: ${ . }
 
   - step2:
       run:
         script:
           language: python
           arguments:
-            - ${ .step1 }
+            - ${ .step1 | tojson }
           code: |
             import json
             import time
@@ -49,7 +51,7 @@ do:
 
             step1_data = json.loads(sys.argv[1])
 
-            print("Step 2: Building on step 1 results...")
+            print("Step 2: Building on step 1 results...", file=sys.stderr)
             time.sleep(1)
 
             result = {
@@ -62,15 +64,16 @@ do:
 
             print(json.dumps(result))
       output:
-        as: '${ { step2: . } }'
+        as:
+          step2: ${ . }
 
   - step3_mayFail:
       run:
         script:
           language: python
           arguments:
-            - ${ .step2 }
-            - ${ .attempt }
+            - ${ .step2 | tojson }
+            - ${ .attempt | tostring }
           code: |
             import json
             import time

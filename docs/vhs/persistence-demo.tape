@@ -4,7 +4,6 @@ Set Shell bash
 Set FontSize 14
 Set Width 1200
 Set Height 800
-Set Theme "Catppuccin Mocha"
 
 Type "# Persistence Demo - First run will fail, second will resume"
 Sleep 500ms
@@ -16,7 +15,7 @@ Sleep 500ms
 Enter
 Sleep 500ms
 
-Type "jackdaw run examples/persistence/persistence.sw.yaml --persistence-provider redb --input '{\"attempt\": 1}'"
+Type 'jackdaw run examples/persistence/persistence.sw.yaml --persistence-provider redb --input '"'"'{"attempt": "1"}'"'"''
 Sleep 500ms
 Enter
 
@@ -27,7 +26,7 @@ Sleep 500ms
 Enter
 Sleep 500ms
 
-Type "jackdaw run examples/persistence/persistence.sw.yaml --persistence-provider redb --input '{\"attempt\": 2}'"
+Type 'jackdaw run examples/persistence/persistence.sw.yaml --persistence-provider redb --input '"'"'{"attempt": "2"}'"'"''
 Sleep 500ms
 Enter
 

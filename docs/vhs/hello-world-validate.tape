@@ -1,4 +1,4 @@
-Output hello-world-validate.gif
+Output docs/vhs/hello-world-validate.gif
 
 Require jackdaw
 

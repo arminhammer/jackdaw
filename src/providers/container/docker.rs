@@ -4,6 +4,7 @@ use bollard::Docker;
 use bollard::container::{
     AttachContainerOptions, Config, RemoveContainerOptions, StartContainerOptions,
 };
+use bollard::image::CreateImageOptions;
 use bollard::models::{HostConfig, Mount, MountTypeEnum, PortBinding};
 use futures::StreamExt;
 use std::collections::HashMap;
@@ -102,6 +103,30 @@ impl ContainerProvider for DockerProvider {
         } else {
             None
         };
+
+        let image_parts: Vec<&str> = config.image.split(':').collect();
+        let (image_name, image_tag) = if image_parts.len() > 1 {
+            (image_parts[0], image_parts[1])
+        } else {
+            (config.image.as_str(), "latest")
+        };
+
+        let create_image_options = CreateImageOptions {
+            from_image: image_name,
+            tag: image_tag,
+            ..Default::default()
+        };
+
+        let mut pull_stream = self
+            .docker
+            .create_image(Some(create_image_options), None, None);
+
+        // Process pull stream (this will pull the image if not present, or be a no-op if cached)
+        while let Some(pull_result) = pull_stream.next().await {
+            pull_result.map_err(|e| Error::ImagePull {
+                message: format!("Failed to pull image {}: {}", config.image, e),
+            })?;
+        }
 
         // Create container configuration
         let container_config = Config {
