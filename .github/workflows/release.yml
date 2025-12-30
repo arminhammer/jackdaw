@@ -30,20 +30,17 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build binary for ${{ matrix.arch }}
+      - name: Build and extract binary for ${{ matrix.arch }}
         run: |
+          mkdir -p dist
           docker buildx build \
             --platform linux/${{ matrix.arch }} \
             --target builder \
-            --load \
-            -t jackdaw-builder:linux-${{ matrix.arch }} .
+            --output type=local,dest=./dist \
+            .
 
-      - name: Extract binary
-        run: |
-          mkdir -p dist
-          docker create --name jackdaw-extract jackdaw-builder:linux-${{ matrix.arch }}
-          docker cp jackdaw-extract:/build/jackdaw ./dist/jackdaw-linux-${{ matrix.arch }}
-          docker rm jackdaw-extract
+          # The binary will be extracted to dist/build/jackdaw
+          mv dist/build/jackdaw dist/jackdaw-linux-${{ matrix.arch }}
 
       - name: Verify binary
         run: |
