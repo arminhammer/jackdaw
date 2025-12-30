@@ -1,26 +1,15 @@
+init: submodules
+    command -v cargo-zigbuild >/dev/null 2>&1 || cargo install cargo-zigbuild
+    command -v cargo-llvm-cov >/dev/null 2>&1 || cargo install cargo-llvm-cov
+    command -v zig >/dev/null 2>&1 || echo "⚠️  Warning: 'zig' not found in PATH. Required for cross-compilation."
+    command -v prek >/dev/null 2>&1 || echo "⚠️  Warning: 'prek' not found in PATH. Required for running pre-commit hooks."
+    command -v vhs >/dev/null 2>&1 || echo "⚠️  Warning: 'vhs' not found in PATH. Required for running VHS demos."
+    rustup target list --installed | grep -q x86_64-unknown-linux-musl || rustup target add x86_64-unknown-linux-musl
+    rustup target list --installed | grep -q aarch64-unknown-linux-musl || rustup target add aarch64-unknown-linux-musl
+
 # Pull and sync git submodules
 submodules:
     git submodule update --init --recursive
-
-# Setup Python library symlink for pyo3 (required on immutable systems)
-setup-python:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    echo "Setting up Python library symlink for pyo3..."
-    mkdir -p ~/lib
-    if [ ! -f ~/lib/libpython3.13.so ]; then
-        if [ -f /usr/lib64/libpython3.13.so.1.0 ]; then
-            ln -sf /usr/lib64/libpython3.13.so.1.0 ~/lib/libpython3.13.so
-            echo "✓ Created symlink: ~/lib/libpython3.13.so -> /usr/lib64/libpython3.13.so.1.0"
-        else
-            echo "✗ Error: /usr/lib64/libpython3.13.so.1.0 not found"
-            echo "  Please install Python 3.13 or adjust the path in justfile"
-            exit 1
-        fi
-    else
-        echo "✓ Symlink already exists: ~/lib/libpython3.13.so"
-    fi
-    echo "✓ Python setup complete"
 
 # Build the project
 build:
@@ -42,23 +31,6 @@ test:
 test-ctk:
     cargo test --test ctk_conformance
 
-# Run CTK tests and show only summaries (ignore failures)
-test-ctk-summary:
-    -cargo test --test ctk_conformance 2>&1 | grep -E "(Running CTK|Feature:|Summary)"
-
-# Run CTK tests with verbose output
-test-ctk-verbose:
-    RUST_BACKTRACE=1 cargo test --test ctk_conformance
-
-# View CTK conformance status
-ctk-status:
-    cat CTK_STATUS.md
-
-# List all CTK feature worlds
-test-ctk-list:
-    @echo "CTK feature worlds:"
-    @ls tests/worlds/*.rs | grep -v mod.rs | xargs -n1 basename -s .rs | sed 's/^/  - /'
-
 test-examples:
     cargo test --test example_tests
 
@@ -70,8 +42,16 @@ test-all:
     cargo test
 
 # Run Docker integration tests (requires Docker image to be built)
-test-docker:
+test-docker: docker-build
     cargo test --test docker_integration_tests
+
+# Run listener tests (gRPC and HTTP/OpenAPI)
+test-listeners:
+    cargo test --test listener_tests --no-fail-fast
+
+# Run nested workflow tests
+test-nested-workflows:
+    cargo test --test nested_workflow_tests --no-fail-fast
 
 # Build Docker image and run integration tests
 test-docker-full: docker-build test-docker
@@ -99,6 +79,25 @@ coverage-clean:
 clean:
     cargo clean
 
+# Clean up test containers (PostgreSQL test containers)
+clean-test-containers:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Cleaning up PostgreSQL test containers..."
+    # Remove all postgres test containers
+    docker ps -aq --filter "ancestor=postgres:16-alpine" 2>/dev/null | xargs -r docker rm -f || true
+    podman ps -aq --filter "ancestor=postgres:16-alpine" 2>/dev/null | xargs -r podman rm -f || true
+    echo "✓ Test containers cleaned"
+
+# Clean up all stopped containers and dangling images
+clean-containers-all:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Cleaning up all stopped containers..."
+    docker container prune -f 2>/dev/null || true
+    podman container prune -f 2>/dev/null || true
+    echo "✓ All stopped containers cleaned"
+
 # Format code
 fmt:
     cargo fmt
@@ -119,13 +118,6 @@ lint-panics:
 check:
     cargo check
 
-# Run listener tests (gRPC and HTTP/OpenAPI)
-test-listeners:
-    cargo test --test listener_tests --no-fail-fast
-
-# Run nested workflow tests
-test-nested-workflows:
-    cargo test --test nested_workflow_tests --no-fail-fast
 
 # Run full CI pipeline locally
 ci:
@@ -152,34 +144,13 @@ ci-reset:
 # Release Binary Building
 # ============================================================================
 
-# Build optimized release binary for current platform
-build-release-optimized:
-    cargo build --release
-
 # Build static Linux binary (x86_64, musl)
-# Note: Builds V8 from source (takes 30-60 minutes on first build)
 build-linux-amd64:
-    V8_FROM_SOURCE=1 cargo zigbuild --release --target x86_64-unknown-linux-musl
+    cargo zigbuild --release --target x86_64-unknown-linux-musl
 
 # Build static Linux binary (ARM64, musl)
-# Note: Builds V8 from source (takes 30-60 minutes on first build)
 build-linux-arm64:
-    V8_FROM_SOURCE=1 cargo zigbuild --release --target aarch64-unknown-linux-musl
-
-# Build static jackdaw-lite for Linux x86_64 (musl, no Python)
-build-lite-linux-amd64:
-    cargo zigbuild --release --no-default-features --bin jackdaw-lite --target x86_64-unknown-linux-musl
-
-# Build static jackdaw-lite for Linux ARM64 (musl, no Python)
-build-lite-linux-arm64:
-    cargo zigbuild --release --no-default-features --bin jackdaw-lite --target aarch64-unknown-linux-musl
-
-# Build static jackdaw-lite for both Linux architectures
-build-lite-linux: build-lite-linux-amd64 build-lite-linux-arm64
-    @echo ""
-    @echo "✓ Static jackdaw-lite binaries built:"
-    @ls -lh target/x86_64-unknown-linux-musl/release/jackdaw-lite
-    @ls -lh target/aarch64-unknown-linux-musl/release/jackdaw-lite
+    cargo zigbuild --release --target aarch64-unknown-linux-musl
 
 # Build macOS binary (Intel)
 build-macos-amd64:
@@ -198,11 +169,11 @@ build-macos-universal: build-macos-amd64 build-macos-arm64
         target/x86_64-apple-darwin/release/jackdaw \
         target/aarch64-apple-darwin/release/jackdaw \
         -output target/universal-apple-darwin/release/jackdaw
-    echo "✓ Universal macOS binary created: target/universal-apple-darwin/release/jackdaw"
+    echo "Universal macOS binary created: target/universal-apple-darwin/release/jackdaw"
 
 # Build all release binaries (Linux x86_64, Linux ARM64, macOS universal)
 build-all-release: build-linux-amd64 build-linux-arm64 build-macos-universal
-    @echo "✓ All release binaries built:"
+    @echo "All release binaries built:"
     @echo "  - target/x86_64-unknown-linux-musl/release/jackdaw"
     @echo "  - target/aarch64-unknown-linux-musl/release/jackdaw"
     @echo "  - target/universal-apple-darwin/release/jackdaw"
@@ -271,7 +242,7 @@ docker-build-linux-amd64:
     docker create --name jackdaw-extract jackdaw-builder:linux-amd64
     docker cp jackdaw-extract:/build/target/release/jackdaw ./dist/jackdaw-linux-amd64
     docker rm jackdaw-extract
-    echo "✓ Linux x86_64 binary ready: ./dist/jackdaw-linux-amd64"
+    echo "Linux x86_64 binary ready: ./dist/jackdaw-linux-amd64"
     ls -lh ./dist/jackdaw-linux-amd64
     file ./dist/jackdaw-linux-amd64
 
@@ -290,19 +261,31 @@ docker-build-linux-arm64:
     docker create --name jackdaw-extract jackdaw-builder:linux-arm64
     docker cp jackdaw-extract:/build/target/release/jackdaw ./dist/jackdaw-linux-arm64
     docker rm jackdaw-extract
-    echo "✓ Linux ARM64 binary ready: ./dist/jackdaw-linux-arm64"
+    echo "Linux ARM64 binary ready: ./dist/jackdaw-linux-arm64"
     ls -lh ./dist/jackdaw-linux-arm64
     file ./dist/jackdaw-linux-arm64
 
 # Build both Linux binaries (amd64 and arm64)
 docker-build-linux: docker-build-linux-amd64 docker-build-linux-arm64
     @echo ""
-    @echo "✓ All Linux binaries built:"
+    @echo "All Linux binaries built:"
     @ls -lh ./dist/jackdaw-linux-*
 
 # Build all release binaries (Linux via Docker, macOS native)
 docker-build-all: docker-build-linux build-macos-universal
     @echo ""
-    @echo "✓ All release binaries ready:"
+    @echo "All release binaries ready:"
     @ls -lh ./dist/jackdaw-*
     @ls -lh ./target/universal-apple-darwin/release/jackdaw
+
+vhs:
+    vhs docs/vhs/hello-world.tape
+    vhs docs/vhs/hello-world-debug.tape
+    vhs docs/vhs/run-container.tape
+    vhs docs/vhs/run-python.tape
+    vhs docs/vhs/run-javascript.tape
+    vhs docs/vhs/cache-debug.tape
+    vhs docs/vhs/persistence-demo.tape
+    # vhs docs/vhs/listener-openapi.tape
+    # vhs docs/vhs/listener-grpc.tape
+    vhs docs/vhs/hello-world-validate.tape

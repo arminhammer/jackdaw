@@ -33,14 +33,15 @@ do:
 
             print(json.dumps(result))
       output:
-        as: '${ { result: . } }'
+        as:
+          calculateFactorial: ${ . }
 
   - processData:
       run:
         script:
           language: python
           arguments:
-            - ${ .result.factorial }
+            - ${ .calculateFactorial.factorial | tostring }
           code: |
             import sys
             import json

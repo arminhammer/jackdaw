@@ -4,7 +4,6 @@ Set Shell bash
 Set FontSize 14
 Set Width 1400
 Set Height 900
-Set Theme "Catppuccin Mocha"
 
 Type "# Start OpenAPI HTTP Listener (Calculator API)"
 Sleep 500ms
@@ -27,7 +26,7 @@ Sleep 500ms
 Enter
 Sleep 500ms
 
-Type "curl -X POST http://localhost:8080/api/v1/add -H \"Content-Type: application/json\" -d '{\"a\": 5, \"b\": 3}'"
+Type 'curl -X POST http://localhost:8080/api/v1/add -H "Content-Type: application/json" -d '"'"'{"a": 5, "b": 3}'"'"''
 Sleep 500ms
 Enter
 
@@ -38,7 +37,7 @@ Sleep 500ms
 Enter
 Sleep 500ms
 
-Type "curl -X POST http://localhost:8080/api/v1/multiply -H \"Content-Type: application/json\" -d '{\"a\": 4, \"b\": 7}'"
+Type 'curl -X POST http://localhost:8080/api/v1/multiply -H "Content-Type: application/json" -d '"'"'{"a": 4, "b": 7}'"'"''
 Sleep 500ms
 Enter
 

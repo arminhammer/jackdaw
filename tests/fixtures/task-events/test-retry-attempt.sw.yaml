@@ -1,0 +1,23 @@
+document:
+  dsl: '1.0.2'
+  namespace: default
+  name: test-retry-attempt
+  version: '1.0.0'
+do:
+  - retryTask:
+      try:
+        - setTask:
+            set:
+              value: 42
+      catch:
+        errors:
+          with:
+            type: https://serverlessworkflow.io/spec/1.0.0/errors/runtime
+        retry:
+          delay:
+            milliseconds: 100
+          backoff:
+            exponential: {}
+          limit:
+            attempt:
+              count: 3

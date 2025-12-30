@@ -1,16 +1,20 @@
 use super::{Listener, Result};
 use async_trait::async_trait;
-use bytes::Bytes;
-use http_body_util::{BodyExt, Full};
+use bytes::{Buf, Bytes};
+use http_body_util::{BodyExt, Full, combinators::UnsyncBoxBody};
+use hyper::service::Service as HyperService;
 use prost::Message;
 use prost_reflect::{DescriptorPool, DynamicMessage, ServiceDescriptor};
 use prost_types::FileDescriptorSet;
 use std::sync::Arc;
 use std::task::{Context as TaskContext, Poll};
 use tokio::sync::RwLock;
-use tonic::{Status, body::BoxBody, server::NamedService, transport::Server};
+use tonic::{Status, server::NamedService};
 use tonic_reflection::server::Builder as ReflectionBuilder;
-use tower::Service;
+use tower::Service as TowerService;
+
+// Type alias for boxed body (tonic 0.14+ made BoxBody private)
+type BoxBody = UnsyncBoxBody<Bytes, Status>;
 
 /// gRPC listener for handling proto-based service requests
 pub struct GrpcListener {
@@ -201,22 +205,68 @@ impl Listener for GrpcListener {
 
             println!("  Starting tonic server on {addr} with reflection support");
 
-            let result = Server::builder()
-                // Add reflection service for gRPC clients to discover the API
-                .add_service(reflection_service)
-                // Add our service - tonic will route all requests here since we're the only service
-                .add_service(service_wrapper)
-                .serve_with_shutdown(addr, async {
-                    shutdown_rx.await.ok();
-                })
-                .await;
+            // Wrap reflection service to convert its body type to BoxBody
+            let reflection_adapted = ReflectionAdapter {
+                inner: reflection_service,
+            };
 
-            match result {
-                Ok(()) => println!("  gRPC server on {addr} exited cleanly"),
+            // Combine reflection service and our custom dynamic router into one service
+            // This service will route based on the request path
+            let combined_service = CombinedService {
+                reflection: reflection_adapted,
+                dynamic_router: service_wrapper,
+            };
+
+            // Use hyper_util's TokioIo and serve connection directly
+            use hyper_util::rt::TokioIo;
+            use hyper_util::server::conn::auto;
+
+            let tcp_listener = match tokio::net::TcpListener::bind(addr).await {
+                Ok(listener) => listener,
                 Err(e) => {
-                    tracing::error!("gRPC server error: {e}");
+                    eprintln!("  Failed to bind to {addr}: {e}");
+                    tracing::error!("Failed to bind to {addr}: {e}");
+                    return;
+                }
+            };
+
+            println!("  gRPC server listening on {addr}");
+
+            let result = async move {
+                loop {
+                    let (tcp_stream, _remote_addr) = match tcp_listener.accept().await {
+                        Ok(conn) => conn,
+                        Err(e) => {
+                            eprintln!("  Failed to accept connection: {e}");
+                            continue;
+                        }
+                    };
+
+                    let io = TokioIo::new(tcp_stream);
+
+                    // Use our HyperAdapter to convert body types from Incoming to BoxBody
+                    let svc = HyperAdapter {
+                        inner: combined_service.clone(),
+                    };
+
+                    tokio::task::spawn(async move {
+                        if let Err(err) = auto::Builder::new(hyper_util::rt::TokioExecutor::new())
+                            .serve_connection(io, svc)
+                            .await
+                        {
+                            eprintln!("  Error serving connection: {:?}", err);
+                        }
+                    });
+                }
+            };
+
+            tokio::select! {
+                _ = result => {},
+                _ = shutdown_rx => {
+                    println!("  gRPC server on {addr} received shutdown signal");
                 }
             }
+            println!("  gRPC server on {addr} exited cleanly");
         });
 
         Ok(())
@@ -451,7 +501,7 @@ struct MultiMethodServiceWrapper {
     inner: Arc<MultiMethodGrpcService>,
 }
 
-impl Service<http::Request<BoxBody>> for MultiMethodServiceWrapper {
+impl TowerService<http::Request<BoxBody>> for MultiMethodServiceWrapper {
     type Response = http::Response<BoxBody>;
     type Error = std::convert::Infallible;
     type Future = std::pin::Pin<
@@ -659,8 +709,167 @@ impl Service<http::Request<BoxBody>> for MultiMethodServiceWrapper {
     }
 }
 
+// Implement NamedService to satisfy tonic's add_service() requirement
+// We use an empty string because our custom call() method handles all routing dynamically
 impl NamedService for MultiMethodServiceWrapper {
-    // TEMPORARY: Hardcoded name to test if tonic routing works at all
-    // TODO: This needs to be dynamic or we need a different approach
-    const NAME: &'static str = "calculator.Calculator";
+    const NAME: &'static str = "";
+}
+
+/// Combined service that routes between reflection and dynamic gRPC handler
+#[derive(Clone)]
+struct CombinedService<R> {
+    reflection: R,
+    dynamic_router: MultiMethodServiceWrapper,
+}
+
+impl<R> TowerService<http::Request<BoxBody>> for CombinedService<R>
+where
+    R: TowerService<
+            http::Request<BoxBody>,
+            Response = http::Response<BoxBody>,
+            Error = std::convert::Infallible,
+        > + Clone
+        + Send
+        + 'static,
+    R::Future: Send + 'static,
+{
+    type Response = http::Response<BoxBody>;
+    type Error = std::convert::Infallible;
+    type Future = std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = std::result::Result<Self::Response, Self::Error>>
+                + Send,
+        >,
+    >;
+
+    fn poll_ready(
+        &mut self,
+        _cx: &mut TaskContext<'_>,
+    ) -> Poll<std::result::Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, req: http::Request<BoxBody>) -> Self::Future {
+        let path = req.uri().path().to_string();
+        let mut reflection = self.reflection.clone();
+        let mut router = self.dynamic_router.clone();
+
+        Box::pin(async move {
+            // Route reflection requests to reflection service
+            // gRPC reflection uses paths like:
+            // - /grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo
+            // - /grpc.reflection.v1.ServerReflection/ServerReflectionInfo
+            if path.contains("grpc.reflection") || path.contains("ServerReflection") {
+                println!("  Routing to reflection service: {path}");
+                reflection.call(req).await
+            } else {
+                // All other requests go to our dynamic handler
+                println!("  Routing to dynamic handler: {path}");
+                router.call(req).await
+            }
+        })
+    }
+}
+
+impl<R> NamedService for CombinedService<R> {
+    const NAME: &'static str = "";
+}
+
+/// Adapter to convert reflection service's Body type to BoxBody
+#[derive(Clone)]
+struct ReflectionAdapter<S> {
+    inner: S,
+}
+
+impl<S, B> TowerService<http::Request<BoxBody>> for ReflectionAdapter<S>
+where
+    S: TowerService<
+            http::Request<BoxBody>,
+            Response = http::Response<B>,
+            Error = std::convert::Infallible,
+        > + Clone
+        + Send
+        + 'static,
+    S::Future: Send + 'static,
+    B: http_body::Body + Send + 'static,
+    B::Data: bytes::Buf + Send,
+    B::Error: Into<Box<dyn std::error::Error + Send + Sync>> + Send,
+{
+    type Response = http::Response<BoxBody>;
+    type Error = std::convert::Infallible;
+    type Future = std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = std::result::Result<Self::Response, Self::Error>>
+                + Send,
+        >,
+    >;
+
+    fn poll_ready(
+        &mut self,
+        cx: &mut TaskContext<'_>,
+    ) -> Poll<std::result::Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, req: http::Request<BoxBody>) -> Self::Future {
+        let future = self.inner.call(req);
+
+        Box::pin(async move {
+            let response = future.await?;
+            // Convert the body type from tonic::body::Body to BoxBody by mapping frames
+            let (parts, body) = response.into_parts();
+
+            // Use map_frame to convert frame-by-frame without collecting
+            use http_body_util::BodyExt as _;
+            let mapped_body = body
+                .map_frame(|frame| {
+                    frame.map_data(|mut data| {
+                        // Convert Buf to Bytes
+                        data.copy_to_bytes(data.remaining())
+                    })
+                })
+                .map_err(|e| Status::from_error(e.into()));
+
+            let boxed_body = BoxBody::new(mapped_body);
+            Ok(http::Response::from_parts(parts, boxed_body))
+        })
+    }
+}
+
+/// Adapter to convert between hyper's Incoming body and tonic's BoxBody
+#[derive(Clone)]
+struct HyperAdapter<S> {
+    inner: S,
+}
+
+impl<S> HyperService<http::Request<hyper::body::Incoming>> for HyperAdapter<S>
+where
+    S: TowerService<
+            http::Request<BoxBody>,
+            Response = http::Response<BoxBody>,
+            Error = std::convert::Infallible,
+        > + Clone
+        + Send
+        + 'static,
+    S::Future: Send + 'static,
+{
+    type Response = http::Response<BoxBody>;
+    type Error = std::convert::Infallible;
+    type Future = std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = std::result::Result<Self::Response, Self::Error>>
+                + Send,
+        >,
+    >;
+
+    fn call(&self, req: http::Request<hyper::body::Incoming>) -> Self::Future {
+        // Convert hyper::body::Incoming to BoxBody
+        let (parts, body) = req.into_parts();
+        let boxed_body = BoxBody::new(body.map_err(|e| Status::internal(e.to_string())));
+        let req = http::Request::from_parts(parts, boxed_body);
+
+        // Clone inner service and call it
+        let mut inner = self.inner.clone();
+        Box::pin(async move { inner.call(req).await })
+    }
 }

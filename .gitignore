@@ -35,3 +35,4 @@ workflow.db
 
 # Generated documentation
 /docs/book/
+examples/**/node_modules/

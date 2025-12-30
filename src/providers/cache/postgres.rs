@@ -27,7 +27,7 @@ impl PostgresCache {
     /// ```
     pub async fn new(database_url: &str) -> Result<Self> {
         let pool = PgPoolOptions::new()
-            .max_connections(20)
+            .max_connections(5)
             .connect(database_url)
             .await
             .map_err(|e| Error::Database {
@@ -143,6 +143,7 @@ impl CacheProvider for PostgresCache {
 mod tests {
     use super::*;
     use chrono::Utc;
+    use serial_test::serial;
     use testcontainers::{GenericImage, ImageExt, runners::AsyncRunner};
 
     async fn setup_postgres_container() -> (testcontainers::ContainerAsync<GenericImage>, String) {
@@ -164,13 +165,43 @@ mod tests {
             .expect("Failed to get port");
         let database_url = format!("postgresql://postgres:postgres@localhost:{}/test_db", port);
 
-        // Wait for PostgreSQL to be fully ready and accept connections
-        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+        // Retry connection with exponential backoff to ensure PostgreSQL is ready
+        let mut retries = 0;
+        let max_retries = 10;
+        loop {
+            match PgPoolOptions::new()
+                .max_connections(5)
+                .connect(&database_url)
+                .await
+            {
+                Ok(pool) => {
+                    // Successfully connected, close the test pool
+                    pool.close().await;
+                    break;
+                }
+                Err(e) if retries < max_retries => {
+                    retries += 1;
+                    let backoff_ms = 2u64.pow(retries) * 100; // 200ms, 400ms, 800ms, etc.
+                    eprintln!(
+                        "PostgreSQL not ready yet (attempt {}/{}): {}. Retrying in {}ms...",
+                        retries, max_retries, e, backoff_ms
+                    );
+                    tokio::time::sleep(tokio::time::Duration::from_millis(backoff_ms)).await;
+                }
+                Err(e) => {
+                    panic!(
+                        "Failed to connect to PostgreSQL after {} retries: {}",
+                        max_retries, e
+                    );
+                }
+            }
+        }
 
         (container, database_url)
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_postgres_cache_basic_operations() {
         let (_container, database_url) = setup_postgres_container().await;
         let cache = PostgresCache::new(&database_url).await.unwrap();
@@ -199,6 +230,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_postgres_cache_upsert() {
         let (_container, database_url) = setup_postgres_container().await;
         let cache = PostgresCache::new(&database_url).await.unwrap();
@@ -227,6 +259,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_postgres_cache_get_nonexistent() {
         let (_container, database_url) = setup_postgres_container().await;
         let cache = PostgresCache::new(&database_url).await.unwrap();

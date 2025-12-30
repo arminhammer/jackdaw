@@ -452,7 +452,7 @@ pub async fn exec_run_task(
             command: cmd_with_args,
             stdin: stdin_data,
             environment,
-            working_dir: None, // TODO: Add working directory support if spec adds it
+            working_dir: None,
             volumes,
             ports,
         };

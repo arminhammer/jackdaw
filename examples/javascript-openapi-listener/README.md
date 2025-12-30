@@ -11,23 +11,6 @@ The example implements a Calculator REST API with three endpoints:
 
 The workflow uses HTTP listeners to receive requests, validates them against an OpenAPI schema, and routes them to JavaScript handler functions.
 
-**Note**: This example uses **JavaScript ES2024** (not TypeScript) as specified in the Serverless Workflow DSL specification. Handlers use JSDoc comments for type documentation instead of TypeScript type annotations.
-
-## Project Structure
-
-```
-javascript-openapi-listener/
-├── Dockerfile                 # Container image definition
-├── calculator-api.sw.yaml     # Serverless Workflow definition
-├── openapi.spec.yaml          # OpenAPI 3.0 specification
-├── deno.json                  # Deno configuration (includes axios dependency)
-├── src/                       # JavaScript handler modules
-│   ├── add.js                # Add operation handler
-│   ├── multiply.js           # Multiply operation handler
-│   └── get_pet.js            # Get pet handler (uses axios npm package)
-└── README.md
-```
-
 ## How It Works
 
 ### 1. HTTP Listeners
@@ -63,7 +46,7 @@ foreach:
   item: event
   do:
     - executeAdd:
-        call: typescript  # Uses Deno runtime for ES2024 JavaScript
+        call: javascript
         with:
           module: src/add.js
           function: handler
@@ -71,9 +54,7 @@ foreach:
             - ${ $event }
 ```
 
-### 4. JavaScript ES2024 Handlers
-
-Handlers are pure JavaScript (ES2024) with JSDoc for documentation:
+### 4. JavaScript Handlers
 
 ```javascript
 /**
@@ -163,13 +144,6 @@ Expected response (fetched from petstore API):
 }
 ```
 
-This demonstrates that:
-- **Third-party npm packages work** - Uses `axios` via Deno's npm: specifier
-- Handlers can make external HTTP calls using popular libraries
-- GET requests with path parameters work correctly
-- OpenAPI schema validation works for all HTTP methods
-- Dependencies are declared in `deno.json` and auto-installed by Deno
-
 ## Development
 
 To work on the handlers locally:
@@ -178,36 +152,3 @@ To work on the handlers locally:
    ```bash
    jackdaw run calculator-api.sw.yaml --debug
    ```
-
-2. Format JavaScript code:
-   ```bash
-   deno fmt src/
-   ```
-
-3. Lint JavaScript code:
-   ```bash
-   deno lint src/
-   ```
-
-## JavaScript ES2024 vs TypeScript
-
-This example uses **JavaScript ES2024** as specified in the Serverless Workflow DSL specification, not TypeScript. Key differences:
-
-- ✅ **No type annotations** - Uses JSDoc comments for documentation
-- ✅ **No compilation step** - JavaScript runs directly
-- ✅ **Spec compliant** - Follows DSL language version requirements
-- ✅ **Built-in APIs** - Leverages ES2024 features like async/await, fetch, etc.
-
-While Deno supports TypeScript, the spec requires JavaScript ES2024 for portability across runtimes.
-
-## Production Considerations
-
-For production deployments:
-
-1. **Remove `--debug` flag** from the Dockerfile CMD
-2. **Add health check endpoint** to the OpenAPI spec and workflow
-3. **Configure HTTPS** with proper certificates
-4. **Set resource limits** in your container orchestrator
-5. **Add monitoring** and distributed tracing
-6. **Implement rate limiting** for external API calls
-7. **Add error handling** and retry logic for fetch operations
