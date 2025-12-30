@@ -1,22 +1,105 @@
-name: Build Release Binaries
+name: Release on Main Merge
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version tag (e.g., v0.1.0)'
-        required: true
-        default: 'v0.1.0'
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
+  check-changes:
+    name: Check for Version Changes
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.version_check.outputs.should_release }}
+      version: ${{ steps.version_check.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check if version changed
+        id: version_check
+        run: |
+          # Get current version from Cargo.toml
+          CURRENT_VERSION=$(grep -m1 '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+          echo "Current version: $CURRENT_VERSION"
+          echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+
+          # Check if this is a manual workflow dispatch
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Manual workflow dispatch - will release"
+            echo "should_release=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Check if version changed in the last commit
+          git diff HEAD~1 HEAD -- Cargo.toml | grep -q '^+version = ' && {
+            echo "Version changed in Cargo.toml - will release"
+            echo "should_release=true" >> $GITHUB_OUTPUT
+          } || {
+            echo "No version change detected - skipping release"
+            echo "should_release=false" >> $GITHUB_OUTPUT
+          }
+
+  build-and-push-docker:
+    name: Build and Push Docker Image
+    needs: check-changes
+    if: needs.check-changes.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}},value=v${{ needs.check-changes.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=v${{ needs.check-changes.outputs.version }}
+            type=semver,pattern={{major}},value=v${{ needs.check-changes.outputs.version }}
+            type=raw,value=latest
+            type=sha,prefix={{branch}}-
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ needs.check-changes.outputs.version }}
+
   build-linux:
-    name: Build Linux (${{ matrix.arch }})
+    name: Build Linux Binaries (${{ matrix.arch }})
+    needs: check-changes
+    if: needs.check-changes.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -30,7 +113,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and extract binary for ${{ matrix.arch }}
+      - name: Build binary for ${{ matrix.arch }}
         run: |
           mkdir -p dist
           docker buildx build \
@@ -42,11 +125,6 @@ jobs:
           # The binary will be extracted to dist/build/jackdaw
           mv dist/build/jackdaw dist/jackdaw-linux-${{ matrix.arch }}
 
-      - name: Verify binary
-        run: |
-          file ./dist/jackdaw-linux-${{ matrix.arch }}
-          ls -lh ./dist/jackdaw-linux-${{ matrix.arch }}
-
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -55,7 +133,9 @@ jobs:
           retention-days: 5
 
   build-macos:
-    name: Build macOS (${{ matrix.target }})
+    name: Build macOS Binaries (${{ matrix.target }})
+    needs: check-changes
+    if: needs.check-changes.outputs.should_release == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -85,11 +165,8 @@ jobs:
       - name: Setup Python library symlink
         run: |
           mkdir -p ~/lib
-          # Find the actual Python library location
           PYTHON_LIB=$(python3.14 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
           PYTHON_VERSION=$(python3.14 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
-
-          # Create symlink for pyo3
           if [ -f "$PYTHON_LIB/libpython${PYTHON_VERSION}.dylib" ]; then
             ln -sf "$PYTHON_LIB/libpython${PYTHON_VERSION}.dylib" ~/lib/libpython${PYTHON_VERSION}.dylib
           fi
@@ -104,11 +181,6 @@ jobs:
         env:
           RUSTFLAGS: "-L$HOME/lib"
 
-      - name: Verify binary
-        run: |
-          file target/${{ matrix.target }}/release/jackdaw
-          ls -lh target/${{ matrix.target }}/release/jackdaw
-
       - name: Prepare artifact
         run: |
           mkdir -p dist
@@ -122,8 +194,9 @@ jobs:
           retention-days: 5
 
   create-release:
-    name: Create Release
-    needs: [build-linux, build-macos]
+    name: Create GitHub Release
+    needs: [check-changes, build-and-push-docker, build-linux, build-macos]
+    if: needs.check-changes.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -151,29 +224,28 @@ jobs:
           sha256sum jackdaw-*.tar.gz > checksums.txt
           cat checksums.txt
 
-      - name: Determine version
-        id: version
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
-          else
-            echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Create Release
+      - name: Create or update release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.VERSION }}
-          name: Release ${{ steps.version.outputs.VERSION }}
+          tag_name: v${{ needs.check-changes.outputs.version }}
+          name: Release v${{ needs.check-changes.outputs.version }}
           draft: false
           prerelease: false
           files: |
             dist/jackdaw-*.tar.gz
             dist/checksums.txt
           body: |
-            ## Jackdaw Release ${{ steps.version.outputs.VERSION }}
+            ## Jackdaw Release v${{ needs.check-changes.outputs.version }}
 
-            ### Downloads
+            ### Docker Images
+
+            Pull the latest Docker image:
+            ```bash
+            docker pull ghcr.io/${{ github.repository }}:latest
+            docker pull ghcr.io/${{ github.repository }}:${{ needs.check-changes.outputs.version }}
+            ```
+
+            ### Binary Downloads
 
             - **Linux x86_64**: `jackdaw-linux-amd64.tar.gz`
             - **Linux ARM64**: `jackdaw-linux-arm64.tar.gz`
@@ -183,10 +255,17 @@ jobs:
             ### Requirements
 
             - Python 3.10+ (Python 3.10+ recommended)
-            - For Linux: `libpython3.10` or newer
+            - Node.js 18+ (for JavaScript execution)
+            - For Linux binaries: `libpython3.10` or newer
 
             ### Installation
 
+            #### Using Docker
+            ```bash
+            docker run --rm ghcr.io/${{ github.repository }}:latest --help
+            ```
+
+            #### Using Binary
             ```bash
             # Extract the binary
             tar -xzf jackdaw-<platform>.tar.gz
@@ -202,5 +281,9 @@ jobs:
             ### Checksums
 
             See `checksums.txt` for SHA256 checksums of all binaries.
+
+            ### What's Changed
+
+            See the [commit history](https://github.com/${{ github.repository }}/commits/v${{ needs.check-changes.outputs.version }}) for details.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
