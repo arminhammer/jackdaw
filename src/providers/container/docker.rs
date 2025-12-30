@@ -104,10 +104,10 @@ impl ContainerProvider for DockerProvider {
         };
 
         let image_parts: Vec<&str> = config.image.split(':').collect();
-        let (image_name, image_tag) = if image_parts.len() > 1 {
-            (image_parts[0], image_parts[1])
-        } else {
-            (config.image.as_str(), "latest")
+        let (image_name, image_tag) = match (image_parts.first(), image_parts.get(1)) {
+            (Some(&name), Some(&tag)) => (name, tag),
+            (Some(&name), None) => (name, "latest"),
+            _ => (config.image.as_str(), "latest"),
         };
 
         let create_image_options = CreateImageOptions {
