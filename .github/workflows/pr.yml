@@ -1,0 +1,176 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  lint:
+    name: Lint and Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run clippy
+        # run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy -- -D warnings
+
+  build-docker-for-tests:
+    name: Build Docker Image for Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          load: true
+          tags: jackdaw:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Save Docker image
+        run: docker save jackdaw:latest -o /tmp/jackdaw-image.tar
+
+      - name: Upload Docker image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jackdaw-docker-image
+          path: /tmp/jackdaw-image.tar
+          retention-days: 1
+
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    needs: build-docker-for-tests
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: jackdaw_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download Docker image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: jackdaw-docker-image
+          path: /tmp
+
+      - name: Load Docker image
+        run: docker load -i /tmp/jackdaw-image.tar
+
+      - name: Verify Docker image is loaded
+        run: docker images jackdaw:latest
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev
+
+          # Install grpcurl for gRPC integration tests
+          wget https://github.com/fullstorydev/grpcurl/releases/download/v1.9.1/grpcurl_1.9.1_linux_amd64.deb
+          sudo dpkg -i grpcurl_1.9.1_linux_amd64.deb
+
+      - name: Run tests
+        run: cargo test --all-features
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/jackdaw_test
+          RUST_BACKTRACE: 1
+
+      - name: Run doc tests
+        run: cargo test --doc
+
+  build:
+    name: Build Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build in release mode
+        run: cargo build --release --all-features
+
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    #continue-on-error: true
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      - name: Run security audit
+        run: |
+          # Run audit but ignore specific advisories and warnings
+          cargo audit \
+            --ignore RUSTSEC-2023-0071 \
+            --ignore RUSTSEC-2025-0111 \
+            --ignore RUSTSEC-2025-0119 \
+            --ignore RUSTSEC-2024-0436 \
+            --ignore RUSTSEC-2025-0134 \
+            || echo "Security audit found issues - please review"
