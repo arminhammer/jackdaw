@@ -491,7 +491,7 @@ curl -X POST http://localhost:8080/api/v1/add -H "Content-Type: application/json
 curl -X POST http://localhost:8080/api/v1/multiply -H "Content-Type: application/json" -d '{"a": 4, "b": 7}'
 ```
 
-![OpenAPI Listener](docs/vhs/listener-openapi.gif)
+<!-- ![OpenAPI Listener](docs/vhs/listener-openapi.gif) -->
 
 ##### gRPC Listeners
 
@@ -503,7 +503,7 @@ jackdaw run examples/python-grpc-listener/calculator-api.sw.yaml
 jackdaw run examples/javascript-grpc-listener/calculator-api.sw.yaml
 ```
 
-![gRPC Listener](docs/vhs/listener-grpc.gif)
+<!-- ![gRPC Listener](docs/vhs/listener-grpc.gif) -->
 
 ### `validate`
 
@@ -647,29 +647,29 @@ jackdaw run examples/rest/rest-api.sw.yaml
 
 ### 1.1 Document Metadata
 
-| Feature | Spec Section | Implementation | Maturity | Test Coverage |
-|---------|-------------|----------------|----------|---------------|
-| `document.dsl` | Required | ✅ Full | **Complete** | ✅ CTK + Validation |
-| `document.namespace` | Required | ✅ Full | **Complete** | ✅ CTK + Validation |
-| `document.name` | Required | ✅ Full | **Complete** | ✅ CTK + Validation |
-| `document.version` | Required | ✅ Full | **Complete** | ✅ CTK + Validation |
-| `document.title` | Optional | ✅ Full | **Complete** | ✅ Validation |
-| `document.summary` | Optional | ✅ Full | **Complete** | ✅ Validation |
-| `document.tags` | Optional | ✅ Full | **Complete** | ✅ Validation |
-| `document.metadata` | Optional | ✅ Full | **Complete** | ✅ Validation |
+| Feature | Implementation |
+|---------|----------------|
+| `document.dsl` | ✅ Full |
+| `document.namespace` | ✅ Full |
+| `document.name` | ✅ Full |
+| `document.version` | ✅ Full |
+| `document.title` | ✅ Full |
+| `document.summary` | ✅ Full |
+| `document.tags` | ✅ Full |
+| `document.metadata` | ✅ Full |
 
 ---
 
 ### 1.2 Top-Level Workflow Properties
 
-| Feature | Spec Section | Implementation | Maturity | Test Coverage |
-|---------|-------------|----------------|----------|---------------|
-| `input` | Schema + Filtering | ✅ Full | **Complete** | ✅ CTK Data Flow |
-| `use` | Reusable Components | ✅ Partial | **Beta** | ✅ Functions, ⚠️ Limited Auth |
-| `do` | Task List | ✅ Full | **Complete** | ✅ CTK All Features |
-| `timeout` | Duration | ✅ Full | **Complete** | ✅ 11 Integration Tests |
-| `output` | Schema + Filtering | ✅ Full | **Complete** | ✅ CTK Data Flow |
-| `schedule` | Trigger Config | ❌ Not Implemented | **Not Started** | ❌ None |
+| Feature | Implementation |
+|---------|----------------|
+| `input` | ✅ Full |
+| `use` | ✅ Partial |
+| `do` | ✅ Full |
+| `timeout` | ✅ Full |
+| `output` | ✅ Full |
+| `schedule` | ❌ Not Implemented |
 
 **Implementation Details:**
 
@@ -689,20 +689,20 @@ jackdaw run examples/rest/rest-api.sw.yaml
 
 ### 2.1 Core Task Types Implementation
 
-| Task Type | Spec Section | Implementation File | Maturity | CTK Tests | Unit Tests | Notes |
-|-----------|-------------|---------------------|----------|-----------|------------|-------|
-| **call** | §223-595 | [tasks/call.rs](src/durableengine/tasks/call.rs) | ✅ **Full** | 5 scenarios | - | HTTP, OpenAPI, Functions |
-| **run** | §752-933 | [tasks/run.rs](src/durableengine/tasks/run.rs) | ✅ **Full** | - | 7+ tests | Container, Script, Shell, Workflow |
-| **fork** | §596-619 | [tasks/fork.rs](src/durableengine/tasks/fork.rs) | ✅ **Full** | 1 scenario | - | Compete mode supported |
-| **for** | §660-696 | [tasks/for_loop.rs](src/durableengine/tasks/for_loop.rs) | ✅ **Full** | 1 scenario | - | Item/index variables |
-| **switch** | §951-985 | [tasks/switch.rs](src/durableengine/tasks/switch.rs) | ✅ **Full** | 3 scenarios | 1 test | Conditional branching |
-| **try** | §986-1034 | [tasks/try_catch.rs](src/durableengine/tasks/try_catch.rs) | ✅ **Full** | 2 scenarios | - | Error filtering & catching |
-| **emit** | §633-659 | [tasks/emit.rs](src/durableengine/tasks/emit.rs) | ✅ **Full** | 1 scenario | - | CloudEvents 1.0 |
-| **raise** | §728-751 | [tasks/raise.rs](src/durableengine/tasks/raise.rs) | ✅ **Full** | 1 scenario | - | RFC 7807 errors |
-| **wait** | §1035-1047 | [tasks/wait.rs](src/durableengine/tasks/wait.rs) | ✅ **Full** | - | 7 tests | ISO 8601 durations |
-| **set** | §934-950 | [tasks/mod.rs:217-255](src/durableengine/tasks/mod.rs) | ✅ **Full** | 1 scenario | - | Variable setting |
-| **do** | §620-632 | [tasks/mod.rs:257-284](src/durableengine/tasks/mod.rs) | ✅ **Full** | 1 scenario | - | Sequential composition |
-| **listen** | §697-727 | [tasks/mod.rs:286-332](src/durableengine/tasks/mod.rs) | ✅ **Full** | - | 4 tests | Event consumption |
+| Task Type | Implementation File | Notes |
+|-----------|---------------------|-------|
+| **call** | [tasks/call.rs](src/durableengine/tasks/call.rs) | HTTP, OpenAPI, Functions |
+| **run** | [tasks/run.rs](src/durableengine/tasks/run.rs) | Container, Script, Shell, Workflow |
+| **fork** | [tasks/fork.rs](src/durableengine/tasks/fork.rs) | Compete mode supported |
+| **for** | [tasks/for_loop.rs](src/durableengine/tasks/for_loop.rs) | Item/index variables |
+| **switch** | [tasks/switch.rs](src/durableengine/tasks/switch.rs) | Conditional branching |
+| **try** | [tasks/try_catch.rs](src/durableengine/tasks/try_catch.rs) | Error filtering & catching |
+| **emit** | [tasks/emit.rs](src/durableengine/tasks/emit.rs) | CloudEvents 1.0 |
+| **raise** | [tasks/raise.rs](src/durableengine/tasks/raise.rs) | RFC 7807 errors |
+| **wait** | [tasks/wait.rs](src/durableengine/tasks/wait.rs) | ISO 8601 durations |
+| **set** | [tasks/mod.rs:217-255](src/durableengine/tasks/mod.rs) | Variable setting |
+| **do** | [tasks/mod.rs:257-284](src/durableengine/tasks/mod.rs) | Sequential composition |
+| **listen** | [tasks/mod.rs:286-332](src/durableengine/tasks/mod.rs) | Event consumption |
 
 ---
 
@@ -710,15 +710,15 @@ jackdaw run examples/rest/rest-api.sw.yaml
 
 All task types inherit from `taskBase` with these common properties:
 
-| Property | Spec Ref | Implementation | Maturity | Test Coverage |
-|----------|----------|----------------|----------|---------------|
-| `if` | §172-175 | ✅ Full | **Complete** | ✅ Implicit in CTK |
-| `input` | §176-179 | ✅ Full | **Complete** | ✅ CTK Data Flow |
-| `output` | §180-183 | ✅ Full | **Complete** | ✅ CTK Data Flow |
-| `export` | §184-187 | ✅ Full | **Complete** | ✅ Integration Tests |
-| `timeout` | §188-196 | ✅ Full | **Complete** | ✅ 11 Timeout Tests |
-| `then` | §197-200 | ✅ Full | **Complete** | ✅ CTK Flow |
-| `metadata` | §201-205 | ✅ Full | **Complete** | ✅ Validation |
+| Property | Implementation |
+|----------|----------------|
+| `if` | ✅ Full |
+| `input` | ✅ Full |
+| `output` | ✅ Full |
+| `export` | ✅ Full |
+| `timeout` | ✅ Full |
+| `then` | ✅ Full |
+| `metadata` | ✅ Full |
 
 ---
 
@@ -726,31 +726,31 @@ All task types inherit from `taskBase` with these common properties:
 
 ### 3.1 Call Variants
 
-| Call Type | Spec Section | Executor | Implementation | Maturity | Test Coverage |
-|-----------|-------------|----------|----------------|----------|---------------|
-| **HTTP** | §338-392 | `RestExecutor` | ✅ Full | **Complete** | ✅ 3 CTK scenarios + 3 redirect tests |
-| **OpenAPI** | §393-436 | `OpenApiExecutor` | ✅ Full | **Complete** | ✅ 2 CTK scenarios |
-| **gRPC** | §282-337 | - | ❌ Not Implemented | **Not Started** | ❌ None |
-| **AsyncAPI** | §227-281 | - | ❌ Not Implemented | **Not Started** | ❌ None |
-| **A2A** | §437-475 | - | ❌ Not Implemented | **Not Started** | ❌ None |
-| **MCP** | §476-577 | - | ❌ Not Implemented | **Not Started** | ❌ None |
-| **Function** | §578-595 | `catalog` lookup | ✅ Full | **Complete** | ✅ Implicit in examples |
+| Call Type | Executor | Implementation |
+|-----------|----------|----------------|
+| **HTTP** | `RestExecutor` | ✅ Full |
+| **OpenAPI** | `OpenApiExecutor` | ✅ Full |
+| **gRPC** | - | ❌ Not Implemented |
+| **AsyncAPI** | - | ❌ Not Implemented |
+| **A2A** | - | ❌ Not Implemented |
+| **MCP** | - | ❌ Not Implemented |
+| **Function** | `catalog` lookup | ✅ Full |
 
 ---
 
 ### 3.2 HTTP Call Features
 
-| Feature | Spec Ref | Implementation | Maturity | Test Coverage |
-|---------|----------|----------------|----------|---------------|
-| HTTP Methods (GET/POST/PUT/DELETE) | §354 | ✅ Full | **Complete** | ✅ CTK |
-| URI Templates | §359 | ✅ Full | **Complete** | ✅ CTK |
-| Path Parameter Interpolation | § | ✅ Full | **Complete** | ✅ CTK |
-| Headers | §362-369 | ✅ Full | **Complete** | ✅ CTK |
-| Query Parameters | §373-381 | ✅ Full | **Complete** | ✅ CTK |
-| Request Body | §370-372 | ✅ Full | **Complete** | ✅ CTK |
-| Output Modes (content/response/raw) | §382-386 | ✅ Full | **Complete** | ✅ CTK |
-| Redirect Handling | §387-390 | ✅ Full | **Complete** | ✅ 3 Integration Tests |
-| Authentication | §361 | ⚠️ Basic Only | **Beta** | ✅ 1 CTK scenario |
+| Feature | Implementation |
+|---------|----------------|
+| HTTP Methods (GET/POST/PUT/DELETE) | ✅ Full |
+| URI Templates | ✅ Full |
+| Path Parameter Interpolation | ✅ Full |
+| Headers | ✅ Full |
+| Query Parameters | ✅ Full |
+| Request Body | ✅ Full |
+| Output Modes (content/response/raw) | ✅ Full |
+| Redirect Handling | ✅ Full |
+| Authentication | ⚠️ Basic Only |
 
 **Output Modes:**
 - `content` (default) - Response body only
@@ -761,14 +761,14 @@ All task types inherit from `taskBase` with these common properties:
 
 ### 3.3 OpenAPI Call Features
 
-| Feature | Spec Ref | Implementation | Maturity | Test Coverage |
-|---------|----------|----------------|----------|---------------|
-| Document Loading (URI) | §409-412 | ✅ Full | **Complete** | ✅ CTK |
-| Operation by operationId | §413-416 | ✅ Full | **Complete** | ✅ CTK |
-| Parameter Mapping | §417-421 | ✅ Full | **Complete** | ✅ CTK |
-| Output Modes | §426-430 | ✅ Full | **Complete** | ✅ CTK |
-| Authentication | §422-425 | ❌ Not Implemented | **Not Started** | ❌ None |
-| Redirect Handling | §431-434 | ✅ Full | **Complete** | ✅ Inherited from HTTP |
+| Feature | Implementation |
+|---------|----------------|
+| Document Loading (URI) | ✅ Full |
+| Operation by operationId | ✅ Full |
+| Parameter Mapping | ✅ Full |
+| Output Modes | ✅ Full |
+| Authentication | ❌ Not Implemented |
+| Redirect Handling | ✅ Full |
 
 **Supported OpenAPI Versions:**
 - Swagger 2.0 ✅
@@ -780,28 +780,28 @@ All task types inherit from `taskBase` with these common properties:
 
 ### 4.1 Run Variants
 
-| Run Mode | Spec Section | Implementation | Maturity | Test Coverage |
-|----------|-------------|----------------|----------|---------------|
-| **Container** | §779-826 | ✅ Full | **Complete** | ✅ Integration Tests |
-| **Script** | §828-873 | ✅ Full | **Complete** | ✅ CTK Examples |
-| **Shell** | §875-903 | ✅ Full | **Complete** | ✅ Integration Tests |
-| **Workflow** | §905-933 | ✅ Full | **Complete** | ✅ Nested Workflow Tests |
+| Run Mode | Implementation |
+|----------|----------------|
+| **Container** | ✅ Full |
+| **Script** | ✅ Full |
+| **Shell** | ✅ Full |
+| **Workflow** | ✅ Full |
 
 ---
 
 ### 4.2 Container Execution
 
-| Feature | Spec Ref | Implementation | Maturity | Test Coverage |
-|---------|----------|----------------|----------|---------------|
-| Image Name | §788-791 | ✅ Full | **Complete** | ✅ Tests |
-| Container Name | §792-795 | ✅ Full | **Complete** | ✅ Tests |
-| Command Override | §796-799 | ✅ Full | **Complete** | ✅ Tests |
-| Port Mappings | §800-803 | ✅ Full | **Complete** | ✅ Tests |
-| Volume Mounts | §804-807 | ✅ Full | **Complete** | ✅ Tests |
-| Environment Variables | §808-811 | ✅ Full | **Complete** | ✅ 1 Integration Test |
-| Stdin Input | §812-815 | ✅ Full | **Complete** | ✅ CTK Example |
-| Arguments (argv) | §816-821 | ✅ Full | **Complete** | ✅ CTK Example |
-| Lifetime/Cleanup Policy | §822-825 | ✅ Full | **Complete** | ✅ Tests |
+| Feature | Implementation |
+|---------|----------------|
+| Image Name | ✅ Full |
+| Container Name | ✅ Full |
+| Command Override | ✅ Full |
+| Port Mappings | ✅ Full |
+| Volume Mounts | ✅ Full |
+| Environment Variables | ✅ Full |
+| Stdin Input | ✅ Full |
+| Arguments (argv) | ✅ Full |
+| Lifetime/Cleanup Policy | ✅ Full |
 
 **Cleanup Policies:**
 - `always` - Remove after completion
@@ -812,14 +812,14 @@ All task types inherit from `taskBase` with these common properties:
 
 ### 4.3 Script Execution
 
-| Feature | Spec Ref | Implementation | Maturity | Test Coverage |
-|---------|----------|----------------|----------|---------------|
-| Language Selection | §838-840 | ✅ Full | **Complete** | ✅ Examples |
-| Inline Code | §858-863 | ✅ Full | **Complete** | ✅ Examples |
-| External Source (file://, http://, https://) | §865-871 | ✅ Full | **Complete** | ✅ Examples |
-| Stdin Input | §841-844 | ✅ Full | **Complete** | ✅ Examples |
-| Arguments (argv) | §845-850 | ✅ Full | **Complete** | ✅ Examples |
-| Environment Variables | §851-855 | ✅ Full | **Complete** | ✅ Examples |
+| Feature | Implementation |
+|---------|----------------|
+| Language Selection | ✅ Full |
+| Inline Code | ✅ Full |
+| External Source (file://, http://, https://) | ✅ Full |
+| Stdin Input | ✅ Full |
+| Arguments (argv) | ✅ Full |
+| Environment Variables | ✅ Full |
 
 **Supported Languages:**
 - **Python** - External executor via `PythonExecutor`
@@ -829,23 +829,23 @@ All task types inherit from `taskBase` with these common properties:
 
 ### 4.4 Shell Command Execution
 
-| Feature | Spec Ref | Implementation | Maturity | Test Coverage |
-|---------|----------|----------------|----------|---------------|
-| Command String | §884-887 | ✅ Full | **Complete** | ✅ Tests |
-| Stdin Input | §888-891 | ✅ Full | **Complete** | ✅ Tests |
-| Arguments (argv) | §892-897 | ✅ Full | **Complete** | ✅ Tests |
-| Environment Variables | §898-902 | ✅ Full | **Complete** | ✅ Tests |
+| Feature | Implementation |
+|---------|----------------|
+| Command String | ✅ Full |
+| Stdin Input | ✅ Full |
+| Arguments (argv) | ✅ Full |
+| Environment Variables | ✅ Full |
 
 ---
 
 ### 4.5 Run Task Common Features
 
-| Feature | Spec Ref | Implementation | Maturity | Test Coverage |
-|---------|----------|----------------|----------|---------------|
-| Await Process Completion | §768-771 | ✅ Full | **Complete** | ✅ Tests |
-| Return Modes (stdout/stderr/code/all/none) | §772-777 | ✅ Full | **Complete** | ✅ Tests |
-| Real-time Output Streaming | - | ✅ Full | **Complete** | ✅ Tests |
-| Exit Code Validation | - | ✅ Full | **Complete** | ✅ Tests |
+| Feature | Implementation |
+|---------|----------------|
+| Await Process Completion | ✅ Full |
+| Return Modes (stdout/stderr/code/all/none) | ✅ Full |
+| Real-time Output Streaming | ✅ Full |
+| Exit Code Validation | ✅ Full |
 
 **Return Modes:**
 - `stdout` (default) - Standard output only
@@ -860,39 +860,39 @@ All task types inherit from `taskBase` with these common properties:
 
 ### 5.1 Expression Engine
 
-| Feature | Implementation | Maturity | Test Coverage |
-|---------|----------------|----------|---------------|
-| **JQ Expression Evaluation** | ✅ Full | **Complete** | ✅ CTK Data Flow |
-| **Null-Safe Field Access** | ✅ Full | **Complete** | ✅ Unit Tests |
-| **Null-Safe Array Operations** | ✅ Full | **Complete** | ✅ Unit Tests |
-| **Variable References ($var)** | ✅ Full | **Complete** | ✅ CTK |
-| **String Interpolation** | ✅ Full | **Complete** | ✅ CTK |
-| **Complex Expressions** | ✅ Full | **Complete** | ✅ CTK |
+| Feature | Implementation |
+|---------|----------------|
+| **JQ Expression Evaluation** | ✅ Full |
+| **Null-Safe Field Access** | ✅ Full |
+| **Null-Safe Array Operations** | ✅ Full |
+| **Variable References ($var)** | ✅ Full |
+| **String Interpolation** | ✅ Full |
+| **Complex Expressions** | ✅ Full |
 
 ---
 
 ### 5.2 Input/Output Filtering
 
-| Feature | Spec Section | Implementation | Maturity | Test Coverage |
-|---------|-------------|----------------|----------|---------------|
-| **Workflow Input Schema** | §1613-1629 | ✅ Full | **Complete** | ✅ Validation |
-| **Workflow Input Filtering** (`input.from`) | §1623-1628 | ✅ Full | **Complete** | ✅ CTK Data Flow |
-| **Task Input Schema** | §176-179 | ✅ Full | **Complete** | ✅ Tests |
-| **Task Input Filtering** (`input.from`) | §176-179 | ✅ Full | **Complete** | ✅ 1 CTK Scenario |
-| **Task Output Schema** | §180-183 | ✅ Full | **Complete** | ✅ Tests |
-| **Task Output Filtering** (`output.as`) | §180-183 | ✅ Full | **Complete** | ✅ 2 CTK Scenarios |
-| **Workflow Output Schema** | §1630-1645 | ✅ Full | **Complete** | ✅ Validation |
-| **Workflow Output Filtering** (`output.as`) | §1639-1644 | ✅ Full | **Complete** | ✅ CTK |
+| Feature | Implementation |
+|---------|----------------|
+| **Workflow Input Schema** | ✅ Full |
+| **Workflow Input Filtering** (`input.from`) | ✅ Full |
+| **Task Input Schema** | ✅ Full |
+| **Task Input Filtering** (`input.from`) | ✅ Full |
+| **Task Output Schema** | ✅ Full |
+| **Task Output Filtering** (`output.as`) | ✅ Full |
+| **Workflow Output Schema** | ✅ Full |
+| **Workflow Output Filtering** (`output.as`) | ✅ Full |
 
 ---
 
 ### 5.3 Export (Context Management)
 
-| Feature | Spec Section | Implementation | Maturity | Test Coverage |
-|---------|-------------|----------------|----------|---------------|
-| Export Schema | §1646-1661 | ✅ Full | **Complete** | ✅ Tests |
-| Export Expression (`export.as`) | §1655-1660 | ✅ Full | **Complete** | ✅ Tests |
-| Context Variable Storage | - | ✅ Full | **Complete** | ✅ Tests |
+| Feature | Implementation |
+|---------|----------------|
+| Export Schema | ✅ Full |
+| Export Expression (`export.as`) | ✅ Full |
+| Context Variable Storage | ✅ Full |
 
 ---
 
@@ -900,22 +900,22 @@ All task types inherit from `taskBase` with these common properties:
 
 ### 6.1 Flow Directives
 
-| Directive | Spec Section | Implementation | Maturity | Test Coverage |
-|-----------|-------------|----------------|----------|---------------|
-| **continue** | §1048-1055 | ✅ Full | **Complete** | ✅ CTK Flow |
-| **exit** | §1048-1055 | ✅ Full | **Complete** | ✅ 1 Integration Test |
-| **end** | §1048-1055 | ✅ Full | **Complete** | ✅ 1 Integration Test |
-| **Task Reference** (then: taskName) | §197-200 | ✅ Full | **Complete** | ✅ CTK Flow |
+| Directive | Implementation |
+|-----------|----------------|
+| **continue** | ✅ Full |
+| **exit** | ✅ Full |
+| **end** | ✅ Full |
+| **Task Reference** (then: taskName) | ✅ Full |
 
 ---
 
 ### 6.2 Conditional Execution
 
-| Feature | Spec Section | Implementation | Maturity | Test Coverage |
-|---------|-------------|----------------|----------|---------------|
-| Task Condition (`if`) | §172-175 | ✅ Full | **Complete** | ✅ Implicit |
-| Switch Cases (`when`) | §976-980 | ✅ Full | **Complete** | ✅ 3 CTK Scenarios |
-| Switch Default Case | §968-973 | ✅ Full | **Complete** | ✅ 2 CTK Scenarios |
+| Feature | Implementation |
+|---------|----------------|
+| Task Condition (`if`) | ✅ Full |
+| Switch Cases (`when`) | ✅ Full |
+| Switch Default Case | ✅ Full |
 
 ---
 
@@ -923,41 +923,41 @@ All task types inherit from `taskBase` with these common properties:
 
 ### 7.1 Error Definition & Raising
 
-| Feature | Spec Section | Implementation | Maturity | Test Coverage |
-|---------|-------------|----------------|----------|---------------|
-| **Error Type (URI)** | §1352-1362 | ✅ Full | **Complete** | ✅ CTK |
-| **Error Status** | §1363-1366 | ✅ Full | **Complete** | ✅ CTK |
-| **Error Instance (JSON Pointer)** | §1367-1377 | ✅ Full | **Complete** | ✅ CTK |
-| **Error Title** | §1378-1385 | ✅ Full | **Complete** | ✅ CTK |
-| **Error Detail** | §1386-1393 | ✅ Full | **Complete** | ✅ CTK |
-| **Error References** (`use.errors`) | §68-73 | ⚠️ Partial | **Beta** | ❌ None |
+| Feature | Implementation |
+|---------|----------------|
+| **Error Type (URI)** | ✅ Full |
+| **Error Status** | ✅ Full |
+| **Error Instance (JSON Pointer)** | ✅ Full |
+| **Error Title** | ✅ Full |
+| **Error Detail** | ✅ Full |
+| **Error References** (`use.errors`) | ⚠️ Partial |
 
 ---
 
 ### 7.2 Error Catching & Recovery
 
-| Feature | Spec Section | Implementation | Maturity | Test Coverage |
-|---------|-------------|----------------|----------|---------------|
-| **Error Type Filtering** | §1004-1010 | ✅ Full | **Complete** | ✅ 2 CTK Scenarios |
-| **Error Status Filtering** | §1004-1010 | ✅ Full | **Complete** | ✅ CTK |
-| **Runtime Error Filtering** (`when`) | §1015-1018 | ✅ Full | **Complete** | ✅ Tests |
-| **Error Variable Binding** (`as`) | §1011-1014 | ✅ Full | **Complete** | ✅ CTK |
-| **Catch Handler Tasks** (`do`) | §1031-1034 | ✅ Full | **Complete** | ✅ CTK |
-| **Retry Policies** | §1023-1030 | ⚠️ Partial | **Beta** | ⚠️ Limited |
+| Feature | Implementation |
+|---------|----------------|
+| **Error Type Filtering** | ✅ Full |
+| **Error Status Filtering** | ✅ Full |
+| **Runtime Error Filtering** (`when`) | ✅ Full |
+| **Error Variable Binding** (`as`) | ✅ Full |
+| **Catch Handler Tasks** (`do`) | ✅ Full |
+| **Retry Policies** | ⚠️ Partial |
 
 ---
 
 ### 7.3 Timeout Handling
 
-| Feature | Spec Section | Implementation | Maturity | Test Coverage |
-|---------|-------------|----------------|----------|---------------|
-| **Workflow Timeout** | §120-128 | ✅ Full | **Complete** | ✅ 2 Tests |
-| **Task Timeout** | §188-196 | ✅ Full | **Complete** | ✅ 2 Tests |
-| **Timeout Override** (Task > Workflow) | - | ✅ Full | **Complete** | ✅ 1 Test |
-| **ISO 8601 Durations** | §1312-1346 | ✅ Full | **Complete** | ✅ Tests |
-| **Inline Duration Objects** | §1314-1338 | ✅ Full | **Complete** | ✅ Tests |
-| **Runtime Expression Durations** | §1340-1342 | ✅ Full | **Complete** | ✅ Tests |
-| **Millisecond Precision** | - | ✅ Full | **Complete** | ✅ 1 Test |
+| Feature | Implementation |
+|---------|----------------|
+| **Workflow Timeout** | ✅ Full |
+| **Task Timeout** | ✅ Full |
+| **Timeout Override** (Task > Workflow) | ✅ Full |
+| **ISO 8601 Durations** | ✅ Full |
+| **Inline Duration Objects** | ✅ Full |
+| **Runtime Expression Durations** | ✅ Full |
+| **Millisecond Precision** | ✅ Full |
 
 ---
 
@@ -965,26 +965,26 @@ All task types inherit from `taskBase` with these common properties:
 
 ### 8.1 Authentication Policies
 
-| Auth Type | Spec Section | Implementation | Maturity | Test Coverage |
-|-----------|-------------|----------------|----------|---------------|
-| **Basic Auth** | §1090-1112 | ✅ Full | **Complete** | ✅ 1 CTK Scenario |
-| **Bearer Auth** | §1113-1132 | ❌ Not Implemented | **Not Started** | ❌ None |
-| **Digest Auth** | §1133-1155 | ❌ Not Implemented | **Not Started** | ❌ None |
-| **OAuth2** | §1156-1197 | ❌ Not Implemented | **Not Started** | ❌ None |
-| **OIDC** | §1198-1214 | ❌ Not Implemented | **Not Started** | ❌ None |
+| Auth Type | Implementation |
+|-----------|----------------|
+| **Basic Auth** | ✅ Full |
+| **Bearer Auth** | ❌ Not Implemented |
+| **Digest Auth** | ❌ Not Implemented |
+| **OAuth2** | ❌ Not Implemented |
+| **OIDC** | ❌ Not Implemented |
 
 ---
 
 ### 8.2 Secret Management
 
-| Feature | Spec Section | Implementation | Maturity | Test Coverage |
-|---------|-------------|----------------|----------|---------------|
-| **Secrets Declaration** (`use.secrets`) | §98-103 | ❌ Not Implemented | **Not Started** | ❌ None |
-| **Secret References** | - | ❌ Not Implemented | **Not Started** | ❌ None |
-| **Secret Vaulting** | - | ❌ Not Implemented | **Not Started** | ❌ None |
-| **Environment Variables** | - | ⚠️ Partial | **Beta** | ✅ Container Tests |
+| Feature | Implementation |
+|---------|----------------|
+| **Secrets Declaration** (`use.secrets`) | ❌ Not Implemented |
+| **Secret References** | ❌ Not Implemented |
+| **Secret Vaulting** | ❌ Not Implemented |
+| **Environment Variables** | ⚠️ Partial |
 
-**Note:** Environment variables can be passed to containers/scripts but no dedicated secret injection mechanism exists.
+**Note:** Environment variables can be passed to containers/scripts, but no dedicated secret injection mechanism exists.
 
 ---
 
@@ -1003,13 +1003,13 @@ All task types inherit from `taskBase` with these common properties:
 
 ### 9.1 Listen Task
 
-| Feature | Spec Section | Implementation | Maturity | Test Coverage |
-|---------|-------------|----------------|----------|---------------|
-| **Event Consumption Strategies** | §1504-1545 | ✅ Full | **Complete** | ✅ Tests |
-| **Event Filters** | §1546-1573 | ✅ Full | **Complete** | ✅ Tests |
-| **Read Modes** (data/envelope/raw) | §716-721 | ✅ Full | **Complete** | ✅ 4 Integration Tests |
-| **Foreach Iterator** | §723-726 | ✅ Full | **Complete** | ✅ Tests |
-| **Until Condition** | - | ✅ Full | **Complete** | ✅ Tests |
+| Feature | Implementation |
+|---------|----------------|
+| **Event Consumption Strategies** | ✅ Full |
+| **Event Filters** | ✅ Full |
+| **Read Modes** (data/envelope/raw) | ✅ Full |
+| **Foreach Iterator** | ✅ Full |
+| **Until Condition** | ✅ Full |
 
 **Read Modes:**
 - `data` - Extract CloudEvent data field only
@@ -1020,32 +1020,32 @@ All task types inherit from `taskBase` with these common properties:
 
 ### 9.2 Event Consumption Strategies
 
-| Strategy | Spec Section | Implementation | Maturity | Test Coverage |
-|----------|-------------|----------------|----------|---------------|
-| **One** - Single event | §1539-1545 | ✅ Full | **Complete** | ✅ Tests |
-| **All** - All specified events | §1510-1518 | ✅ Full | **Complete** | ✅ Tests |
-| **Any** - Any of specified events | §1519-1538 | ✅ Full | **Complete** | ✅ Tests |
+| Strategy | Implementation |
+|----------|----------------|
+| **One** - Single event | ✅ Full |
+| **All** - All specified events | ✅ Full |
+| **Any** - Any of specified events | ✅ Full |
 
 ---
 
 ### 9.3 Listener Implementations
 
-| Listener Type | Spec Section | Implementation | Maturity | Test Coverage |
-|---------------|-------------|----------------|----------|---------------|
-| **HTTP/OpenAPI** | - | ✅ Full | **Complete** | ✅ 2 Feature Tests |
-| **gRPC** | - | ✅ Full | **Complete** | ✅ 2 Feature Tests |
+| Listener Type | Implementation |
+|---------------|----------------|
+| **HTTP/OpenAPI** | ✅ Full |
+| **gRPC** | ✅ Full |
 
 ---
 
 ### 9.4 Event Emission (Emit Task)
 
-| Feature | Spec Section | Implementation | Maturity | Test Coverage |
-|---------|-------------|----------------|----------|---------------|
-| **CloudEvents 1.0 Format** | §648-658 | ✅ Full | **Complete** | ✅ 1 CTK Scenario |
-| **Event Properties** (id, source, type, etc.) | §1452-1503 | ✅ Full | **Complete** | ✅ CTK |
-| **Auto ID Generation** | - | ✅ Full | **Complete** | ✅ CTK |
-| **Timestamp Generation** | - | ✅ Full | **Complete** | ✅ CTK |
-| **Expression Evaluation** | - | ✅ Full | **Complete** | ✅ CTK |
+| Feature | Implementation |
+|---------|----------------|
+| **CloudEvents 1.0 Format** | ✅ Full |
+| **Event Properties** (id, source, type, etc.) | ✅ Full |
+| **Auto ID Generation** | ✅ Full |
+| **Timestamp Generation** | ✅ Full |
+| **Expression Evaluation** | ✅ Full |
 
 ---
 
@@ -1053,32 +1053,11 @@ All task types inherit from `taskBase` with these common properties:
 
 ### 10.1 Nested Workflows
 
-| Feature | Spec Section | Implementation | Maturity | Test Coverage |
-|---------|-------------|----------------|----------|---------------|
-| **Workflow References** (namespace/name/version) | §905-933 | ✅ Full | **Complete** | ✅ Feature Test |
-| **Input Passing** | §927-931 | ✅ Full | **Complete** | ✅ Tests |
-| **Latest Version Resolution** | §922-926 | ✅ Full | **Complete** | ✅ Tests |
-
----
-
-### 10.2 Caching
-
-| Feature | Implementation | Maturity | Test Coverage |
-|---------|----------------|----------|---------------|
-| **Hash-Based Caching** | ✅ Full | **Complete** | ✅ Implicit |
-| **Cache Key Computation** | ✅ Full | **Complete** | ✅ Implicit |
-| **Multiple Backends** | ✅ Full | **Complete** | ✅ Implicit |
-
----
-
-### 10.3 Persistence & Durability
-
-| Feature | Implementation | Maturity | Test Coverage |
-|---------|----------------|----------|---------------|
-| **Event Sourcing** | ✅ Full | **Complete** | ✅ 6 Event Tests |
-| **State Snapshots** | ✅ Full | **Complete** | ✅ Implicit |
-| **Recovery** | ✅ Full | **Complete** | ✅ Implicit |
-| **Multiple Backends** | ✅ Full | **Complete** | ✅ Implicit |
+| Feature | Implementation |
+|---------|----------------|
+| **Workflow References** (namespace/name/version) | ✅ Full |
+| **Input Passing** | ✅ Full |
+| **Latest Version Resolution** | ✅ Full |
 
 **Workflow Events:**
 - ✅ WorkflowStarted
@@ -1089,64 +1068,14 @@ All task types inherit from `taskBase` with these common properties:
 - ✅ WorkflowResumed
 
 **Task Events:**
-- ✅ TaskCreated - Tested in [tests/task_event_tests.rs](tests/task_event_tests.rs)
+- ✅ TaskCreated
 - ✅ TaskStarted
 - ✅ TaskCompleted
-- ✅ TaskRetried - Tested
+- ✅ TaskRetried
 - ✅ TaskFaulted
 - ✅ TaskCancelled
 - ✅ TaskSuspended
 - ✅ TaskResumed
-
----
-
-### 10.4 Visualization
-
-| Feature | Implementation | Maturity | Test Coverage |
-|---------|----------------|----------|---------------|
-| **Graphviz Diagrams** | ✅ Full | **Complete** | ⚠️ Manual |
-| **D2 Diagrams** | ✅ Full | **Complete** | ⚠️ Manual |
-| **Workflow Graph Structure** | ✅ Full | **Complete** | ✅ Validation Tests |
-
----
-
-### 10.5 Validation
-
-| Feature | Implementation | Maturity | Test Coverage |
-|---------|-------------|----------|---------------|
-| **Schema Validation** | ✅ Full | **Complete** | ✅ 3 Tests |
-| **Graph Structure Validation** | ✅ Full | **Complete** | ✅ Tests |
-| **Workflow Definition Validation** | ✅ Full | **Complete** | ✅ Tests |
-
----
-
-## 11. Test Coverage Summary
-
-### 11.1 Test Infrastructure
-
-| Test Type | Count | Location |
-|-----------|-------|----------|
-| **CTK Conformance Tests** | 20+ scenarios | [tests/ctk_conformance.rs](tests/ctk_conformance.rs) + [ctk/ctk/features/](ctk/ctk/features/) |
-| **Integration Tests** | 30+ tests | [tests/](tests/) |
-| **Unit Tests** | Embedded | Throughout source |
-
----
-
-### 11.2 CTK Conformance Coverage
-
-| Feature Category | CTK Feature File | Scenarios | Status |
-|------------------|------------------|-----------|--------|
-| **Call Task** | [call.feature](ctk/ctk/features/call.feature) | 5 | ✅ All Pass |
-| **Data Flow** | [data-flow.feature](ctk/ctk/features/data-flow.feature) | 3 | ✅ All Pass |
-| **Do Task** | [do.feature](ctk/ctk/features/do.feature) | 1 | ✅ Pass |
-| **Emit Task** | [emit.feature](ctk/ctk/features/emit.feature) | 1 | ✅ Pass |
-| **Flow Directive** | [flow.feature](ctk/ctk/features/flow.feature) | 2 | ✅ All Pass |
-| **For Task** | [for.feature](ctk/ctk/features/for.feature) | 1 | ✅ Pass |
-| **Raise Task** | [raise.feature](ctk/ctk/features/raise.feature) | 1 | ✅ Pass |
-| **Set Task** | [set.feature](ctk/ctk/features/set.feature) | 1 | ✅ Pass |
-| **Switch Task** | [switch.feature](ctk/ctk/features/switch.feature) | 3 | ✅ All Pass |
-| **Try Task** | [try.feature](ctk/ctk/features/try.feature) | 2 | ✅ All Pass |
-| **Fork Task** | [branch.feature](ctk/ctk/features/branch.feature) | 1 | ✅ Pass |
 
 ---
 

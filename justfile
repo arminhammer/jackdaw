@@ -265,7 +265,7 @@ vhs:
     vhs docs/vhs/run-javascript.tape
     vhs docs/vhs/cache-debug.tape
     vhs docs/vhs/persistence-demo.tape
-    # vhs docs/vhs/openapi-listener.tape
-    # vhs docs/vhs/grpc-listener.tape
-    # vhs docs/vhs/durable-workflow.tape
+    # vhs docs/vhs/listener-openapi.tape
+    # vhs docs/vhs/listener-grpc.tape
+    vhs docs/vhs/hello-world-validate.tape
 
