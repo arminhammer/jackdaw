@@ -63,7 +63,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: macos-13
+          - os: macos-15
             target: x86_64-apple-darwin
             arch: amd64
           - os: macos-latest
@@ -185,8 +185,8 @@ jobs:
 
             ### Requirements
 
-            - Python 3.10+ (Python 3.12+ recommended)
-            - For Linux: `libpython3.12` or newer
+            - Python 3.10+ (Python 3.10+ recommended)
+            - For Linux: `libpython3.10` or newer
 
             ### Installation
 
