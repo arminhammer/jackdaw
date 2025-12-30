@@ -1,12 +1,12 @@
 # jackdaw
 
-`jackdaw` is a workflow execution engine for the [Serverless Workflow](https://serverlessworkflow.io/) specification. It supports durable execution of workflows through a persistence layer, as well as caching execution to prevent duplicate execution of expensive workflow tasks. `jackdaw` is written in Rust, and is designed for extensibiliy, performance, and ease of deploymeny into many execution contexts. 
+`jackdaw` is a workflow execution engine for the [Serverless Workflow](https://serverlessworkflow.io/) specification. It supports durable execution of workflows through a persistence layer, as well as caching execution to prevent duplicate execution of expensive workflow tasks. `jackdaw` is written in Rust, and is designed for extensibility, performance, and ease of deployment into many execution contexts. 
 
 `jackdaw` is distributed as a static binary, as well as a Docker container image. It is cross-compiled for Linux AMD64 & ARM64, as well as a MacOS Universal Binary. It does not have a server component that needs to be installed, and is a self-contained CLI tool. This should make it easy to run as a standalone workflow executor, as well as embedded as part of a larger program.
 
 ### Serverless Workflow DSL
 
-Many modern software applications can be represented conceptually as a "workflow" (or [DAG](https://en.wikipedia.org/wiki/Directed_acyclic_graph)). Workflows are useful because they can help abstract away execution and integration details from the user's business logic. In addition, durable worklow execution engines have proven popular because they are able to handle the state management of long-running business processes. Unfortunately there are many workflow engines, and most have cumbersome server components that need to be deployed and maintained. Most have their own specific way of implementing workflows that make it hard to switch to other engines. Serverless Workflow is a fascinating DSL that attempts to provide a standard way of representing a workflow that is not tied to any particular engine implementation. 
+Many modern software applications can be represented conceptually as a "workflow" (or [DAG](https://en.wikipedia.org/wiki/Directed_acyclic_graph)). Workflows are useful because they can help abstract away execution and integration details from the user's business logic. In addition, durable workflow execution engines have proven popular because they are able to handle the state management of long-running business processes. Unfortunately there are many workflow engines, and most have cumbersome server components that need to be deployed and maintained. Most have their own specific way of implementing workflows that make it hard to switch to other engines. Serverless Workflow is a fascinating DSL that attempts to provide a standard way of representing a workflow that is not tied to any particular engine implementation. 
 
 Although `jackdaw` does not have a server component itself, it fully supports Serverless Workflow [Listeners](https://github.com/serverlessworkflow/specification/blob/main/dsl-reference.md#listen). This makes it possible to use `jackdaw` as a server that can trigger off of event types supported by Serverless Workflow, notably OpenAPI and gRPC specifications.
 
@@ -1092,4 +1092,4 @@ All task types inherit from `taskBase` with these common properties:
 - Import & Export from other workflow specifications, like Argo Workflows and Kubeflow Pipelines
 - Native `jackdaw` bindings for [sdk-typescript](https://github.com/serverlessworkflow/sdk-typescript)
 - Native `jackdaw` bindings for [sdk-python](https://github.com/serverlessworkflow/sdk-python)
-- Complete OpenTelemetry-compatible intrumentation and metrics
+- Complete OpenTelemetry-compatible instrumentation and metrics
