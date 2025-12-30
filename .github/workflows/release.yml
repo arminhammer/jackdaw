@@ -42,7 +42,7 @@ jobs:
         run: |
           mkdir -p dist
           docker create --name jackdaw-extract jackdaw-builder:linux-${{ matrix.arch }}
-          docker cp jackdaw-extract:/build/target/release/jackdaw ./dist/jackdaw-linux-${{ matrix.arch }}
+          docker cp jackdaw-extract:/build/jackdaw ./dist/jackdaw-linux-${{ matrix.arch }}
           docker rm jackdaw-extract
 
       - name: Verify binary
