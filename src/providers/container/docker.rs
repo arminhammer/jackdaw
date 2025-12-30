@@ -5,7 +5,7 @@ use bollard::container::{
     AttachContainerOptions, Config, RemoveContainerOptions, StartContainerOptions,
 };
 use bollard::image::CreateImageOptions;
-use bollard::models::{HostConfig, Mount, MountTypeEnum, PortBinding};
+use bollard::models::{HostConfig, PortBinding};
 use futures::StreamExt;
 use std::collections::HashMap;
 use tokio::io::AsyncWriteExt;
@@ -55,15 +55,14 @@ impl ContainerProvider for DockerProvider {
             .as_ref()
             .map(|env_map| env_map.iter().map(|(k, v)| format!("{k}={v}")).collect());
 
-        // Prepare volumes (bind mounts)
-        let mounts: Option<Vec<Mount>> = config.volumes.as_ref().map(|vols| {
+        // Prepare volumes (bind mounts) with SELinux relabeling for compatibility
+        // Using binds with :z suffix for proper SELinux support on Fedora/RHEL/CentOS
+        let binds: Option<Vec<String>> = config.volumes.as_ref().map(|vols| {
             vols.iter()
-                .map(|(host_path, container_path)| Mount {
-                    target: Some(container_path.clone()),
-                    source: Some(host_path.clone()),
-                    typ: Some(MountTypeEnum::BIND),
-                    read_only: Some(false),
-                    ..Default::default()
+                .map(|(host_path, container_path)| {
+                    // Add :z for SELinux relabeling (shared volume label)
+                    // This allows the container to write to the host directory
+                    format!("{}:{}:z", host_path, container_path)
                 })
                 .collect()
         });
@@ -94,9 +93,9 @@ impl ContainerProvider for DockerProvider {
         };
 
         // Create host configuration for volumes and ports
-        let host_config = if mounts.is_some() || port_bindings.is_some() {
+        let host_config = if binds.is_some() || port_bindings.is_some() {
             Some(HostConfig {
-                mounts,
+                binds,
                 port_bindings,
                 ..Default::default()
             })

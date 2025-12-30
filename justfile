@@ -42,7 +42,7 @@ test-all:
     cargo test
 
 # Run Docker integration tests (requires Docker image to be built)
-test-docker:
+test-docker: docker-build
     cargo test --test docker_integration_tests
 
 # Run listener tests (gRPC and HTTP/OpenAPI)
@@ -78,6 +78,25 @@ coverage-clean:
 # Clean build artifacts
 clean:
     cargo clean
+
+# Clean up test containers (PostgreSQL test containers)
+clean-test-containers:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Cleaning up PostgreSQL test containers..."
+    # Remove all postgres test containers
+    docker ps -aq --filter "ancestor=postgres:16-alpine" 2>/dev/null | xargs -r docker rm -f || true
+    podman ps -aq --filter "ancestor=postgres:16-alpine" 2>/dev/null | xargs -r podman rm -f || true
+    echo "✓ Test containers cleaned"
+
+# Clean up all stopped containers and dangling images
+clean-containers-all:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Cleaning up all stopped containers..."
+    docker container prune -f 2>/dev/null || true
+    podman container prune -f 2>/dev/null || true
+    echo "✓ All stopped containers cleaned"
 
 # Format code
 fmt:
