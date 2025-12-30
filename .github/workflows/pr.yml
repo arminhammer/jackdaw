@@ -119,6 +119,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libpq-dev
 
+          # Install grpcurl for gRPC integration tests
+          wget https://github.com/fullstorydev/grpcurl/releases/download/v1.9.1/grpcurl_1.9.1_linux_amd64.deb
+          sudo dpkg -i grpcurl_1.9.1_linux_amd64.deb
+
       - name: Run tests
         run: cargo test --all-features
         env:
