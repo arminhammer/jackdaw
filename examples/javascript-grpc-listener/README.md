@@ -11,22 +11,7 @@ The example implements a Calculator gRPC API with three methods:
 
 The workflow uses gRPC listeners to receive requests, validates them against a protobuf schema, and routes them to JavaScript handler functions.
 
-**Note**: This example uses **JavaScript ES2024** (not TypeScript) as specified in the Serverless Workflow DSL specification. Handlers use JSDoc comments for type documentation instead of TypeScript type annotations.
-
 ## Project Structure
-
-```
-javascript-grpc-listener/
-├── Dockerfile                 # Container image definition
-├── calculator-api.sw.yaml     # Serverless Workflow definition
-├── spec.proto                 # Protobuf service specification
-├── deno.json                  # Deno configuration (includes axios dependency)
-├── src/                       # JavaScript handler modules
-│   ├── add.js                # Add operation handler
-│   ├── multiply.js           # Multiply operation handler
-│   └── get_pet.js            # Get pet handler (uses axios npm package)
-└── README.md
-```
 
 ## How It Works
 
@@ -63,7 +48,7 @@ foreach:
   item: event
   do:
     - executeAdd:
-        call: javascript  # Uses Deno runtime for ES2024 JavaScript
+        call: javascript
         with:
           module: src/add.js
           function: handler
@@ -163,51 +148,3 @@ Expected response (fetched from petstore API):
   "status": "available"
 }
 ```
-
-This demonstrates that:
-- **Third-party npm packages work** - Uses `axios` via Deno's npm: specifier
-- Handlers can make external HTTP calls
-- Protobuf field naming (snake_case `pet_id` in proto maps to JavaScript conventions)
-- Dependencies are declared in `deno.json` and auto-installed by Deno
-
-## Development
-
-To work on the handlers locally:
-
-1. Run the workflow directly (without Docker):
-   ```bash
-   jackdaw run calculator-api.sw.yaml --debug
-   ```
-
-2. Format JavaScript code:
-   ```bash
-   deno fmt src/
-   ```
-
-3. Lint JavaScript code:
-   ```bash
-   deno lint src/
-   ```
-
-## JavaScript ES2024 vs TypeScript
-
-This example uses **JavaScript ES2024** as specified in the Serverless Workflow DSL specification, not TypeScript. Key differences:
-
-- ✅ **No type annotations** - Uses JSDoc comments for documentation
-- ✅ **No compilation step** - JavaScript runs directly
-- ✅ **Spec compliant** - Follows DSL language version requirements
-- ✅ **npm package support** - Uses Deno's npm: specifier for dependencies
-
-While Deno supports TypeScript, the spec requires JavaScript ES2024 for portability across runtimes.
-
-## Production Considerations
-
-For production deployments:
-
-1. **Remove `--debug` flag** from the Dockerfile CMD
-2. **Add health checks** using gRPC health checking protocol
-3. **Configure TLS** for secure gRPC communication
-4. **Set resource limits** in your container orchestrator
-5. **Add monitoring** and distributed tracing
-6. **Use connection pooling** for external API calls (like petstore)
-7. **Implement retry logic** with exponential backoff for external services

@@ -1,9 +1,4 @@
 /**
- * JavaScript handler for Calculator.Add operation.
- * Takes AddRequest and returns AddResponse
- */
-
-/**
  * Add two numbers.
  *
  * @param {Object} request - AddRequest with 'a' and 'b' as int32 values

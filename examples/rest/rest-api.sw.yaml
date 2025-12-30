@@ -16,7 +16,8 @@ do:
         endpoint:
           uri: https://jsonplaceholder.typicode.com/users/1
       output:
-        as: '${ { user: . } }'
+        as:
+          user: ${ . }
 
   - fetchUserPosts:
       call: http
@@ -25,15 +26,16 @@ do:
         endpoint:
           uri: 'https://jsonplaceholder.typicode.com/posts?userId=${ .user.id }'
       output:
-        as: '${ { posts: . } }'
+        as:
+          posts: ${ . }
 
   - summarizeData:
       run:
         script:
           language: python
           arguments:
-            - ${ .user }
-            - ${ .posts }
+            - ${ .user | tojson }
+            - ${ .posts | tojson }
           code: |
             import sys
             import json

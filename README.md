@@ -1,10 +1,22 @@
 # jackdaw
 
-`jackdaw` is a workflow execution engine for the [Serverless Workflows](https://serverlessworkflow.io/) specification. It supports durable execution of workflows through a persistence layer, as well as caching execution to prevent duplicate execution of expensive workflow tasks. `jackdaw` is written in Rust, and is designed for extensibiliy, performance, and easy to deploy into many contexts. 
+`jackdaw` is a workflow execution engine for the [Serverless Workflow](https://serverlessworkflow.io/) specification. It supports durable execution of workflows through a persistence layer, as well as caching execution to prevent duplicate execution of expensive workflow tasks. `jackdaw` is written in Rust, and is designed for extensibility, performance, and ease of deployment into many execution contexts. 
 
-The default version of `jackdaw` comes with a full embedded javascript interpreter (via [rustyscript](https://github.com/rscarson/rustyscript) and [deno_core](https://github.com/denoland/deno_core)), as well as embedded python (via [pyo3](https://pyo3.rs/)). This allows `jackdaw` to support Serverless Workflows that have python and javascript sections very efficiently.
+`jackdaw` is distributed as a static binary, as well as a Docker container image. It is cross-compiled for Linux AMD64 & ARM64, as well as a MacOS Universal Binary. It does not have a server component that needs to be installed, and is a self-contained CLI tool. This should make it easy to run as a standalone workflow executor, as well as embedded as part of a larger program.
 
-`jackdaw` is also committed to always being free and useful open source software under the standard Apache 2.0 license. There's no risk of vendor lock-in, because any workflow you run with `jackdaw` can be executed by any of the other Serverless Workflow runtimes!
+### Serverless Workflow DSL
+
+Many modern software applications can be represented conceptually as a "workflow" (or [DAG](https://en.wikipedia.org/wiki/Directed_acyclic_graph)). Workflows are useful because they can help abstract away execution and integration details from the user's business logic. In addition, durable workflow execution engines have proven popular because they are able to handle the state management of long-running business processes. Unfortunately there are many workflow engines, and most have cumbersome server components that need to be deployed and maintained. Most have their own specific way of implementing workflows that make it hard to switch to other engines. Serverless Workflow is a fascinating DSL that attempts to provide a standard way of representing a workflow that is not tied to any particular engine implementation. 
+
+Although `jackdaw` does not have a server component itself, it fully supports Serverless Workflow [Listeners](https://github.com/serverlessworkflow/specification/blob/main/dsl-reference.md#listen). This makes it possible to use `jackdaw` as a server that can trigger off of event types supported by Serverless Workflow, notably OpenAPI and gRPC specifications.
+
+### Project Status
+
+This project is committed to always being free and useful open source software under the standard Apache 2.0 license. There's no risk of vendor lock-in, because any workflow you run with `jackdaw` can be executed by any of the other Serverless Workflow runtimes!
+
+A note on project stability: while the goal of this project is to support 100% of the Serverless Workflow specification, there are still gaps. The internals are unstable and subject to change as it is developed, but valid workflows should continue to run on every version.
+
+If there are discrepancies between the Serverless Workflow spec and `jackdaw`, they should be considered bugs that will be resolved in favor of the spec. There may be features that are supported in `jackdaw` that are not supported in other engines, but they should not impact the portability of the workflows themselves.
 
 ## Getting started
 
@@ -52,11 +64,7 @@ jackdaw run hello-world.sw.yaml --debug
 
 #### `jackdaw`
 
-The `jackdaw` binary can be downloaded from the releases page. Please note that `jackdaw` requires `libpython` 3.14 to be installed.
-
-#### jackdaw-lite
-
-`jackdaw-lite` (statically-compiled without embedded python or javascript) can alternatively be downloaded. This version has no dependencies and is therefore very portable, but has more limited support for executing python and javascript. If you don't need support for those languages, this can be a very good option because it is self-contained and has no dependencies.
+The `jackdaw` binary can be downloaded from the releases page. 
 
 ### From source
 
@@ -65,18 +73,10 @@ The `jackdaw` binary can be downloaded from the releases page. Please note that 
 The most straightforward way to install `jackdaw` is to clone the repository and run 
 
 ```bash
-just build-release
+just build-static
 ```
 
-This will compile the release binary
-
-#### jackdaw-lite
-
-`jackdaw-lite`, the statically-compiled version of `jackdaw` that does not have embedded javascript and python interpreters, can be built with 
-
-```
-just build-lite-static
-```
+This will compile the release binary.
 
 ## Usage
 
@@ -85,8 +85,6 @@ just build-lite-static
 #### container
 
 `jackdaw` supports executing commands in containers. The default (and currently only) container runtime supported is Docker.
-
-TODO: fix container output
 
 ```yaml
 document:
@@ -110,67 +108,11 @@ jackdaw run examples/container/container-env-vars.sw.yaml
 ```
 ![Run Container](docs/vhs/run-container.gif)
 
+Please make sure that a Docker socket at `/var/run/docker.sock` is available to `jackdaw` and a container runtime like Docker or Podman for this to work. This feature is implemented using the great [bollard](https://docs.rs/bollard/latest/bollard/) library.
+
 #### Python
 
-Python scripts are supported by `jackdaw`. The most straightforward way to use a python script is to embed the script directly in the workflow:
-
-
-Alternatively, you can also define a python module, with dependencies, and execute a function within that module. An example can be found in `examples/python-module`.
-```yaml
-document:
-  dsl: '1.0.2'
-  namespace: examples
-  name: python-basics
-  version: '1.0.0'
-do:
-  - calculateFactorial:
-      run:
-        script:
-          language: python
-          arguments:
-            - "10"
-          code: |
-            import sys
-            import json
-
-            def factorial(n):
-                if n <= 1:
-                    return 1
-                return n * factorial(n - 1)
-
-            n = int(sys.argv[1])
-            result = {
-                "input": n,
-                "factorial": factorial(n),
-                "message": f"The factorial of {n} is {factorial(n)}"
-            }
-
-            print(json.dumps(result))
-      output:
-        as: '${ { result: . } }'
-
-  - processData:
-      run:
-        script:
-          language: python
-          arguments:
-            - ${ .result.factorial }
-          code: |
-            import sys
-            import json
-
-            factorial_value = int(sys.argv[1])
-            import math
-
-            result = {
-                "factorial": factorial_value,
-                "log10": math.log10(factorial_value),
-                "sqrt": math.sqrt(factorial_value),
-                "formatted": f"{factorial_value:,}"
-            }
-
-            print(json.dumps(result))
-```
+Python scripts are supported by `jackdaw`. The most straightforward way to use a python script is to embed the script directly in the workflow. See ['examples/python/python-basics.sw.yaml'](./examples/python/python-basics.sw.yaml).
 
 ```bash
 jackdaw run examples/python/python-basics.sw.yaml
@@ -178,60 +120,13 @@ jackdaw run examples/python/python-basics.sw.yaml
 
 ![Run Python](docs/vhs/run-python.gif)
 
+Alternatively, you can also define a python module, with dependencies, and execute a function within that module. An example can be found in `examples/python-module`.
+
+In order to execute a python script, the `python` binary must be available in the system PATH.
+
 #### Javascript
 
-Serverless Workflows support scripts written in ES2024. `jackdaw` supports javascript scripts by embedding `deno_core` via rustyscript. This makes it possible to embed inlined javascript scripts into a workflow task:
-```yaml
-document:
-  dsl: '1.0.2'
-  namespace: examples
-  name: javascript-basics
-  version: '1.0.0'
-do:
-  - fibonacci:
-      run:
-        script:
-          language: javascript
-          arguments:
-            - "15"
-          code: |
-            const n = parseInt(process.argv[2]);
-
-            function fibonacci(num) {
-              if (num <= 1) return num;
-              return fibonacci(num - 1) + fibonacci(num - 2);
-            }
-
-            const result = {
-              input: n,
-              fibonacci: fibonacci(n),
-              sequence: Array.from({length: n + 1}, (_, i) => fibonacci(i)),
-              message: `The ${n}th Fibonacci number is ${fibonacci(n)}`
-            };
-
-            console.log(JSON.stringify(result));
-      output:
-        as: '${ { result: . } }'
-
-  - processSequence:
-      run:
-        script:
-          language: javascript
-          arguments:
-            - ${ .result.sequence }
-          code: |
-            const sequence = JSON.parse(process.argv[2]);
-
-            const result = {
-              sequence: sequence,
-              sum: sequence.reduce((a, b) => a + b, 0),
-              average: sequence.reduce((a, b) => a + b, 0) / sequence.length,
-              max: Math.max(...sequence),
-              min: Math.min(...sequence)
-            };
-
-            console.log(JSON.stringify(result));
-```
+Serverless Workflow support scripts written in Javascript ES2024. `jackdaw` supports javascript scripts by calling `node`, which must be present in the system PATH. This makes it possible to embed inlined javascript scripts into a workflow task:
 
 ```bash
 jackdaw run examples/javascript/javascript-basics.sw.yaml
@@ -241,7 +136,7 @@ jackdaw run examples/javascript/javascript-basics.sw.yaml
 
 #### Nested workflows
 
-Serverless Workflows can nest other workflows, making reuse very powerful. In the following example, Workflow A imports Workflow B, which in turn imports Workflow C.
+Serverless Workflow can nest other workflows, making reuse very powerful. In the following example, Workflow A imports Workflow B, which in turn imports Workflow C.
 
 Workflow C:
 ```yaml
@@ -582,62 +477,6 @@ jackdaw run examples/persistence/persistence.sw.yaml --persistence-provider redb
 
 ##### HTTP Listeners (OpenAPI)
 
-```yaml
-document:
-  dsl: '1.0.2'
-  namespace: examples
-  name: calculator-api
-  version: '1.0.0'
-do:
-  - handleAddRequests:
-      listen:
-        to:
-          any:
-            - with:
-                source:
-                  uri: http://0.0.0.0:8080/api/v1/add
-                  schema:
-                    format: openapi
-                    resource:
-                      endpoint: openapi.spec.yaml
-                      name: AddRequest
-          until: '${ false }'
-      foreach:
-        item: event
-        do:
-          - executeAdd:
-              call: python
-              with:
-                module: calculator.add
-                function: handler
-                arguments:
-                  - ${ $event }
-
-  - handleMultiplyRequests:
-      listen:
-        to:
-          any:
-            - with:
-                source:
-                  uri: http://0.0.0.0:8080/api/v1/multiply
-                  schema:
-                    format: openapi
-                    resource:
-                      endpoint: openapi.spec.yaml
-                      name: MultiplyRequest
-          until: '${ false }'
-      foreach:
-        item: event
-        do:
-          - executeMultiply:
-              call: python
-              with:
-                module: calculator.multiply
-                function: handler
-                arguments:
-                  - ${ $event }
-```
-
 ```bash
 # Python OpenAPI listener example
 jackdaw run examples/python-openapi-listener/calculator-api.sw.yaml
@@ -652,7 +491,7 @@ curl -X POST http://localhost:8080/api/v1/add -H "Content-Type: application/json
 curl -X POST http://localhost:8080/api/v1/multiply -H "Content-Type: application/json" -d '{"a": 4, "b": 7}'
 ```
 
-![OpenAPI Listener](docs/vhs/listener-openapi.gif)
+<!-- ![OpenAPI Listener](docs/vhs/listener-openapi.gif) -->
 
 ##### gRPC Listeners
 
@@ -664,7 +503,7 @@ jackdaw run examples/python-grpc-listener/calculator-api.sw.yaml
 jackdaw run examples/javascript-grpc-listener/calculator-api.sw.yaml
 ```
 
-![gRPC Listener](docs/vhs/listener-grpc.gif)
+<!-- ![gRPC Listener](docs/vhs/listener-grpc.gif) -->
 
 ### `validate`
 
@@ -727,6 +566,8 @@ jackdaw run examples/persistence/persistence.sw.yaml --persistence-provider sqli
 ```bash
 jackdaw run examples/persistence/persistence.sw.yaml --persistence-provider postgres --postgres-db-name=default --postgres-user default_user --postgres-password password --postgres-hostname localhost -i '{ "attempt": 1 }'
 ```
+
+<!-- 
 ### Container Providers
 
 #### Docker
@@ -741,7 +582,7 @@ jackdaw run examples/persistence/persistence.sw.yaml --persistence-provider post
 
 #### Typescript
 
-#### Typescript External
+#### Typescript External -->
 
 #### Rest
 
@@ -802,4 +643,453 @@ jackdaw run examples/rest/rest-api.sw.yaml
 
 ## Supported Serverless Features Matrix
 
-## Roadmap
+## 1. Workflow Document Structure
+
+### 1.1 Document Metadata
+
+| Feature | Implementation |
+|---------|----------------|
+| `document.dsl` | ✅ Full |
+| `document.namespace` | ✅ Full |
+| `document.name` | ✅ Full |
+| `document.version` | ✅ Full |
+| `document.title` | ✅ Full |
+| `document.summary` | ✅ Full |
+| `document.tags` | ✅ Full |
+| `document.metadata` | ✅ Full |
+
+---
+
+### 1.2 Top-Level Workflow Properties
+
+| Feature | Implementation |
+|---------|----------------|
+| `input` | ✅ Full |
+| `use` | ✅ Partial |
+| `do` | ✅ Full |
+| `timeout` | ✅ Full |
+| `output` | ✅ Full |
+| `schedule` | ❌ Not Implemented |
+
+**Implementation Details:**
+
+#### `use` Block Support:
+- ✅ `use.functions` - Custom functions and workflows
+- ✅ `use.catalogs` - External workflow catalogs
+- ✅ `use.timeouts` - Reusable timeout policies
+- ⚠️ `use.authentications` - Only basic auth supported
+- ⚠️ `use.errors` - Error references not fully implemented
+- ⚠️ `use.retries` - Retry policies recognized but limited testing
+- ❌ `use.secrets` - No secret management system
+- ❌ `use.extensions` - Not implemented
+
+---
+
+## 2. Task Types
+
+### 2.1 Core Task Types Implementation
+
+| Task Type | Implementation File | Notes |
+|-----------|---------------------|-------|
+| **call** | [tasks/call.rs](src/durableengine/tasks/call.rs) | HTTP, OpenAPI, Functions |
+| **run** | [tasks/run.rs](src/durableengine/tasks/run.rs) | Container, Script, Shell, Workflow |
+| **fork** | [tasks/fork.rs](src/durableengine/tasks/fork.rs) | Compete mode supported |
+| **for** | [tasks/for_loop.rs](src/durableengine/tasks/for_loop.rs) | Item/index variables |
+| **switch** | [tasks/switch.rs](src/durableengine/tasks/switch.rs) | Conditional branching |
+| **try** | [tasks/try_catch.rs](src/durableengine/tasks/try_catch.rs) | Error filtering & catching |
+| **emit** | [tasks/emit.rs](src/durableengine/tasks/emit.rs) | CloudEvents 1.0 |
+| **raise** | [tasks/raise.rs](src/durableengine/tasks/raise.rs) | RFC 7807 errors |
+| **wait** | [tasks/wait.rs](src/durableengine/tasks/wait.rs) | ISO 8601 durations |
+| **set** | [tasks/mod.rs:217-255](src/durableengine/tasks/mod.rs) | Variable setting |
+| **do** | [tasks/mod.rs:257-284](src/durableengine/tasks/mod.rs) | Sequential composition |
+| **listen** | [tasks/mod.rs:286-332](src/durableengine/tasks/mod.rs) | Event consumption |
+
+---
+
+### 2.2 Task Base Properties
+
+All task types inherit from `taskBase` with these common properties:
+
+| Property | Implementation |
+|----------|----------------|
+| `if` | ✅ Full |
+| `input` | ✅ Full |
+| `output` | ✅ Full |
+| `export` | ✅ Full |
+| `timeout` | ✅ Full |
+| `then` | ✅ Full |
+| `metadata` | ✅ Full |
+
+---
+
+## 3. Call Task Sub-Types
+
+### 3.1 Call Variants
+
+| Call Type | Executor | Implementation |
+|-----------|----------|----------------|
+| **HTTP** | `RestExecutor` | ✅ Full |
+| **OpenAPI** | `OpenApiExecutor` | ✅ Full |
+| **gRPC** | - | ❌ Not Implemented |
+| **AsyncAPI** | - | ❌ Not Implemented |
+| **A2A** | - | ❌ Not Implemented |
+| **MCP** | - | ❌ Not Implemented |
+| **Function** | `catalog` lookup | ✅ Full |
+
+---
+
+### 3.2 HTTP Call Features
+
+| Feature | Implementation |
+|---------|----------------|
+| HTTP Methods (GET/POST/PUT/DELETE) | ✅ Full |
+| URI Templates | ✅ Full |
+| Path Parameter Interpolation | ✅ Full |
+| Headers | ✅ Full |
+| Query Parameters | ✅ Full |
+| Request Body | ✅ Full |
+| Output Modes (content/response/raw) | ✅ Full |
+| Redirect Handling | ✅ Full |
+| Authentication | ⚠️ Basic Only |
+
+**Output Modes:**
+- `content` (default) - Response body only
+- `response` - Full envelope with request metadata, headers, statusCode, content
+- `raw` - Raw HTTP response
+
+---
+
+### 3.3 OpenAPI Call Features
+
+| Feature | Implementation |
+|---------|----------------|
+| Document Loading (URI) | ✅ Full |
+| Operation by operationId | ✅ Full |
+| Parameter Mapping | ✅ Full |
+| Output Modes | ✅ Full |
+| Authentication | ❌ Not Implemented |
+| Redirect Handling | ✅ Full |
+
+**Supported OpenAPI Versions:**
+- Swagger 2.0 ✅
+- OpenAPI 3.x ✅
+
+---
+
+## 4. Run Task Execution Modes
+
+### 4.1 Run Variants
+
+| Run Mode | Implementation |
+|----------|----------------|
+| **Container** | ✅ Full |
+| **Script** | ✅ Full |
+| **Shell** | ✅ Full |
+| **Workflow** | ✅ Full |
+
+---
+
+### 4.2 Container Execution
+
+| Feature | Implementation |
+|---------|----------------|
+| Image Name | ✅ Full |
+| Container Name | ✅ Full |
+| Command Override | ✅ Full |
+| Port Mappings | ✅ Full |
+| Volume Mounts | ✅ Full |
+| Environment Variables | ✅ Full |
+| Stdin Input | ✅ Full |
+| Arguments (argv) | ✅ Full |
+| Lifetime/Cleanup Policy | ✅ Full |
+
+**Cleanup Policies:**
+- `always` - Remove after completion
+- `never` - Keep running
+- `eventually` - Remove after specified duration
+
+---
+
+### 4.3 Script Execution
+
+| Feature | Implementation |
+|---------|----------------|
+| Language Selection | ✅ Full |
+| Inline Code | ✅ Full |
+| External Source (file://, http://, https://) | ✅ Full |
+| Stdin Input | ✅ Full |
+| Arguments (argv) | ✅ Full |
+| Environment Variables | ✅ Full |
+
+**Supported Languages:**
+- **Python** - External executor via `PythonExecutor`
+- **JavaScript** - External executor via `TypeScriptExecutor`
+
+---
+
+### 4.4 Shell Command Execution
+
+| Feature | Implementation |
+|---------|----------------|
+| Command String | ✅ Full |
+| Stdin Input | ✅ Full |
+| Arguments (argv) | ✅ Full |
+| Environment Variables | ✅ Full |
+
+---
+
+### 4.5 Run Task Common Features
+
+| Feature | Implementation |
+|---------|----------------|
+| Await Process Completion | ✅ Full |
+| Return Modes (stdout/stderr/code/all/none) | ✅ Full |
+| Real-time Output Streaming | ✅ Full |
+| Exit Code Validation | ✅ Full |
+
+**Return Modes:**
+- `stdout` (default) - Standard output only
+- `stderr` - Standard error only
+- `code` - Exit code only
+- `all` - Combined { code, stdout, stderr }
+- `none` - No output
+
+---
+
+## 5. Data Flow & Expressions
+
+### 5.1 Expression Engine
+
+| Feature | Implementation |
+|---------|----------------|
+| **JQ Expression Evaluation** | ✅ Full |
+| **Null-Safe Field Access** | ✅ Full |
+| **Null-Safe Array Operations** | ✅ Full |
+| **Variable References ($var)** | ✅ Full |
+| **String Interpolation** | ✅ Full |
+| **Complex Expressions** | ✅ Full |
+
+---
+
+### 5.2 Input/Output Filtering
+
+| Feature | Implementation |
+|---------|----------------|
+| **Workflow Input Schema** | ✅ Full |
+| **Workflow Input Filtering** (`input.from`) | ✅ Full |
+| **Task Input Schema** | ✅ Full |
+| **Task Input Filtering** (`input.from`) | ✅ Full |
+| **Task Output Schema** | ✅ Full |
+| **Task Output Filtering** (`output.as`) | ✅ Full |
+| **Workflow Output Schema** | ✅ Full |
+| **Workflow Output Filtering** (`output.as`) | ✅ Full |
+
+---
+
+### 5.3 Export (Context Management)
+
+| Feature | Implementation |
+|---------|----------------|
+| Export Schema | ✅ Full |
+| Export Expression (`export.as`) | ✅ Full |
+| Context Variable Storage | ✅ Full |
+
+---
+
+## 6. Flow Control
+
+### 6.1 Flow Directives
+
+| Directive | Implementation |
+|-----------|----------------|
+| **continue** | ✅ Full |
+| **exit** | ✅ Full |
+| **end** | ✅ Full |
+| **Task Reference** (then: taskName) | ✅ Full |
+
+---
+
+### 6.2 Conditional Execution
+
+| Feature | Implementation |
+|---------|----------------|
+| Task Condition (`if`) | ✅ Full |
+| Switch Cases (`when`) | ✅ Full |
+| Switch Default Case | ✅ Full |
+
+---
+
+## 7. Error Handling
+
+### 7.1 Error Definition & Raising
+
+| Feature | Implementation |
+|---------|----------------|
+| **Error Type (URI)** | ✅ Full |
+| **Error Status** | ✅ Full |
+| **Error Instance (JSON Pointer)** | ✅ Full |
+| **Error Title** | ✅ Full |
+| **Error Detail** | ✅ Full |
+| **Error References** (`use.errors`) | ⚠️ Partial |
+
+---
+
+### 7.2 Error Catching & Recovery
+
+| Feature | Implementation |
+|---------|----------------|
+| **Error Type Filtering** | ✅ Full |
+| **Error Status Filtering** | ✅ Full |
+| **Runtime Error Filtering** (`when`) | ✅ Full |
+| **Error Variable Binding** (`as`) | ✅ Full |
+| **Catch Handler Tasks** (`do`) | ✅ Full |
+| **Retry Policies** | ⚠️ Partial |
+
+---
+
+### 7.3 Timeout Handling
+
+| Feature | Implementation |
+|---------|----------------|
+| **Workflow Timeout** | ✅ Full |
+| **Task Timeout** | ✅ Full |
+| **Timeout Override** (Task > Workflow) | ✅ Full |
+| **ISO 8601 Durations** | ✅ Full |
+| **Inline Duration Objects** | ✅ Full |
+| **Runtime Expression Durations** | ✅ Full |
+| **Millisecond Precision** | ✅ Full |
+
+---
+
+## 8. Authentication & Security
+
+### 8.1 Authentication Policies
+
+| Auth Type | Implementation |
+|-----------|----------------|
+| **Basic Auth** | ✅ Full |
+| **Bearer Auth** | ❌ Not Implemented |
+| **Digest Auth** | ❌ Not Implemented |
+| **OAuth2** | ❌ Not Implemented |
+| **OIDC** | ❌ Not Implemented |
+
+---
+
+### 8.2 Secret Management
+
+| Feature | Implementation |
+|---------|----------------|
+| **Secrets Declaration** (`use.secrets`) | ❌ Not Implemented |
+| **Secret References** | ❌ Not Implemented |
+| **Secret Vaulting** | ❌ Not Implemented |
+| **Environment Variables** | ⚠️ Partial |
+
+**Note:** Environment variables can be passed to containers/scripts, but no dedicated secret injection mechanism exists.
+
+---
+
+### 8.3 Authentication Integration
+
+| Call Type | Auth Support | Status | Notes |
+|-----------|-------------|--------|-------|
+| HTTP/REST | Basic Auth | ✅ Implemented | Via `endpoint.authentication.basic` |
+| OpenAPI | - | ❌ None | Security schemes ignored |
+| gRPC | - | ❌ None | Not implemented |
+| AsyncAPI | - | ❌ None | Not implemented |
+
+---
+
+## 9. Listeners & Event Consumption
+
+### 9.1 Listen Task
+
+| Feature | Implementation |
+|---------|----------------|
+| **Event Consumption Strategies** | ✅ Full |
+| **Event Filters** | ✅ Full |
+| **Read Modes** (data/envelope/raw) | ✅ Full |
+| **Foreach Iterator** | ✅ Full |
+| **Until Condition** | ✅ Full |
+
+**Read Modes:**
+- `data` - Extract CloudEvent data field only
+- `envelope` - Full CloudEvent structure (default)
+- `raw` - Raw HTTP body
+
+---
+
+### 9.2 Event Consumption Strategies
+
+| Strategy | Implementation |
+|----------|----------------|
+| **One** - Single event | ✅ Full |
+| **All** - All specified events | ✅ Full |
+| **Any** - Any of specified events | ✅ Full |
+
+---
+
+### 9.3 Listener Implementations
+
+| Listener Type | Implementation |
+|---------------|----------------|
+| **HTTP/OpenAPI** | ✅ Full |
+| **gRPC** | ✅ Full |
+
+---
+
+### 9.4 Event Emission (Emit Task)
+
+| Feature | Implementation |
+|---------|----------------|
+| **CloudEvents 1.0 Format** | ✅ Full |
+| **Event Properties** (id, source, type, etc.) | ✅ Full |
+| **Auto ID Generation** | ✅ Full |
+| **Timestamp Generation** | ✅ Full |
+| **Expression Evaluation** | ✅ Full |
+
+---
+
+## 10. Advanced Features
+
+### 10.1 Nested Workflows
+
+| Feature | Implementation |
+|---------|----------------|
+| **Workflow References** (namespace/name/version) | ✅ Full |
+| **Input Passing** | ✅ Full |
+| **Latest Version Resolution** | ✅ Full |
+
+**Workflow Events:**
+- ✅ WorkflowStarted
+- ✅ WorkflowCompleted
+- ✅ WorkflowFailed
+- ✅ WorkflowCancelled
+- ✅ WorkflowSuspended
+- ✅ WorkflowResumed
+
+**Task Events:**
+- ✅ TaskCreated
+- ✅ TaskStarted
+- ✅ TaskCompleted
+- ✅ TaskRetried
+- ✅ TaskFaulted
+- ✅ TaskCancelled
+- ✅ TaskSuspended
+- ✅ TaskResumed
+
+---
+
+## Feature Roadmap
+
+- Full compliance with the Serverless Workflow specification
+- A2A support
+- AsyncAPI support
+- MCP support
+- Authentication and Secrets integrations
+- AWS Lambda integration
+- Kubernetes integration
+- Workflow execution visualization with D2 and graphviz
+- Import & Export from other workflow specifications, like Argo Workflows and Kubeflow Pipelines
+- Native `jackdaw` bindings for [sdk-typescript](https://github.com/serverlessworkflow/sdk-typescript)
+- Native `jackdaw` bindings for [sdk-python](https://github.com/serverlessworkflow/sdk-python)
+- Complete OpenTelemetry-compatible instrumentation and metrics

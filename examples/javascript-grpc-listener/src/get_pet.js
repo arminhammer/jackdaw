@@ -6,8 +6,6 @@
  * @param {number} request.petId - ID of pet to fetch
  * @returns {Promise<Object>} Pet information from the petstore API
  */
-// Using wretch - a tiny wrapper around fetch that works in Deno without extra globals
-// This demonstrates using third-party libraries via CDN imports
 import wretch from "https://esm.sh/wretch@2.9.0";
 
 export async function handler(request) {

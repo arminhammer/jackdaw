@@ -70,7 +70,7 @@ fn test_docker_validate_workflow() {
             "--rm",
             "-v",
             &format!(
-                "{}:/workflows:ro",
+                "{}:/workflows:ro,z",
                 std::env::current_dir()
                     .unwrap()
                     .join(&fixture_path)
@@ -106,7 +106,7 @@ fn test_docker_validate_invalid_workflow() {
             "--rm",
             "-v",
             &format!(
-                "{}:/workflows:ro",
+                "{}:/workflows:ro,z",
                 std::env::current_dir()
                     .unwrap()
                     .join(&fixture_path)
@@ -153,7 +153,7 @@ fn test_docker_run_simple_workflow() {
             "run",
             "--rm",
             "-v",
-            &format!("{}:/workflows", temp_dir.path().display()),
+            &format!("{}:/workflows:z", temp_dir.path().display()),
             "jackdaw:latest",
             "run",
             "/workflows/simple-echo.sw.yaml",
@@ -197,7 +197,7 @@ fn test_docker_run_existing_fixture() {
             "--rm",
             "-v",
             &format!(
-                "{}:/fixtures:ro",
+                "{}:/fixtures:ro,z",
                 std::env::current_dir()
                     .unwrap()
                     .join("tests/fixtures")
@@ -235,10 +235,6 @@ fn test_00_docker_image_available() {
     );
 }
 
-// =============================================================================
-// Script Execution Tests (Python, TypeScript, JavaScript)
-// =============================================================================
-
 #[test]
 fn test_docker_validate_python_script() {
     // Test validating a workflow with Python script
@@ -255,7 +251,7 @@ fn test_docker_validate_python_script() {
             "--rm",
             "-v",
             &format!(
-                "{}:/workflows:ro",
+                "{}:/workflows:ro,z",
                 std::env::current_dir()
                     .unwrap()
                     .join(&fixture_path)
@@ -291,7 +287,7 @@ fn test_docker_validate_javascript_script() {
             "--rm",
             "-v",
             &format!(
-                "{}:/workflows:ro",
+                "{}:/workflows:ro,z",
                 std::env::current_dir()
                     .unwrap()
                     .join(&fixture_path)
@@ -337,7 +333,7 @@ fn test_docker_run_javascript_script() {
             "run",
             "--rm",
             "-v",
-            &format!("{}:/workflows", temp_dir.path().display()),
+            &format!("{}:/workflows:z", temp_dir.path().display()),
             "jackdaw:latest",
             "run",
             "/workflows/javascript-script.sw.yaml",
@@ -396,7 +392,7 @@ fn test_docker_run_python_script() {
             "run",
             "--rm",
             "-v",
-            &format!("{}:/workflows", temp_dir.path().display()),
+            &format!("{}:/workflows:z", temp_dir.path().display()),
             "jackdaw:latest",
             "run",
             "/workflows/python-script.sw.yaml",
@@ -429,10 +425,6 @@ fn test_docker_run_python_script() {
     );
 }
 
-// =============================================================================
-// Listener Tests (gRPC and OpenAPI with Python/TypeScript)
-// =============================================================================
-
 #[test]
 fn test_docker_validate_grpc_python_listener() {
     // Test validating gRPC workflow with Python handler
@@ -448,7 +440,7 @@ fn test_docker_validate_grpc_python_listener() {
             "run",
             "--rm",
             "-v",
-            &format!("{}:/app:ro", std::env::current_dir().unwrap().display()),
+            &format!("{}:/app:ro,z", std::env::current_dir().unwrap().display()),
             "-w",
             "/app",
             "jackdaw:latest",
@@ -482,7 +474,7 @@ fn test_docker_validate_grpc_typescript_listener() {
             "run",
             "--rm",
             "-v",
-            &format!("{}:/app:ro", std::env::current_dir().unwrap().display()),
+            &format!("{}:/app:ro,z", std::env::current_dir().unwrap().display()),
             "-w",
             "/app",
             "jackdaw:latest",
@@ -516,7 +508,7 @@ fn test_docker_validate_openapi_python_listener() {
             "run",
             "--rm",
             "-v",
-            &format!("{}:/app:ro", std::env::current_dir().unwrap().display()),
+            &format!("{}:/app:ro,z", std::env::current_dir().unwrap().display()),
             "-w",
             "/app",
             "jackdaw:latest",
@@ -550,7 +542,7 @@ fn test_docker_validate_openapi_typescript_listener() {
             "run",
             "--rm",
             "-v",
-            &format!("{}:/app:ro", std::env::current_dir().unwrap().display()),
+            &format!("{}:/app:ro,z", std::env::current_dir().unwrap().display()),
             "-w",
             "/app",
             "jackdaw:latest",
@@ -594,9 +586,9 @@ fn test_docker_run_grpc_python_listener_with_client() {
             "-e",
             "PYTHONPATH=/app/tests/fixtures/listeners/handlers/python-handlers", // Set Python module path
             "-v",
-            &format!("{}:/app:ro", std::env::current_dir().unwrap().display()),
+            &format!("{}:/app:ro,z", std::env::current_dir().unwrap().display()),
             "-v",
-            &format!("{}:/data", temp_dir.path().display()),
+            &format!("{}:/data:z", temp_dir.path().display()),
             "-w",
             "/app",
             "jackdaw:latest",
@@ -685,9 +677,9 @@ fn test_docker_run_openapi_python_listener_with_client() {
             "-e",
             "PYTHONPATH=/app/tests/fixtures/listeners/handlers/python-handlers", // Set Python module path
             "-v",
-            &format!("{}:/app:ro", std::env::current_dir().unwrap().display()),
+            &format!("{}:/app:ro,z", std::env::current_dir().unwrap().display()),
             "-v",
-            &format!("{}:/data", temp_dir.path().display()),
+            &format!("{}:/data:z", temp_dir.path().display()),
             "-w",
             "/app",
             "jackdaw:latest",
@@ -789,9 +781,9 @@ fn test_docker_run_grpc_typescript_listener_with_client() {
             "-p",
             "50052:50051", // Use different port to avoid conflicts
             "-v",
-            &format!("{}:/app:ro", std::env::current_dir().unwrap().display()),
+            &format!("{}:/app:ro,z", std::env::current_dir().unwrap().display()),
             "-v",
-            &format!("{}:/data", temp_dir.path().display()),
+            &format!("{}:/data:z", temp_dir.path().display()),
             "-w",
             "/app",
             "jackdaw:latest",
@@ -927,9 +919,9 @@ fn test_docker_run_openapi_typescript_listener_with_client() {
             "-p",
             "8081:8080", // Use different port to avoid conflicts
             "-v",
-            &format!("{}:/app:ro", std::env::current_dir().unwrap().display()),
+            &format!("{}:/app:ro,z", std::env::current_dir().unwrap().display()),
             "-v",
-            &format!("{}:/data", temp_dir.path().display()),
+            &format!("{}:/data:z", temp_dir.path().display()),
             "-w",
             "/app",
             "jackdaw:latest",
@@ -997,10 +989,6 @@ fn test_docker_run_openapi_typescript_listener_with_client() {
     );
 }
 
-// =============================================================================
-// Nested Workflow Tests
-// =============================================================================
-
 #[test]
 fn test_docker_validate_nested_workflows() {
     // Test validating nested workflow fixtures
@@ -1019,7 +1007,7 @@ fn test_docker_validate_nested_workflows() {
                 "--rm",
                 "-v",
                 &format!(
-                    "{}:/workflows:ro",
+                    "{}:/workflows:ro,z",
                     std::env::current_dir()
                         .unwrap()
                         .join(&fixture_path)
@@ -1051,9 +1039,9 @@ fn test_docker_run_nested_workflow() {
             "run",
             "--rm",
             "-v",
-            &format!("{}:/app:ro", std::env::current_dir().unwrap().display()),
+            &format!("{}:/app:ro,z", std::env::current_dir().unwrap().display()),
             "-v",
-            &format!("{}:/data", temp_dir.path().display()),
+            &format!("{}:/data:z", temp_dir.path().display()),
             "-w",
             "/app",
             "jackdaw:latest",

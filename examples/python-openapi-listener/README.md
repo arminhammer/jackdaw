@@ -186,11 +186,6 @@ Expected response (fetched from petstore API):
 }
 ```
 
-This demonstrates that:
-- Third-party dependencies (like `requests`) work correctly in Jackdaw containers
-- Handlers can make external HTTP calls
-- OpenAPI path parameters (`{petId}`) are properly extracted and passed to handlers
-
 ## Development
 
 ### Local Development Without Docker
@@ -214,14 +209,6 @@ This demonstrates that:
 2. Create request/response TypedDicts in `calculator/types.py`
 3. Implement the handler in a new file (e.g., `calculator/divide.py`)
 4. Add a listener task in `calculator-api.sw.yaml`
-
-## Architecture Benefits
-
-- **Self-contained**: Everything needed to run the API is in one container
-- **Type-safe**: OpenAPI schema validation + Python TypedDict
-- **Declarative**: Workflow definition separates routing from business logic
-- **Portable**: Can run anywhere Docker runs
-- **Observable**: Jackdaw provides built-in workflow event tracking
 
 ## Production Considerations
 

@@ -1,10 +1,3 @@
-/// Tests for Wait Task implementation
-///
-/// Tests that wait tasks:
-/// 1. Wait for the specified duration (ISO 8601 format)
-/// 2. Wait for inline duration format (seconds, minutes, etc.)
-/// 3. Measure elapsed time to ensure accuracy
-/// 4. Support expression evaluation (if needed)
 use jackdaw::cache::CacheProvider;
 use jackdaw::durableengine::DurableEngine;
 use jackdaw::persistence::PersistenceProvider;

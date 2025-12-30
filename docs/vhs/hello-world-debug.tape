@@ -1,4 +1,4 @@
-Output hello-world-debug.gif
+Output docs/vhs/hello-world-debug.gif
 
 Require jackdaw
 
@@ -7,6 +7,6 @@ Set FontSize 28
 Set Width 1400
 Set Height 1800
 
-Type "jackdaw run hello-world.sw.yaml --debug"  Enter
+Type "jackdaw run examples/hello-world/hello-world.sw.yaml --debug"  Enter
 
 Sleep 10s

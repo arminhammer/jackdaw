@@ -1,0 +1,9 @@
+document:
+  dsl: '1.0.2'
+  namespace: default
+  name: test-task-created-event
+  version: '1.0.0'
+do:
+  - setTask:
+      set:
+        message: "Hello World"

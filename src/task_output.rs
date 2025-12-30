@@ -97,10 +97,6 @@ impl TaskOutputStreamer {
     ///
     /// Returns (`stdout`, `stderr`, `exit_code`)
     ///
-    /// # Panics
-    ///
-    /// Panics if the child process stdout or stderr were not captured (i.e., not piped).
-    ///
     /// # Errors
     ///
     /// Returns an error if:

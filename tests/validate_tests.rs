@@ -27,9 +27,7 @@ fn validate_workflow_file(path: &PathBuf) -> Result<(), String> {
 #[tokio::test]
 async fn test_validate_all_examples() {
     // Files to skip - examples that have incorrect syntax not matching the spec
-    let skip_files: Vec<&str> = vec![
-        // All examples are now spec-compliant!
-    ];
+    let skip_files: Vec<&str> = vec![];
 
     // Path to the examples directory
     let examples_dir = PathBuf::from("ctk/examples");
@@ -110,7 +108,6 @@ async fn test_validate_all_examples() {
 /// Test individual example files
 ///
 /// This test validates a specific example file to ensure it passes validation.
-/// Add more specific tests here if you need to test particular examples individually.
 #[tokio::test]
 async fn test_validate_for_example() {
     let example_file = PathBuf::from("ctk/examples/for.yaml");

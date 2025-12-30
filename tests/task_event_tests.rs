@@ -12,6 +12,7 @@ use jackdaw::providers::persistence::RedbPersistence;
 use jackdaw::workflow::WorkflowEvent;
 use serde_json::json;
 use serverless_workflow_core::models::workflow::WorkflowDefinition;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 /// Helper to set up test infrastructure
@@ -43,20 +44,10 @@ async fn setup_test_engine() -> (
 async fn test_task_created_event_emitted() {
     let (engine, persistence, _temp_dir) = setup_test_engine().await;
 
-    // Create a simple workflow with a set task
-    let workflow_yaml = r#"
-document:
-  dsl: '1.0.2'
-  namespace: default
-  name: test-task-created-event
-  version: '1.0.0'
-do:
-  - setTask:
-      set:
-        message: "Hello World"
-"#;
-
-    let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml).unwrap();
+    let fixture = PathBuf::from("tests/fixtures/task-events/test-task-created-event.sw.yaml");
+    let workflow_yaml =
+        std::fs::read_to_string(&fixture).expect("Failed to read test-task-created-event.sw.yaml");
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     let result = engine.start_with_input(workflow, json!({})).await;
     assert!(result.is_ok(), "Workflow should complete successfully");
@@ -97,20 +88,10 @@ do:
 async fn test_task_created_emitted_before_task_started() {
     let (engine, persistence, _temp_dir) = setup_test_engine().await;
 
-    // Create a simple workflow with a set task
-    let workflow_yaml = r#"
-document:
-  dsl: '1.0.2'
-  namespace: default
-  name: test-event-order
-  version: '1.0.0'
-do:
-  - myTask:
-      set:
-        value: 42
-"#;
-
-    let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml).unwrap();
+    let fixture = PathBuf::from("tests/fixtures/task-events/test-event-order.sw.yaml");
+    let workflow_yaml =
+        std::fs::read_to_string(&fixture).expect("Failed to read test-event-order.sw.yaml");
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     let result = engine.start_with_input(workflow, json!({})).await;
     assert!(result.is_ok(), "Workflow should complete successfully");
@@ -158,26 +139,10 @@ do:
 async fn test_task_created_for_multiple_tasks() {
     let (engine, persistence, _temp_dir) = setup_test_engine().await;
 
-    // Create workflow with multiple tasks
-    let workflow_yaml = r#"
-document:
-  dsl: '1.0.2'
-  namespace: default
-  name: test-multiple-tasks
-  version: '1.0.0'
-do:
-  - task1:
-      set:
-        a: 1
-  - task2:
-      set:
-        b: 2
-  - task3:
-      set:
-        c: 3
-"#;
-
-    let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml).unwrap();
+    let fixture = PathBuf::from("tests/fixtures/task-events/test-multiple-tasks.sw.yaml");
+    let workflow_yaml =
+        std::fs::read_to_string(&fixture).expect("Failed to read test-multiple-tasks.sw.yaml");
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     let result = engine.start_with_input(workflow, json!({})).await;
     assert!(result.is_ok(), "Workflow should complete successfully");
@@ -223,22 +188,10 @@ do:
 async fn test_task_created_includes_task_type() {
     let (engine, persistence, _temp_dir) = setup_test_engine().await;
 
-    // Create workflow with different task types
-    let workflow_yaml = r#"
-document:
-  dsl: '1.0.2'
-  namespace: default
-  name: test-task-types
-  version: '1.0.0'
-do:
-  - setTask:
-      set:
-        value: 1
-  - waitTask:
-      wait: PT0.1S
-"#;
-
-    let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml).unwrap();
+    let fixture = PathBuf::from("tests/fixtures/task-events/test-task-types.sw.yaml");
+    let workflow_yaml =
+        std::fs::read_to_string(&fixture).expect("Failed to read test-task-types.sw.yaml");
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     let result = engine.start_with_input(workflow, json!({})).await;
     assert!(result.is_ok(), "Workflow should complete successfully");
@@ -287,38 +240,10 @@ do:
 async fn test_task_retried_event_emitted_on_retry() {
     let (engine, persistence, _temp_dir) = setup_test_engine().await;
 
-    // Create workflow with a try task that will fail and retry
-    // The try field is a sequence of tasks, just like do
-    let workflow_yaml = r#"
-document:
-  dsl: '1.0.2'
-  namespace: default
-  name: test-task-retried
-  version: '1.0.0'
-do:
-  - failingTask:
-      try:
-        - callHttp:
-            call: http
-            with:
-              method: get
-              endpoint: http://localhost:9999/nonexistent
-      catch:
-        errors:
-          with:
-            type: https://serverlessworkflow.io/spec/1.0.0/errors/communication
-            status: 503
-        retry:
-          delay:
-            milliseconds: 100
-          backoff:
-            exponential: {}
-          limit:
-            attempt:
-              count: 2
-"#;
-
-    let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml).unwrap();
+    let fixture = PathBuf::from("tests/fixtures/task-events/test-task-retried.sw.yaml");
+    let workflow_yaml =
+        std::fs::read_to_string(&fixture).expect("Failed to read test-task-retried.sw.yaml");
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     // This will fail and retry 2 times before final failure
     let result = engine.start_with_input(workflow, json!({})).await;
@@ -361,35 +286,10 @@ do:
 async fn test_task_retried_includes_attempt_number() {
     let (engine, persistence, _temp_dir) = setup_test_engine().await;
 
-    // Create workflow with a try task that succeeds without needing retry
-    // The try field is a sequence of tasks, just like do
-    let workflow_yaml = r#"
-document:
-  dsl: '1.0.2'
-  namespace: default
-  name: test-retry-attempt
-  version: '1.0.0'
-do:
-  - retryTask:
-      try:
-        - setTask:
-            set:
-              value: 42
-      catch:
-        errors:
-          with:
-            type: https://serverlessworkflow.io/spec/1.0.0/errors/runtime
-        retry:
-          delay:
-            milliseconds: 100
-          backoff:
-            exponential: {}
-          limit:
-            attempt:
-              count: 3
-"#;
-
-    let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml).unwrap();
+    let fixture = PathBuf::from("tests/fixtures/task-events/test-retry-attempt.sw.yaml");
+    let workflow_yaml =
+        std::fs::read_to_string(&fixture).expect("Failed to read test-retry-attempt.sw.yaml");
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     let result = engine.start_with_input(workflow, json!({})).await;
     assert!(result.is_ok(), "Workflow should complete successfully");

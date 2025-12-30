@@ -1,4 +1,4 @@
-Output run-container.gif
+Output docs/vhs/run-container.gif
 
 Require jackdaw
 
@@ -7,6 +7,6 @@ Set FontSize 28
 Set Width 1400
 Set Height 400
 
-Type "jackdaw run ../../tests/fixtures/containers/container-env-vars.sw.yaml"  Enter
+Type "jackdaw run examples/container/container-env-vars.sw.yaml"  Enter
 
 Sleep 10s

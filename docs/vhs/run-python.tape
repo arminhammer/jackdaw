@@ -4,7 +4,6 @@ Set Shell bash
 Set FontSize 14
 Set Width 1200
 Set Height 700
-Set Theme "Catppuccin Mocha"
 
 Type "# Run Python workflow - factorial and data processing"
 Sleep 500ms

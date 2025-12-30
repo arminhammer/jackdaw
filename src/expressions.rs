@@ -70,9 +70,6 @@ impl ExpressionPreprocessor {
 
     /// Preprocess a jq expression with configured transformations
     ///
-    /// # Panics
-    ///
-    /// Panics if regex compilation fails (should not happen with hardcoded valid regex patterns).
     #[must_use]
     pub fn preprocess(&self, expr: &str) -> String {
         let mut result = expr.to_string();
@@ -133,9 +130,6 @@ pub fn evaluate_expression(expression: &str, context: &Value) -> Result<Value> {
 ///
 /// Returns an error if expression evaluation fails or if jq compilation/execution encounters an error.
 ///
-/// # Panics
-///
-/// Panics if regex compilation fails (should not happen with hardcoded valid regex patterns).
 pub fn evaluate_expression_with_input(
     expression: &str,
     context: &Value,

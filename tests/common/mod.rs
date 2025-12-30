@@ -5,7 +5,6 @@ pub enum WorkflowStatus {
     Faulted(String),
 }
 
-/// Helper to parse YAML from gherkin docstring (removes language markers like "yaml" or "json")
 pub fn parse_docstring(docstring: &str) -> String {
     docstring
         .lines()

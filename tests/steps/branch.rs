@@ -4,7 +4,6 @@ pub use cucumber::{World, then};
 pub use jackdaw::cache::CacheProvider;
 pub use serde_json::Value;
 
-// Branch-specific step: check that a property contains a specific number of items
 #[then(expr = "the workflow output should have a {string} property containing {int} items")]
 async fn then_property_contains_items(
     world: &mut CtKWorld,

@@ -1,7 +1,3 @@
-"""
-Python handler for Calculator.Add operation.
-Strongly typed: takes AddRequest returns AddResponse
-"""
 from calculator.types import AddRequest, AddResponse
 
 
