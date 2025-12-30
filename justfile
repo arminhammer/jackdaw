@@ -2,6 +2,8 @@ init: submodules
     command -v cargo-zigbuild >/dev/null 2>&1 || cargo install cargo-zigbuild
     command -v cargo-llvm-cov >/dev/null 2>&1 || cargo install cargo-llvm-cov
     command -v zig >/dev/null 2>&1 || echo "⚠️  Warning: 'zig' not found in PATH. Required for cross-compilation."
+    command -v prek >/dev/null 2>&1 || echo "⚠️  Warning: 'prek' not found in PATH. Required for running pre-commit hooks."
+    command -v vhs >/dev/null 2>&1 || echo "⚠️  Warning: 'vhs' not found in PATH. Required for running VHS demos."
     rustup target list --installed | grep -q x86_64-unknown-linux-musl || rustup target add x86_64-unknown-linux-musl
     rustup target list --installed | grep -q aarch64-unknown-linux-musl || rustup target add aarch64-unknown-linux-musl
 
@@ -268,4 +270,3 @@ vhs:
     # vhs docs/vhs/listener-openapi.tape
     # vhs docs/vhs/listener-grpc.tape
     vhs docs/vhs/hello-world-validate.tape
-
