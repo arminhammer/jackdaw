@@ -210,12 +210,16 @@ jobs:
       - name: Prepare release assets
         run: |
           mkdir -p dist
+          VERSION="${{ needs.check-changes.outputs.version }}"
 
           # Copy and compress binaries
           for platform in linux-amd64 linux-arm64 macos-amd64 macos-arm64; do
             if [ -d "artifacts/jackdaw-$platform" ]; then
-              cp artifacts/jackdaw-$platform/jackdaw-$platform dist/
-              tar -czf dist/jackdaw-$platform.tar.gz -C artifacts/jackdaw-$platform jackdaw-$platform
+              # Rename binary to just "jackdaw" for the archive
+              cp artifacts/jackdaw-$platform/jackdaw-$platform dist/jackdaw
+              # Create archive with version in the name, but binary inside is just "jackdaw"
+              tar -czf dist/jackdaw-${VERSION}-$platform.tar.gz -C dist jackdaw
+              rm dist/jackdaw
             fi
           done
 
@@ -247,10 +251,10 @@ jobs:
 
             ### Binary Downloads
 
-            - **Linux x86_64**: `jackdaw-linux-amd64.tar.gz`
-            - **Linux ARM64**: `jackdaw-linux-arm64.tar.gz`
-            - **macOS Intel**: `jackdaw-macos-amd64.tar.gz`
-            - **macOS Apple Silicon**: `jackdaw-macos-arm64.tar.gz`
+            - **Linux x86_64**: `jackdaw-${{ needs.check-changes.outputs.version }}-linux-amd64.tar.gz`
+            - **Linux ARM64**: `jackdaw-${{ needs.check-changes.outputs.version }}-linux-arm64.tar.gz`
+            - **macOS Intel**: `jackdaw-${{ needs.check-changes.outputs.version }}-macos-amd64.tar.gz`
+            - **macOS Apple Silicon**: `jackdaw-${{ needs.check-changes.outputs.version }}-macos-arm64.tar.gz`
 
             ### Requirements
 
@@ -268,10 +272,10 @@ jobs:
             #### Using Binary
             ```bash
             # Extract the binary
-            tar -xzf jackdaw-<platform>.tar.gz
+            tar -xzf jackdaw-<version>-<platform>.tar.gz
 
             # Move to PATH
-            sudo mv jackdaw-<platform> /usr/local/bin/jackdaw
+            sudo mv jackdaw /usr/local/bin/jackdaw
             chmod +x /usr/local/bin/jackdaw
 
             # Verify installation
