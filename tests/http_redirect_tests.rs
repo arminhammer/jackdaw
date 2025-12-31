@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used)]
+
 /// Tests for HTTP redirect handling
 use jackdaw::cache::CacheProvider;
 use jackdaw::durableengine::DurableEngine;

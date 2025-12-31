@@ -1,3 +1,7 @@
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+#![allow(clippy::wildcard_enum_match_arm)]
+
 /// Tests for Timeout Enforcement
 ///
 /// Tests that timeouts are enforced at:

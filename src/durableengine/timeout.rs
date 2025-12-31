@@ -103,6 +103,10 @@ pub fn parse_timeout_duration(timeout: &OneOfTimeoutDefinitionOrReference) -> Re
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
+    #![allow(clippy::expect_used)]
+    #![allow(clippy::panic)]
+
     use super::*;
     use serverless_workflow_core::models::duration::Duration;
     use serverless_workflow_core::models::timeout::TimeoutDefinition;
