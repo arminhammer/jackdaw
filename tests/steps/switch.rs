@@ -1,3 +1,9 @@
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+#![allow(clippy::panic)]
+#![allow(clippy::expect_fun_call)]
+#![allow(clippy::single_match)]
+
 use crate::CtKWorld;
 
 pub use cucumber::then;
@@ -48,7 +54,7 @@ async fn then_task_runs_last(world: &mut CtKWorld, task_name: String) {
                 timestamp,
                 ..
             } => {
-                all_task_timestamps.push((name.clone(), timestamp.clone()));
+                all_task_timestamps.push((name.clone(), *timestamp));
             }
             _ => {}
         }

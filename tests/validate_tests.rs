@@ -1,3 +1,8 @@
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+#![allow(clippy::panic)]
+#![allow(clippy::collapsible_if)]
+
 use jackdaw::durableengine::DurableEngine;
 use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use std::path::PathBuf;

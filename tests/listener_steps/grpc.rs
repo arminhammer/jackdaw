@@ -1,3 +1,11 @@
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+#![allow(clippy::panic)]
+#![allow(clippy::indexing_slicing)]
+#![allow(clippy::wildcard_enum_match_arm)]
+#![allow(clippy::single_match)]
+#![allow(clippy::for_kv_map)]
+
 use crate::ListenerWorld;
 use crate::common::parse_docstring;
 use cucumber::{given, then, when};

@@ -1,3 +1,8 @@
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+#![allow(clippy::wildcard_enum_match_arm)]
+#![allow(clippy::indexing_slicing)]
+
 /// Tests for task.created.v1 lifecycle event
 ///
 /// Per the Serverless Workflow spec, a task.created.v1 event should be emitted:

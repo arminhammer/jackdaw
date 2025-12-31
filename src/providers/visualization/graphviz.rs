@@ -321,6 +321,8 @@ impl VisualizationProvider for GraphvizProvider {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
+
     use super::*;
     use serverless_workflow_core::models::workflow::WorkflowDefinitionMetadata;
 

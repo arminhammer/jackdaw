@@ -1,3 +1,8 @@
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+#![allow(clippy::panic)]
+#![allow(clippy::indexing_slicing)]
+
 use crate::NestedWorkflowWorld;
 use crate::common::parse_docstring;
 use cucumber::{given, then, when};

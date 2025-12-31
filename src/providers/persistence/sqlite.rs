@@ -190,6 +190,10 @@ impl PersistenceProvider for SqlitePersistence {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
+    #![allow(clippy::panic)]
+    #![allow(clippy::wildcard_enum_match_arm)]
+
     use super::*;
     use chrono::Utc;
 
@@ -220,15 +224,15 @@ mod tests {
         let events = persistence.get_events(instance_id).await.unwrap();
         assert_eq!(events.len(), 2);
 
-        match &events[0] {
-            WorkflowEvent::WorkflowStarted { workflow_id, .. } => {
+        match events.first() {
+            Some(WorkflowEvent::WorkflowStarted { workflow_id, .. }) => {
                 assert_eq!(workflow_id, "workflow1");
             }
             _ => panic!("Expected WorkflowStarted event"),
         }
 
-        match &events[1] {
-            WorkflowEvent::TaskStarted { task_name, .. } => {
+        match events.get(1) {
+            Some(WorkflowEvent::TaskStarted { task_name, .. }) => {
                 assert_eq!(task_name, "task1");
             }
             _ => panic!("Expected TaskStarted event"),

@@ -336,6 +336,10 @@ impl Executor for NodeExecutor {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
+    #![allow(clippy::expect_used)]
+    #![allow(clippy::panic)]
+
     // Note: These tests are disabled because they require a proper Context setup
     // which involves persistence and cache providers. The node executor
     // works fine in practice but cannot be easily unit tested in isolation.

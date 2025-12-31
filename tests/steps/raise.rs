@@ -1,3 +1,7 @@
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+#![allow(clippy::panic)]
+
 use crate::CtKWorld;
 use crate::common::{WorkflowStatus, parse_docstring};
 use cucumber::then;
@@ -16,7 +20,7 @@ async fn then_workflow_faults_with_error(world: &mut CtKWorld, step: &cucumber::
 
             // Parse the actual error message (it should be a JSON string)
             let actual: Value =
-                serde_json::from_str(&error_msg).expect("Failed to parse actual error");
+                serde_json::from_str(error_msg).expect("Failed to parse actual error");
 
             // Compare the error fields
             if let (Some(expected_obj), Some(actual_obj)) =

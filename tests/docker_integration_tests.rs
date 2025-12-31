@@ -1,3 +1,7 @@
+#![allow(clippy::panic)]
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+
 /// Docker Integration Tests
 ///
 /// These tests validate that the built Docker image works correctly end-to-end.

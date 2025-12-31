@@ -1,3 +1,6 @@
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+
 /// Container Task Feature Tests
 ///
 /// Tests for container advanced features per Serverless Workflow spec:

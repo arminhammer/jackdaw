@@ -1,3 +1,7 @@
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+#![allow(clippy::panic)]
+
 use crate::CtKWorld;
 use crate::common::WorkflowStatus;
 use cucumber::then;

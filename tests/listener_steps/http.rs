@@ -1,3 +1,7 @@
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+#![allow(clippy::panic)]
+
 use crate::ListenerWorld;
 use crate::common::parse_docstring;
 use cucumber::{given, then, when};
@@ -106,7 +110,7 @@ async fn when_http_python_add_endpoint_called(world: &mut ListenerWorld, path: S
     // Send HTTP request to the listener
     let client = reqwest::Client::new();
     let response = client
-        .post(&format!("http://localhost:8080{}", path_only))
+        .post(format!("http://localhost:8080{}", path_only))
         .json(&request)
         .send()
         .await
@@ -153,13 +157,13 @@ async fn then_http_response_status(world: &mut ListenerWorld, expected_status: u
         .expect("No HTTP response status recorded");
 
     // If status is 500, print the error response for debugging
-    if actual_status == 500 {
-        if let Some(response_body) = world.http_responses.values().last() {
-            eprintln!(
-                "HTTP 500 error response: {}",
-                serde_json::to_string_pretty(response_body).unwrap()
-            );
-        }
+    if actual_status == 500
+        && let Some(response_body) = world.http_responses.values().last()
+    {
+        eprintln!(
+            "HTTP 500 error response: {}",
+            serde_json::to_string_pretty(response_body).unwrap()
+        );
     }
 
     assert_eq!(

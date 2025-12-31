@@ -1,3 +1,8 @@
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+#![allow(clippy::wildcard_enum_match_arm)]
+#![allow(clippy::expect_fun_call)]
+
 mod common;
 mod steps;
 use crate::common::{WorkflowStatus, parse_docstring};
