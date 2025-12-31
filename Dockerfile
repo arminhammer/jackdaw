@@ -135,7 +135,7 @@ CMD ["--help"]
 
 # OCI metadata labels
 LABEL org.opencontainers.image.title="Jackdaw"
-LABEL org.opencontainers.image.description="A durable, cached, graph-based execution engine for Serverless Workflows"
+LABEL org.opencontainers.image.description="A durable, cached, graph-based execution engine for Serverless Workflow"
 LABEL org.opencontainers.image.authors="Armin Graf"
 LABEL org.opencontainers.image.source="https://github.com/arminhammer/jackdaw"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
