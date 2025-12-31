@@ -217,6 +217,8 @@ jobs:
             if [ -d "artifacts/jackdaw-$platform" ]; then
               # Rename binary to just "jackdaw" for the archive
               cp artifacts/jackdaw-$platform/jackdaw-$platform dist/jackdaw
+              # Ensure binary has executable permissions before archiving
+              chmod +x dist/jackdaw
               # Create archive with version in the name, but binary inside is just "jackdaw"
               tar -czf dist/jackdaw-${VERSION}-$platform.tar.gz -C dist jackdaw
               rm dist/jackdaw
@@ -258,9 +260,8 @@ jobs:
 
             ### Requirements
 
-            - Python 3.10+ (Python 3.10+ recommended)
+            - Python 3.10+ (for Python execution)
             - Node.js 18+ (for JavaScript execution)
-            - For Linux binaries: `libpython3.10` or newer
 
             ### Installation
 
@@ -276,7 +277,6 @@ jobs:
 
             # Move to PATH
             sudo mv jackdaw /usr/local/bin/jackdaw
-            chmod +x /usr/local/bin/jackdaw
 
             # Verify installation
             jackdaw --version

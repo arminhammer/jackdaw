@@ -138,11 +138,25 @@ jobs:
         run: |
           mkdir -p dist
 
+          # Determine version
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          # Remove 'v' prefix if present
+          VERSION="${VERSION#v}"
+
           # Copy and compress binaries
           for platform in linux-amd64 linux-arm64 macos-amd64 macos-arm64; do
             if [ -d "artifacts/jackdaw-$platform" ]; then
-              cp artifacts/jackdaw-$platform/jackdaw-$platform dist/
-              tar -czf dist/jackdaw-$platform.tar.gz -C artifacts/jackdaw-$platform jackdaw-$platform
+              # Rename binary to just "jackdaw" for the archive
+              cp artifacts/jackdaw-$platform/jackdaw-$platform dist/jackdaw
+              # Ensure binary has executable permissions before archiving
+              chmod +x dist/jackdaw
+              # Create archive with version in the name, but binary inside is just "jackdaw"
+              tar -czf dist/jackdaw-${VERSION}-$platform.tar.gz -C dist jackdaw
+              rm dist/jackdaw
             fi
           done
 
@@ -155,10 +169,13 @@ jobs:
         id: version
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            VERSION="${{ github.event.inputs.version }}"
           else
-            echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+            VERSION="${GITHUB_REF#refs/tags/}"
           fi
+          # Remove 'v' prefix if present
+          VERSION="${VERSION#v}"
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -175,25 +192,24 @@ jobs:
 
             ### Downloads
 
-            - **Linux x86_64**: `jackdaw-linux-amd64.tar.gz`
-            - **Linux ARM64**: `jackdaw-linux-arm64.tar.gz`
-            - **macOS Intel**: `jackdaw-macos-amd64.tar.gz`
-            - **macOS Apple Silicon**: `jackdaw-macos-arm64.tar.gz`
+            - **Linux x86_64**: `jackdaw-${{ steps.version.outputs.VERSION }}-linux-amd64.tar.gz`
+            - **Linux ARM64**: `jackdaw-${{ steps.version.outputs.VERSION }}-linux-arm64.tar.gz`
+            - **macOS Intel**: `jackdaw-${{ steps.version.outputs.VERSION }}-macos-amd64.tar.gz`
+            - **macOS Apple Silicon**: `jackdaw-${{ steps.version.outputs.VERSION }}-macos-arm64.tar.gz`
 
             ### Requirements
 
-            - Python 3.10+ (Python 3.10+ recommended)
-            - For Linux: `libpython3.10` or newer
+            - Python 3.10+ (for Python execution)
+            - Node.js 18+ (for JavaScript execution)
 
             ### Installation
 
             ```bash
             # Extract the binary
-            tar -xzf jackdaw-<platform>.tar.gz
+            tar -xzf jackdaw-<version>-<platform>.tar.gz
 
             # Move to PATH
-            sudo mv jackdaw-<platform> /usr/local/bin/jackdaw
-            chmod +x /usr/local/bin/jackdaw
+            sudo mv jackdaw /usr/local/bin/jackdaw
 
             # Verify installation
             jackdaw --version
