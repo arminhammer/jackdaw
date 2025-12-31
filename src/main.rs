@@ -40,8 +40,15 @@ pub enum Error {
 #[derive(Parser, Debug)]
 #[command(name = "jackdaw")]
 #[command(author = "Armin Graf")]
-#[command(version = "1.0.0")]
-#[command(about = "A durable, cached, graph-based execution engine for Serverless Workflows", long_about = None)]
+#[command(version = env!("CARGO_PKG_VERSION"))]
+#[command(about = "A durable, cached, graph-based execution engine for Serverless Workflow", long_about = None)]
+#[command(help_template = "\
+{before-help}{name} {version}
+{about-with-newline}
+{usage-heading} {usage}
+
+{all-args}{after-help}
+")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
