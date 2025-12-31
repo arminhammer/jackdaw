@@ -1,3 +1,8 @@
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+#![allow(clippy::panic)]
+#![allow(clippy::expect_fun_call)]
+
 use crate::CtKWorld;
 
 pub use cucumber::{World, then};

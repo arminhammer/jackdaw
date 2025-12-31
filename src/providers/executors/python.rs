@@ -385,6 +385,9 @@ impl Executor for PythonExtExecutor {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
+    #![allow(clippy::expect_used)]
+    #![allow(clippy::panic)]
 
     // Note: These tests are disabled because they require a proper Context setup
     // which involves persistence and cache providers. The python_ext executor

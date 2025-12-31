@@ -132,6 +132,10 @@ impl CacheProvider for SqliteCache {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
+    #![allow(clippy::expect_used)]
+    #![allow(clippy::panic)]
+
     use super::*;
     use chrono::Utc;
 

@@ -1,3 +1,6 @@
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+
 /// Tests for Listen Task Read Modes
 ///
 /// Per the Serverless Workflow spec, listen tasks support three read modes:
