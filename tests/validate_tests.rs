@@ -135,7 +135,8 @@ async fn test_validate_for_example() {
 /// Test that validation properly fails for invalid workflow files
 #[tokio::test]
 async fn test_validate_nonexistent_file() {
-    let nonexistent_file = PathBuf::from("submodules/specification/examples/this-does-not-exist.yaml");
+    let nonexistent_file =
+        PathBuf::from("submodules/specification/examples/this-does-not-exist.yaml");
 
     let result = validate_workflow_file(&nonexistent_file);
 
