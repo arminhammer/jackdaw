@@ -305,5 +305,5 @@ async fn main() {
     }
 
     // Run all features together with a single consolidated summary
-    CtKWorld::cucumber().run("ctk/ctk/features/").await;
+    CtKWorld::cucumber().run("submodules/specification/ctk/features/").await;
 }
