@@ -28,8 +28,6 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
-ctk/
-submodules/
 dist/
 workflow.db
 

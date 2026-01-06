@@ -24,7 +24,7 @@ fn validate_workflow_file(path: &PathBuf) -> Result<(), String> {
     Ok(())
 }
 
-/// Test that validates all example workflow files in ctk/examples
+/// Test that validates all example workflow files in submodules/specification/examples
 ///
 /// This is a special test that ensures all official examples can at least
 /// be validated (dry run). We may not be able to realistically execute all
@@ -35,7 +35,7 @@ async fn test_validate_all_examples() {
     let skip_files: Vec<&str> = vec![];
 
     // Path to the examples directory
-    let examples_dir = PathBuf::from("ctk/examples");
+    let examples_dir = PathBuf::from("submodules/specification/examples");
 
     // Verify the directory exists
     assert!(
@@ -115,7 +115,7 @@ async fn test_validate_all_examples() {
 /// This test validates a specific example file to ensure it passes validation.
 #[tokio::test]
 async fn test_validate_for_example() {
-    let example_file = PathBuf::from("ctk/examples/for.yaml");
+    let example_file = PathBuf::from("submodules/specification/examples/for.yaml");
 
     assert!(
         example_file.exists(),
@@ -135,7 +135,8 @@ async fn test_validate_for_example() {
 /// Test that validation properly fails for invalid workflow files
 #[tokio::test]
 async fn test_validate_nonexistent_file() {
-    let nonexistent_file = PathBuf::from("ctk/examples/this-does-not-exist.yaml");
+    let nonexistent_file =
+        PathBuf::from("submodules/specification/examples/this-does-not-exist.yaml");
 
     let result = validate_workflow_file(&nonexistent_file);
 
