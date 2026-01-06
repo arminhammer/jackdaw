@@ -1,5 +1,5 @@
-[submodule "ctk"]
-	path = ctk
+[submodule "submodules/specification"]
+	path = submodules/specification
 	url = https://github.com/serverlessworkflow/specification.git
 [submodule "submodules/sdk-rust"]
 	path = submodules/sdk-rust

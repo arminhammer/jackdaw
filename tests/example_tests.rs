@@ -105,7 +105,7 @@ impl ExampleWorld {
 
 #[given(expr = "the example workflow {string}")]
 async fn given_example_workflow(world: &mut ExampleWorld, workflow_file: String) {
-    let workflow_path = format!("ctk/examples/{}", workflow_file);
+    let workflow_path = format!("submodules/specification/examples/{}", workflow_file);
     let workflow_content = std::fs::read_to_string(&workflow_path)
         .expect(&format!("Failed to read workflow file: {}", workflow_path));
     world.workflow_definition = Some(workflow_content);
