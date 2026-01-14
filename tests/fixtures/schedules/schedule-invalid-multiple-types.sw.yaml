@@ -1,0 +1,13 @@
+document:
+  dsl: '1.0.2'
+  namespace: test
+  name: schedule-invalid-multiple-types
+  version: '1.0.0'
+schedule:
+  every:
+    seconds: 2
+  cron: "* * * * *"
+do:
+  - invalidTask:
+      set:
+        message: "This should fail validation"

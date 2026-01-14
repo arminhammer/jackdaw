@@ -1,0 +1,14 @@
+document:
+  dsl: '1.0.2'
+  namespace: test
+  name: schedule-cron-every-5-seconds
+  version: '1.0.0'
+schedule:
+  # Note: Standard cron doesn't support seconds, but some implementations do
+  # For testing, we'll use a variation that supports seconds: "seconds minutes hours days months weekdays"
+  cron: "*/5 * * * * *"
+do:
+  - cronSecondsTask:
+      set:
+        executedAt: ${ now() }
+        cronExpression: "Every 5 seconds"

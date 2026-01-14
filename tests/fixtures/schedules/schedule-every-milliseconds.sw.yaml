@@ -1,0 +1,13 @@
+document:
+  dsl: '1.0.2'
+  namespace: test
+  name: schedule-every-milliseconds
+  version: '1.0.0'
+schedule:
+  every:
+    milliseconds: 500
+do:
+  - quickTask:
+      set:
+        executedAt: ${ now() }
+        result: "Executed"

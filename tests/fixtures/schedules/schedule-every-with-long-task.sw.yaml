@@ -1,0 +1,16 @@
+document:
+  dsl: '1.0.2'
+  namespace: test
+  name: schedule-every-with-long-task
+  version: '1.0.0'
+schedule:
+  every:
+    seconds: 1
+do:
+  - longRunningTask:
+      wait:
+        seconds: 2
+  - setResult:
+      set:
+        executedAt: ${ now() }
+        message: "Long task completed"

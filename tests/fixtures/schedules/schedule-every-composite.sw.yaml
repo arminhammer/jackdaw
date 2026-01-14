@@ -1,0 +1,14 @@
+document:
+  dsl: '1.0.2'
+  namespace: test
+  name: schedule-every-composite
+  version: '1.0.0'
+schedule:
+  every:
+    seconds: 1
+    milliseconds: 500
+do:
+  - compositeTask:
+      set:
+        executedAt: ${ now() }
+        message: "Executed every 1.5 seconds"

@@ -1,0 +1,12 @@
+document:
+  dsl: '1.0.2'
+  namespace: test
+  name: schedule-cron-daily-midnight
+  version: '1.0.0'
+schedule:
+  cron: "0 0 * * *"
+do:
+  - dailyTask:
+      set:
+        executedAt: ${ now() }
+        cronExpression: "Daily at midnight"

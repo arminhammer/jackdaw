@@ -1,0 +1,12 @@
+document:
+  dsl: '1.0.2'
+  namespace: test
+  name: schedule-after-iso8601
+  version: '1.0.0'
+schedule:
+  after: PT1S
+do:
+  - afterIsoTask:
+      set:
+        executedAt: ${ now() }
+        format: "ISO 8601 after"
