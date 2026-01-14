@@ -1,0 +1,13 @@
+document:
+  dsl: '1.0.2'
+  namespace: test
+  name: schedule-after-seconds
+  version: '1.0.0'
+schedule:
+  after:
+    seconds: 2
+do:
+  - afterTask:
+      set:
+        executedAt: ${ now() }
+        message: "Executed, waiting 2 seconds before next run"

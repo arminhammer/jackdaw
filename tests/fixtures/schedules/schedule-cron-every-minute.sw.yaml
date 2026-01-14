@@ -1,0 +1,12 @@
+document:
+  dsl: '1.0.2'
+  namespace: test
+  name: schedule-cron-every-minute
+  version: '1.0.0'
+schedule:
+  cron: "* * * * *"
+do:
+  - cronTask:
+      set:
+        executedAt: ${ now() }
+        cronExpression: "Every minute"

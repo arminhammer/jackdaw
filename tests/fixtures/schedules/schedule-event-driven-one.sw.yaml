@@ -1,0 +1,15 @@
+document:
+  dsl: '1.0.2'
+  namespace: test
+  name: schedule-event-driven-one
+  version: '1.0.0'
+schedule:
+  on:
+    one:
+      with:
+        type: com.example.test.event
+do:
+  - handleEvent:
+      set:
+        eventData: ${ $WORKFLOW.input[0].data }
+        message: "Handled event"

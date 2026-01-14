@@ -39,3 +39,4 @@ uv.lock
 # Generated documentation
 /docs/book/
 examples/**/node_modules/
+.claude/
