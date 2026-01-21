@@ -15,8 +15,8 @@ use jackdaw::persistence::PersistenceProvider;
 use jackdaw::providers::cache::RedbCache;
 use jackdaw::providers::persistence::RedbPersistence;
 use jackdaw::workflow::WorkflowEvent;
-use jackdaw::workflow_source::StringSource;
 use serde_json::json;
+use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -53,9 +53,9 @@ async fn test_task_created_event_emitted() {
     let fixture = PathBuf::from("tests/fixtures/task-events/test-task-created-event.sw.yaml");
     let workflow_yaml =
         std::fs::read_to_string(&fixture).expect("Failed to read test-task-created-event.sw.yaml");
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
-    let source = StringSource::new(workflow_yaml);
-    let handle = engine.execute(source, json!({})).await.unwrap();
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
     let instance_id = handle.instance_id().to_string();
     let result = handle.wait_for_completion(Duration::from_secs(30)).await;
     assert!(result.is_ok(), "Workflow should complete successfully");
@@ -97,9 +97,9 @@ async fn test_task_created_emitted_before_task_started() {
     let fixture = PathBuf::from("tests/fixtures/task-events/test-event-order.sw.yaml");
     let workflow_yaml =
         std::fs::read_to_string(&fixture).expect("Failed to read test-event-order.sw.yaml");
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
-    let source = StringSource::new(workflow_yaml);
-    let handle = engine.execute(source, json!({})).await.unwrap();
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
     let instance_id = handle.instance_id().to_string();
     let result = handle.wait_for_completion(Duration::from_secs(30)).await;
     assert!(result.is_ok(), "Workflow should complete successfully");
@@ -148,9 +148,9 @@ async fn test_task_created_for_multiple_tasks() {
     let fixture = PathBuf::from("tests/fixtures/task-events/test-multiple-tasks.sw.yaml");
     let workflow_yaml =
         std::fs::read_to_string(&fixture).expect("Failed to read test-multiple-tasks.sw.yaml");
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
-    let source = StringSource::new(workflow_yaml);
-    let handle = engine.execute(source, json!({})).await.unwrap();
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
     let instance_id = handle.instance_id().to_string();
     let result = handle.wait_for_completion(Duration::from_secs(30)).await;
     assert!(result.is_ok(), "Workflow should complete successfully");
@@ -197,9 +197,9 @@ async fn test_task_created_includes_task_type() {
     let fixture = PathBuf::from("tests/fixtures/task-events/test-task-types.sw.yaml");
     let workflow_yaml =
         std::fs::read_to_string(&fixture).expect("Failed to read test-task-types.sw.yaml");
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
-    let source = StringSource::new(workflow_yaml);
-    let handle = engine.execute(source, json!({})).await.unwrap();
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
     let instance_id = handle.instance_id().to_string();
     let result = handle.wait_for_completion(Duration::from_secs(30)).await;
     assert!(result.is_ok(), "Workflow should complete successfully");
@@ -251,8 +251,8 @@ async fn test_task_retried_event_emitted_on_retry() {
         std::fs::read_to_string(&fixture).expect("Failed to read test-task-retried.sw.yaml");
 
     // This will fail and retry 2 times before final failure
-    let source = StringSource::new(workflow_yaml);
-    let handle = engine.execute(source, json!({})).await.unwrap();
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
     let instance_id = handle.instance_id().to_string();
     let result = handle.wait_for_completion(Duration::from_secs(30)).await;
 
@@ -292,9 +292,9 @@ async fn test_task_retried_includes_attempt_number() {
     let fixture = PathBuf::from("tests/fixtures/task-events/test-retry-attempt.sw.yaml");
     let workflow_yaml =
         std::fs::read_to_string(&fixture).expect("Failed to read test-retry-attempt.sw.yaml");
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
-    let source = StringSource::new(workflow_yaml);
-    let handle = engine.execute(source, json!({})).await.unwrap();
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
     let instance_id = handle.instance_id().to_string();
     let result = handle.wait_for_completion(Duration::from_secs(30)).await;
     assert!(result.is_ok(), "Workflow should complete successfully");

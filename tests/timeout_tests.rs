@@ -2,6 +2,7 @@
 #![allow(clippy::expect_used)]
 #![allow(clippy::wildcard_enum_match_arm)]
 
+use jackdaw::DurableEngineBuilder;
 /// Tests for Timeout Enforcement
 ///
 /// Tests that timeouts are enforced at:
@@ -14,9 +15,8 @@ use jackdaw::durableengine::DurableEngine;
 use jackdaw::persistence::PersistenceProvider;
 use jackdaw::providers::cache::RedbCache;
 use jackdaw::providers::persistence::RedbPersistence;
-use jackdaw::workflow_source::FilesystemSource;
-use jackdaw::DurableEngineBuilder;
 use serde_json::json;
+use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -41,11 +41,12 @@ async fn test_workflow_timeout_enforcement() {
     let (engine, _temp_dir) = setup_test_engine().await;
 
     let fixture = PathBuf::from("tests/fixtures/timeout/workflow-timeout-iso8601.sw.yaml");
-    let source = FilesystemSource::new(fixture);
+    let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     // Measure execution time
     let start = Instant::now();
-    let handle = engine.execute(source, json!({})).await.unwrap();
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
     let result = handle.wait_for_completion(Duration::from_secs(10)).await;
     let elapsed = start.elapsed();
 
@@ -76,10 +77,11 @@ async fn test_workflow_timeout_with_inline_duration() {
     let (engine, _temp_dir) = setup_test_engine().await;
 
     let fixture = PathBuf::from("tests/fixtures/timeout/workflow-timeout-inline.sw.yaml");
-    let source = FilesystemSource::new(fixture);
+    let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     let start = Instant::now();
-    let handle = engine.execute(source, json!({})).await.unwrap();
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
     let result = handle.wait_for_completion(Duration::from_secs(10)).await;
     let elapsed = start.elapsed();
 
@@ -100,10 +102,11 @@ async fn test_task_timeout_enforcement() {
     let (engine, _temp_dir) = setup_test_engine().await;
 
     let fixture = PathBuf::from("tests/fixtures/timeout/task-timeout-iso8601.sw.yaml");
-    let source = FilesystemSource::new(fixture);
+    let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     let start = Instant::now();
-    let handle = engine.execute(source, json!({})).await.unwrap();
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
     let result = handle.wait_for_completion(Duration::from_secs(10)).await;
     let elapsed = start.elapsed();
 
@@ -134,10 +137,11 @@ async fn test_task_timeout_with_inline_duration() {
     let (engine, _temp_dir) = setup_test_engine().await;
 
     let fixture = PathBuf::from("tests/fixtures/timeout/task-timeout-inline.sw.yaml");
-    let source = FilesystemSource::new(fixture);
+    let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     let start = Instant::now();
-    let handle = engine.execute(source, json!({})).await.unwrap();
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
     let result = handle.wait_for_completion(Duration::from_secs(10)).await;
     let elapsed = start.elapsed();
 
@@ -158,10 +162,11 @@ async fn test_workflow_completes_within_timeout() {
     let (engine, _temp_dir) = setup_test_engine().await;
 
     let fixture = PathBuf::from("tests/fixtures/timeout/workflow-completes-within-timeout.sw.yaml");
-    let source = FilesystemSource::new(fixture);
+    let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     let start = Instant::now();
-    let handle = engine.execute(source, json!({})).await.unwrap();
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
     let result = handle.wait_for_completion(Duration::from_secs(10)).await;
     let elapsed = start.elapsed();
 
@@ -185,9 +190,10 @@ async fn test_task_completes_within_timeout() {
     let (engine, _temp_dir) = setup_test_engine().await;
 
     let fixture = PathBuf::from("tests/fixtures/timeout/task-completes-within-timeout.sw.yaml");
-    let source = FilesystemSource::new(fixture);
+    let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
-    let handle = engine.execute(source, json!({})).await.unwrap();
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
     let result = handle.wait_for_completion(Duration::from_secs(10)).await;
 
     assert!(
@@ -202,10 +208,11 @@ async fn test_task_timeout_wait_task() {
     let (engine, _temp_dir) = setup_test_engine().await;
 
     let fixture = PathBuf::from("tests/fixtures/timeout/task-timeout-call.sw.yaml");
-    let source = FilesystemSource::new(fixture);
+    let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     let start = Instant::now();
-    let handle = engine.execute(source, json!({})).await.unwrap();
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
     let result = handle.wait_for_completion(Duration::from_secs(10)).await;
     let elapsed = start.elapsed();
 
@@ -223,10 +230,11 @@ async fn test_nested_timeout_task_overrides_workflow() {
     let (engine, _temp_dir) = setup_test_engine().await;
 
     let fixture = PathBuf::from("tests/fixtures/timeout/nested-timeout-task-overrides.sw.yaml");
-    let source = FilesystemSource::new(fixture);
+    let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     let start = Instant::now();
-    let handle = engine.execute(source, json!({})).await.unwrap();
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
     let result = handle.wait_for_completion(Duration::from_secs(15)).await;
     let elapsed = start.elapsed();
 
@@ -248,10 +256,11 @@ async fn test_timeout_with_milliseconds() {
     let (engine, _temp_dir) = setup_test_engine().await;
 
     let fixture = PathBuf::from("tests/fixtures/timeout/timeout-milliseconds.sw.yaml");
-    let source = FilesystemSource::new(fixture);
+    let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     let start = Instant::now();
-    let handle = engine.execute(source, json!({})).await.unwrap();
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
     let result = handle.wait_for_completion(Duration::from_secs(10)).await;
     let elapsed = start.elapsed();
 

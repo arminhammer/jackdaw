@@ -1,14 +1,14 @@
 #![allow(clippy::unwrap_used)]
 
+use jackdaw::DurableEngineBuilder;
 /// Tests for HTTP redirect handling
 use jackdaw::cache::CacheProvider;
 use jackdaw::durableengine::DurableEngine;
 use jackdaw::persistence::PersistenceProvider;
 use jackdaw::providers::cache::RedbCache;
 use jackdaw::providers::persistence::RedbPersistence;
-use jackdaw::workflow_source::StringSource;
-use jackdaw::DurableEngineBuilder;
 use serde_json::json;
+use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use std::sync::Arc;
 use std::time::Duration;
 use wiremock::matchers::{method, path};
@@ -65,10 +65,10 @@ do:
         mock_server.uri()
     );
 
-    let source = StringSource::new(workflow_yaml);
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     // Execute workflow
-    let handle = engine.execute(source, json!({})).await.unwrap();
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
     let result = handle.wait_for_completion(Duration::from_secs(60)).await;
 
     // Assert: should follow redirect and get final result
@@ -139,10 +139,10 @@ do:
         mock_server.uri()
     );
 
-    let source = StringSource::new(workflow_yaml);
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     // Execute workflow
-    let handle = engine.execute(source, json!({})).await.unwrap();
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
     let result = handle.wait_for_completion(Duration::from_secs(60)).await;
 
     // With redirect disabled and output mode "response", we should get the 302 redirect response
@@ -228,10 +228,10 @@ do:
         mock_server.uri()
     );
 
-    let source = StringSource::new(workflow_yaml);
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     // Execute workflow
-    let handle = engine.execute(source, json!({})).await.unwrap();
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
     let result = handle.wait_for_completion(Duration::from_secs(60)).await;
 
     // Assert: should follow all redirects and get final result

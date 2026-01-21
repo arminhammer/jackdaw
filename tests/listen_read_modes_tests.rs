@@ -13,13 +13,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tempfile::TempDir;
 
+use jackdaw::DurableEngineBuilder;
 use jackdaw::cache::CacheProvider;
 use jackdaw::durableengine::DurableEngine;
 use jackdaw::persistence::PersistenceProvider;
 use jackdaw::providers::cache::RedbCache;
 use jackdaw::providers::persistence::RedbPersistence;
-use jackdaw::workflow_source::FilesystemSource;
-use jackdaw::DurableEngineBuilder;
+use serverless_workflow_core::models::workflow::WorkflowDefinition;
 
 /// Helper to set up test infrastructure
 async fn setup_test_engine(temp_dir: &TempDir) -> DurableEngine {
@@ -47,10 +47,14 @@ async fn test_listen_read_mode_data() {
     let engine = setup_test_engine(&temp_dir).await;
 
     let fixture = PathBuf::from("tests/fixtures/listen-read-modes/test-listen-read-data.sw.yaml");
-    let source = FilesystemSource::new(fixture);
+    let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     // Start workflow (this initializes the listener) - keep handle alive so workflow continues
-    let handle = engine.execute(source, json!({})).await.expect("Failed to start workflow");
+    let handle = engine
+        .execute(workflow, json!({}))
+        .await
+        .expect("Failed to start workflow");
 
     // Give listener time to start
     tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
@@ -107,10 +111,14 @@ async fn test_listen_read_mode_envelope() {
 
     let fixture =
         PathBuf::from("tests/fixtures/listen-read-modes/test-listen-read-envelope.sw.yaml");
-    let source = FilesystemSource::new(fixture);
+    let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     // Start workflow - keep handle alive so workflow continues
-    let handle = engine.execute(source, json!({})).await.expect("Failed to start workflow");
+    let handle = engine
+        .execute(workflow, json!({}))
+        .await
+        .expect("Failed to start workflow");
 
     // Give listener time to start
     tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
@@ -182,10 +190,14 @@ async fn test_listen_read_mode_raw() {
     let engine = setup_test_engine(&temp_dir).await;
 
     let fixture = PathBuf::from("tests/fixtures/listen-read-modes/test-listen-read-raw.sw.yaml");
-    let source = FilesystemSource::new(fixture);
+    let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     // Start workflow - don't wait for completion as it's perpetual
-    let _handle = engine.execute(source, json!({})).await.expect("Failed to start workflow");
+    let _handle = engine
+        .execute(workflow, json!({}))
+        .await
+        .expect("Failed to start workflow");
 
     // Give listener time to start
     tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
@@ -240,10 +252,14 @@ async fn test_listen_read_mode_default_is_envelope() {
 
     let fixture =
         PathBuf::from("tests/fixtures/listen-read-modes/test-listen-read-default.sw.yaml");
-    let source = FilesystemSource::new(fixture);
+    let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     // Start workflow - don't wait for completion as it's perpetual
-    let _handle = engine.execute(source, json!({})).await.expect("Failed to start workflow");
+    let _handle = engine
+        .execute(workflow, json!({}))
+        .await
+        .expect("Failed to start workflow");
 
     // Give listener time to start
     tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;

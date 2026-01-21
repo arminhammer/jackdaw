@@ -19,7 +19,6 @@ use crate::{
         visualization::{D2Provider, ExecutionState, GraphvizProvider, VisualizationProvider},
     },
     workflow::WorkflowEvent,
-    workflow_source::WorkflowSource,
 };
 
 use super::cache::CacheProvider;
@@ -239,49 +238,6 @@ impl DurableEngine {
         graph::build_graph(workflow)
     }
 
-    /// Start a workflow execution with input data
-    ///
-    /// This is an internal method used by the CLI and for nested workflows.
-    /// Library users should use `execute()` which provides better control via `ExecutionHandle`.
-    ///
-    /// # Errors
-    /// Returns an error if the workflow execution fails or if there are issues with persistence
-    #[async_recursion]
-    pub(crate) async fn start_with_input(
-        &self,
-        workflow: WorkflowDefinition,
-        initial_data: serde_json::Value,
-    ) -> Result<(String, serde_json::Value)> {
-        let instance_id = uuid::Uuid::new_v4().to_string();
-
-        // Format workflow start
-        output::format_workflow_start(&workflow.document.name, &instance_id);
-
-        // Show initial input if not empty
-        if !initial_data.is_null() && initial_data != serde_json::json!({}) {
-            output::format_workflow_input(&initial_data);
-        }
-
-        match self
-            .run_instance(workflow, Some(instance_id.clone()), initial_data)
-            .await
-        {
-            Ok(final_data) => Ok((instance_id, final_data)),
-            Err(e) => {
-                // Save WorkflowFailed event before returning error
-                let _ = self
-                    .persistence
-                    .save_event(WorkflowEvent::WorkflowFailed {
-                        instance_id: instance_id.clone(),
-                        error: e.to_string(),
-                        timestamp: Utc::now(),
-                    })
-                    .await;
-                Err(e)
-            }
-        }
-    }
-
     #[allow(dead_code)]
     /// Register a workflow for nested execution
     ///
@@ -370,7 +326,7 @@ impl DurableEngine {
             .await
     }
 
-    /// Execute a workflow from any source with streaming events
+    /// Execute a workflow with streaming events
     ///
     /// Returns a handle for observing execution and controlling the workflow.
     /// This is the primary method for library users to execute workflows.
@@ -378,24 +334,37 @@ impl DurableEngine {
     /// # Examples
     ///
     /// ```no_run
-    /// # use jackdaw::{DurableEngineBuilder, workflow_source::StringSource};
+    /// # use jackdaw::DurableEngineBuilder;
+    /// # use serverless_workflow_core::models::{
+    /// #     document::DocumentMetadata,
+    /// #     task::{SetTaskDefinition, TaskDefinition},
+    /// #     workflow::WorkflowDefinition,
+    /// # };
     /// # use std::time::Duration;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let engine = DurableEngineBuilder::new().build()?;
     ///
-    /// let workflow = r#"
-    /// document:
-    ///   dsl: '1.0.0-alpha1'
-    ///   namespace: example
-    ///   name: hello
-    /// do:
-    ///   - greet: { set: { message: "Hello!" } }
-    /// "#;
+    /// let workflow = WorkflowDefinition {
+    ///     document: DocumentMetadata {
+    ///         dsl: "1.0.2".to_string(),
+    ///         namespace: "example".to_string(),
+    ///         name: "hello".to_string(),
+    ///         version: "1.0.0".to_string(),
+    ///         ..Default::default()
+    ///     },
+    ///     do_: vec![(
+    ///         "greet".to_string(),
+    ///         TaskDefinition::Set(SetTaskDefinition {
+    ///             set: serde_json::json!({ "message": "Hello!" }),
+    ///             ..Default::default()
+    ///         }),
+    ///     )]
+    ///     .into_iter()
+    ///     .collect(),
+    ///     ..Default::default()
+    /// };
     ///
-    /// let mut handle = engine.execute(
-    ///     StringSource::new(workflow),
-    ///     serde_json::json!({})
-    /// ).await?;
+    /// let mut handle = engine.execute(workflow, serde_json::json!({})).await?;
     ///
     /// // Option 1: Stream events
     /// while let Some(event) = handle.next_event().await {
@@ -409,21 +378,12 @@ impl DurableEngine {
     /// ```
     ///
     /// # Errors
-    /// Returns an error if the workflow cannot be loaded from the source
+    /// Returns an error if the workflow execution fails
     pub async fn execute(
         &self,
-        source: impl WorkflowSource,
+        workflow: WorkflowDefinition,
         input: serde_json::Value,
     ) -> Result<ExecutionHandle> {
-        // Load workflow from source
-        let workflow = source.load().await.map_err(|e| Error::WorkflowExecution {
-            message: format!(
-                "Failed to load workflow from {}: {}",
-                source.source_identifier(),
-                e
-            ),
-        })?;
-
         // Create channels for event streaming and cancellation
         let (event_tx, event_rx) = tokio::sync::mpsc::channel(self.event_buffer_size);
         let (cancel_tx, _cancel_rx) = tokio::sync::mpsc::channel::<()>(1);
@@ -448,7 +408,9 @@ impl DurableEngine {
                     instance_id: instance_id_clone.clone(),
                     workflow_id: format!(
                         "{}/{}/{}",
-                        workflow.document.namespace, workflow.document.name, workflow.document.version
+                        workflow.document.namespace,
+                        workflow.document.name,
+                        workflow.document.version
                     ),
                     timestamp: Utc::now(),
                     initial_data: input.clone(),
@@ -480,7 +442,11 @@ impl DurableEngine {
             // Execute the workflow
             let start_time = Utc::now();
             let result = temp_engine
-                .run_instance(workflow.clone(), Some(instance_id_clone.clone()), input.clone())
+                .run_instance(
+                    workflow.clone(),
+                    Some(instance_id_clone.clone()),
+                    input.clone(),
+                )
                 .await;
 
             // Send completion or failure event
@@ -520,7 +486,7 @@ impl DurableEngine {
         Ok(ExecutionHandle::new(instance_id, event_rx, cancel_tx))
     }
 
-    async fn run_instance(
+    pub(crate) async fn run_instance(
         &self,
         workflow: WorkflowDefinition,
         instance_id: Option<String>,
@@ -547,6 +513,7 @@ impl DurableEngine {
         }
     }
 
+    #[async_recursion]
     async fn run_instance_inner(
         &self,
         workflow: WorkflowDefinition,

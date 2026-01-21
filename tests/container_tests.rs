@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::expect_used)]
 
+use jackdaw::DurableEngineBuilder;
 /// Container Task Feature Tests
 ///
 /// Tests for container advanced features per Serverless Workflow spec:
@@ -13,9 +14,8 @@ use jackdaw::durableengine::DurableEngine;
 use jackdaw::persistence::PersistenceProvider;
 use jackdaw::providers::cache::RedbCache;
 use jackdaw::providers::persistence::RedbPersistence;
-use jackdaw::workflow_source::FilesystemSource;
-use jackdaw::DurableEngineBuilder;
 use serde_json::json;
+use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -40,9 +40,10 @@ async fn test_container_environment_variables() {
     let (engine, _temp_dir) = setup_test_engine().await;
 
     let fixture = PathBuf::from("tests/fixtures/containers/container-env-vars.sw.yaml");
-    let source = FilesystemSource::new(fixture);
+    let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
-    let handle = engine.execute(source, json!({})).await.unwrap();
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
     let result = handle.wait_for_completion(Duration::from_secs(60)).await;
     assert!(
         result.is_ok(),
@@ -75,9 +76,10 @@ async fn test_container_volume_mapping() {
     std::fs::create_dir_all(mount_dir).expect("Failed to create mount directory");
 
     let fixture = PathBuf::from("tests/fixtures/containers/container-volume-write.sw.yaml");
-    let source = FilesystemSource::new(fixture);
+    let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
-    let handle = engine.execute(source, json!({})).await.unwrap();
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
     let result = handle.wait_for_completion(Duration::from_secs(60)).await;
     assert!(
         result.is_ok(),
@@ -112,9 +114,10 @@ async fn test_container_multiple_volumes() {
     std::fs::write(&input_file, "Input data").expect("Failed to write input file");
 
     let fixture = PathBuf::from("tests/fixtures/containers/container-multiple-volumes.sw.yaml");
-    let source = FilesystemSource::new(fixture);
+    let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
-    let handle = engine.execute(source, json!({})).await.unwrap();
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
     let result = handle.wait_for_completion(Duration::from_secs(60)).await;
     assert!(
         result.is_ok(),
@@ -141,9 +144,10 @@ async fn test_container_environment_with_expressions() {
     let (engine, _temp_dir) = setup_test_engine().await;
 
     let fixture = PathBuf::from("tests/fixtures/containers/container-env-expressions.sw.yaml");
-    let source = FilesystemSource::new(fixture);
+    let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
-    let handle = engine.execute(source, json!({})).await.unwrap();
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
     let result = handle.wait_for_completion(Duration::from_secs(60)).await;
     assert!(
         result.is_ok(),
@@ -172,9 +176,10 @@ async fn test_container_stdin_and_arguments() {
     let (engine, _temp_dir) = setup_test_engine().await;
 
     let fixture = PathBuf::from("tests/fixtures/containers/container-stdin-args.sw.yaml");
-    let source = FilesystemSource::new(fixture);
+    let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
-    let handle = engine.execute(source, json!({})).await.unwrap();
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
     let result = handle.wait_for_completion(Duration::from_secs(60)).await;
     assert!(
         result.is_ok(),

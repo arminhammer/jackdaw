@@ -26,18 +26,19 @@
 //!
 //! ```rust,no_run
 //! use jackdaw::{DurableEngineBuilder, ExecutionHandle};
-//! use jackdaw::workflow_source::FilesystemSource;
+//! use serverless_workflow_core::models::workflow::WorkflowDefinition;
 //! use std::time::Duration;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Create the durable engine with builder (uses in-memory persistence/cache by default)
 //! let engine = DurableEngineBuilder::new().build()?;
 //!
-//! // Load workflow from filesystem
-//! let source = FilesystemSource::new("examples/hello-world.yaml");
+//! // Load and parse workflow
+//! let workflow_yaml = std::fs::read_to_string("examples/hello-world.yaml")?;
+//! let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml)?;
 //!
 //! // Execute the workflow
-//! let mut handle = engine.execute(source, serde_json::json!({})).await?;
+//! let mut handle = engine.execute(workflow, serde_json::json!({})).await?;
 //!
 //! // Option 1: Wait for completion with timeout
 //! let result = handle.wait_for_completion(Duration::from_secs(30)).await?;
@@ -118,7 +119,6 @@ pub mod providers;
 pub mod task_ext;
 pub mod task_output;
 pub mod workflow;
-pub mod workflow_source;
 
 // Re-export commonly used types for convenience
 pub use builder::DurableEngineBuilder;

@@ -9,8 +9,8 @@
 use crate::ListenerWorld;
 use crate::common::parse_docstring;
 use cucumber::{given, then, when};
-use jackdaw::workflow_source::StringSource;
 use prost::Message;
+use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use snafu::prelude::*;
 
 #[derive(Debug, Snafu)]
@@ -169,6 +169,7 @@ async fn execute_workflow_and_call_grpc(world: &mut ListenerWorld, method: Strin
         .ok_or_else(|| Error::GrpcTest {
             message: "No workflow definition".to_string(),
         })?;
+    let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml)?;
 
     // Get engine
     let engine = world.engine.as_ref().ok_or_else(|| Error::GrpcTest {
@@ -179,14 +180,16 @@ async fn execute_workflow_and_call_grpc(world: &mut ListenerWorld, method: Strin
     // The workflow will start listeners and then block forever on `until: false`
     // We use spawn_local since the workflow future is !Send
     let engine_clone = engine.clone();
-    let workflow_yaml_clone = workflow_yaml.clone();
+    let workflow_clone = workflow.clone();
 
     // Create an abortable workflow task
     let (abort_handle, abort_registration) = futures::future::AbortHandle::new_pair();
     let workflow_future = futures::future::Abortable::new(
         async move {
-            let source = StringSource::new(workflow_yaml_clone);
-            if let Ok(mut handle) = engine_clone.execute(source, serde_json::json!({})).await {
+            if let Ok(mut handle) = engine_clone
+                .execute(workflow_clone, serde_json::json!({}))
+                .await
+            {
                 // For perpetual workflows, consume events to keep it running
                 while let Some(_event) = handle.next_event().await {
                     // Process events as they come

@@ -6,7 +6,6 @@
 use crate::NestedWorkflowWorld;
 use crate::common::parse_docstring;
 use cucumber::{given, then, when};
-use jackdaw::workflow_source::StringSource;
 use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use std::time::Duration;
 
@@ -79,12 +78,15 @@ async fn when_execute_workflow(
     }
 
     // Execute the workflow
-    let source = StringSource::new(workflow_yaml.to_string());
-    let mut handle = engine.execute(source, input).await
+    let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml)
+        .unwrap_or_else(|e| panic!("Failed to parse workflow YAML: {}", e));
+    let mut handle = engine
+        .execute(workflow, input)
+        .await
         .unwrap_or_else(|e| panic!("Failed to start workflow: {}", e));
-    
+
     world.instance_id = Some(handle.instance_id().to_string());
-    
+
     // Wait for the workflow to complete
     match handle.wait_for_completion(Duration::from_secs(30)).await {
         Ok(output) => {
@@ -93,8 +95,7 @@ async fn when_execute_workflow(
         }
         Err(e) => {
             world.error_message = Some(format!("Workflow execution failed: {}", e));
-            world.workflow_status =
-                Some(crate::common::WorkflowStatus::Faulted(e.to_string()));
+            world.workflow_status = Some(crate::common::WorkflowStatus::Faulted(e.to_string()));
         }
     }
 }

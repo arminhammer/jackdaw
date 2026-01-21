@@ -1,14 +1,14 @@
 #![allow(clippy::unwrap_used)]
 
+use jackdaw::DurableEngineBuilder;
 /// Tests for flow control directives (exit, end, continue)
 use jackdaw::cache::CacheProvider;
 use jackdaw::durableengine::DurableEngine;
 use jackdaw::persistence::PersistenceProvider;
 use jackdaw::providers::cache::RedbCache;
 use jackdaw::providers::persistence::RedbPersistence;
-use jackdaw::workflow_source::StringSource;
-use jackdaw::DurableEngineBuilder;
 use serde_json::json;
+use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -51,10 +51,10 @@ do:
         colors: '${ .colors + ["should_not_run"] }'
 "#;
 
-    let source = StringSource::new(workflow_yaml);
+    let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml).unwrap();
 
     // Execute workflow
-    let handle = engine.execute(source, json!({})).await.unwrap();
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
     let result = handle.wait_for_completion(Duration::from_secs(60)).await;
 
     // Assert: workflow should complete successfully
@@ -119,10 +119,10 @@ do:
         colors: '${ .colors + ["should_not_run"] }'
 "#;
 
-    let source = StringSource::new(workflow_yaml);
+    let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml).unwrap();
 
     // Execute workflow
-    let handle = engine.execute(source, json!({})).await.unwrap();
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
     let result = handle.wait_for_completion(Duration::from_secs(60)).await;
 
     // Assert: workflow should complete successfully
@@ -209,17 +209,17 @@ do:
         value: 'should not run'
 "#;
 
-    let source_exit = StringSource::new(workflow_exit_yaml);
-    let source_end = StringSource::new(workflow_end_yaml);
+    let workflow_exit: WorkflowDefinition = serde_yaml::from_str(workflow_exit_yaml).unwrap();
+    let workflow_end: WorkflowDefinition = serde_yaml::from_str(workflow_end_yaml).unwrap();
 
     // Execute both workflows
-    let handle_exit = engine_exit.execute(source_exit, json!({})).await.unwrap();
+    let handle_exit = engine_exit.execute(workflow_exit, json!({})).await.unwrap();
     let output_exit = handle_exit
         .wait_for_completion(Duration::from_secs(60))
         .await
         .unwrap();
 
-    let handle_end = engine_end.execute(source_end, json!({})).await.unwrap();
+    let handle_end = engine_end.execute(workflow_end, json!({})).await.unwrap();
     let output_end = handle_end
         .wait_for_completion(Duration::from_secs(60))
         .await

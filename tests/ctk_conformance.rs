@@ -7,15 +7,14 @@ mod common;
 mod steps;
 use crate::common::{WorkflowStatus, parse_docstring};
 use cucumber::{World, given, then, when};
+use jackdaw::DurableEngineBuilder;
 use jackdaw::cache::CacheProvider;
 use jackdaw::durableengine::DurableEngine;
 use jackdaw::persistence::PersistenceProvider;
 use jackdaw::providers::cache::RedbCache;
 use jackdaw::providers::persistence::RedbPersistence;
-use jackdaw::workflow_source::StringSource;
-use jackdaw::DurableEngineBuilder;
 use serde_json::Value;
-pub use serverless_workflow_core::models::workflow::WorkflowDefinition;
+use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use snafu::prelude::*;
 use std::sync::Arc;
 use std::time::Duration;
@@ -128,14 +127,21 @@ async fn given_workflow_input(world: &mut CtKWorld, step: &cucumber::gherkin::St
 #[when(expr = "the workflow is executed")]
 async fn when_workflow_executed(world: &mut CtKWorld) {
     let workflow_yaml = world.workflow_definition.as_ref().unwrap().clone();
-    let source = StringSource::new(workflow_yaml);
+    let workflow: WorkflowDefinition =
+        serde_yaml::from_str(&workflow_yaml).expect("Failed to parse workflow definition");
 
     let input = world
         .workflow_input
         .clone()
         .unwrap_or_else(|| serde_json::json!({}));
 
-    let handle = match world.engine.as_ref().unwrap().execute(source, input).await {
+    let handle = match world
+        .engine
+        .as_ref()
+        .unwrap()
+        .execute(workflow, input)
+        .await
+    {
         Ok(handle) => handle,
         Err(e) => {
             let error_msg = e.to_string();
