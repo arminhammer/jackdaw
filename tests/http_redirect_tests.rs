@@ -6,9 +6,11 @@ use jackdaw::durableengine::DurableEngine;
 use jackdaw::persistence::PersistenceProvider;
 use jackdaw::providers::cache::RedbCache;
 use jackdaw::providers::persistence::RedbPersistence;
+use jackdaw::workflow_source::StringSource;
+use jackdaw::DurableEngineBuilder;
 use serde_json::json;
-use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use std::sync::Arc;
+use std::time::Duration;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -39,13 +41,11 @@ async fn test_http_redirect_follow_enabled() {
     let persistence = Arc::new(RedbPersistence::new(db_path.to_str().unwrap()).unwrap());
     let cache =
         Arc::new(RedbCache::new(Arc::clone(&persistence.db)).unwrap()) as Arc<dyn CacheProvider>;
-    let engine = Arc::new(
-        DurableEngine::new(
-            Arc::clone(&persistence) as Arc<dyn PersistenceProvider>,
-            Arc::clone(&cache),
-        )
-        .unwrap(),
-    );
+    let engine = DurableEngineBuilder::new()
+        .with_persistence(Arc::clone(&persistence) as Arc<dyn PersistenceProvider>)
+        .with_cache(Arc::clone(&cache))
+        .build()
+        .unwrap();
 
     // Create workflow that makes HTTP call with redirect enabled (default behavior)
     let workflow_yaml = format!(
@@ -65,14 +65,15 @@ do:
         mock_server.uri()
     );
 
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
+    let source = StringSource::new(workflow_yaml);
 
     // Execute workflow
-    let result = engine.start_with_input(workflow, json!({})).await;
+    let handle = engine.execute(source, json!({})).await.unwrap();
+    let result = handle.wait_for_completion(Duration::from_secs(60)).await;
 
     // Assert: should follow redirect and get final result
     assert!(result.is_ok(), "Workflow should complete successfully");
-    let (_instance_id, output) = result.unwrap();
+    let output = result.unwrap();
 
     // Should have followed redirect to /final and received success response
     assert_eq!(
@@ -111,13 +112,11 @@ async fn test_http_redirect_follow_disabled() {
     let persistence = Arc::new(RedbPersistence::new(db_path.to_str().unwrap()).unwrap());
     let cache =
         Arc::new(RedbCache::new(Arc::clone(&persistence.db)).unwrap()) as Arc<dyn CacheProvider>;
-    let engine = Arc::new(
-        DurableEngine::new(
-            Arc::clone(&persistence) as Arc<dyn PersistenceProvider>,
-            Arc::clone(&cache),
-        )
-        .unwrap(),
-    );
+    let engine = DurableEngineBuilder::new()
+        .with_persistence(Arc::clone(&persistence) as Arc<dyn PersistenceProvider>)
+        .with_cache(Arc::clone(&cache))
+        .build()
+        .unwrap();
 
     // Create workflow that makes HTTP call with redirect disabled
     // Use output mode "response" to get the full HTTP response including status code
@@ -140,10 +139,11 @@ do:
         mock_server.uri()
     );
 
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
+    let source = StringSource::new(workflow_yaml);
 
     // Execute workflow
-    let result = engine.start_with_input(workflow, json!({})).await;
+    let handle = engine.execute(source, json!({})).await.unwrap();
+    let result = handle.wait_for_completion(Duration::from_secs(60)).await;
 
     // With redirect disabled and output mode "response", we should get the 302 redirect response
     // However, the current implementation treats 3xx as errors unless it's handled.
@@ -157,7 +157,7 @@ do:
         );
     } else {
         // If it succeeds (after implementation), verify we got the redirect response
-        let (_instance_id, output) = result.unwrap();
+        let output = result.unwrap();
         assert_eq!(
             output.get("statusCode").and_then(|v| v.as_u64()),
             Some(302),
@@ -204,13 +204,11 @@ async fn test_http_redirect_multiple_hops() {
     let persistence = Arc::new(RedbPersistence::new(db_path.to_str().unwrap()).unwrap());
     let cache =
         Arc::new(RedbCache::new(Arc::clone(&persistence.db)).unwrap()) as Arc<dyn CacheProvider>;
-    let engine = Arc::new(
-        DurableEngine::new(
-            Arc::clone(&persistence) as Arc<dyn PersistenceProvider>,
-            Arc::clone(&cache),
-        )
-        .unwrap(),
-    );
+    let engine = DurableEngineBuilder::new()
+        .with_persistence(Arc::clone(&persistence) as Arc<dyn PersistenceProvider>)
+        .with_cache(Arc::clone(&cache))
+        .build()
+        .unwrap();
 
     // Create workflow that makes HTTP call (default: follow redirects)
     let workflow_yaml = format!(
@@ -230,14 +228,15 @@ do:
         mock_server.uri()
     );
 
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
+    let source = StringSource::new(workflow_yaml);
 
     // Execute workflow
-    let result = engine.start_with_input(workflow, json!({})).await;
+    let handle = engine.execute(source, json!({})).await.unwrap();
+    let result = handle.wait_for_completion(Duration::from_secs(60)).await;
 
     // Assert: should follow all redirects and get final result
     assert!(result.is_ok(), "Workflow should complete successfully");
-    let (_instance_id, output) = result.unwrap();
+    let output = result.unwrap();
 
     // Should have followed redirect chain to /final
     assert_eq!(

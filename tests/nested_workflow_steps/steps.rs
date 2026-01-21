@@ -6,7 +6,9 @@
 use crate::NestedWorkflowWorld;
 use crate::common::parse_docstring;
 use cucumber::{given, then, when};
+use jackdaw::workflow_source::StringSource;
 use serverless_workflow_core::models::workflow::WorkflowDefinition;
+use std::time::Duration;
 
 #[given(regex = r"^the following workflows are registered:$")]
 async fn given_workflows_registered(
@@ -77,29 +79,22 @@ async fn when_execute_workflow(
     }
 
     // Execute the workflow
-    match engine.start_with_input(workflow, input).await {
-        Ok((instance_id, _output)) => {
-            world.instance_id = Some(instance_id.clone());
-
-            // Wait for the workflow to complete
-            match engine
-                .wait_for_completion(&instance_id, std::time::Duration::from_secs(30))
-                .await
-            {
-                Ok(output) => {
-                    world.workflow_output = Some(output);
-                    world.workflow_status = Some(crate::common::WorkflowStatus::Completed);
-                }
-                Err(e) => {
-                    world.error_message = Some(format!("Workflow execution failed: {}", e));
-                    world.workflow_status =
-                        Some(crate::common::WorkflowStatus::Faulted(e.to_string()));
-                }
-            }
+    let source = StringSource::new(workflow_yaml.to_string());
+    let mut handle = engine.execute(source, input).await
+        .unwrap_or_else(|e| panic!("Failed to start workflow: {}", e));
+    
+    world.instance_id = Some(handle.instance_id().to_string());
+    
+    // Wait for the workflow to complete
+    match handle.wait_for_completion(Duration::from_secs(30)).await {
+        Ok(output) => {
+            world.workflow_output = Some(output);
+            world.workflow_status = Some(crate::common::WorkflowStatus::Completed);
         }
         Err(e) => {
-            world.error_message = Some(format!("Failed to start workflow: {}", e));
-            world.workflow_status = Some(crate::common::WorkflowStatus::Faulted(e.to_string()));
+            world.error_message = Some(format!("Workflow execution failed: {}", e));
+            world.workflow_status =
+                Some(crate::common::WorkflowStatus::Faulted(e.to_string()));
         }
     }
 }

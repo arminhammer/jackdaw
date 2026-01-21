@@ -19,8 +19,17 @@ async fn then_workflow_faults_with_error(world: &mut CtKWorld, step: &cucumber::
                     .expect("Failed to parse expected error");
 
             // Parse the actual error message (it should be a JSON string)
+            // Strip any wrapping error messages to get to the JSON
+            let json_str = if let Some(start) = error_msg.find('{') {
+                &error_msg[start..]
+            } else {
+                error_msg
+            };
+
             let actual: Value =
-                serde_json::from_str(error_msg).expect("Failed to parse actual error");
+                serde_json::from_str(json_str).unwrap_or_else(|e| {
+                    panic!("Failed to parse actual error: {}\nActual error message was: '{}'\nExtracted JSON: '{}'", e, error_msg, json_str);
+                });
 
             // Compare the error fields
             if let (Some(expected_obj), Some(actual_obj)) =

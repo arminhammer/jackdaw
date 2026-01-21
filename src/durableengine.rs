@@ -9,6 +9,7 @@ use tokio::sync::RwLock;
 
 use crate::{
     context::Context,
+    execution_handle::ExecutionHandle,
     executor::Executor,
     listeners::grpc::GrpcListener,
     output,
@@ -18,6 +19,7 @@ use crate::{
         visualization::{D2Provider, ExecutionState, GraphvizProvider, VisualizationProvider},
     },
     workflow::WorkflowEvent,
+    workflow_source::WorkflowSource,
 };
 
 use super::cache::CacheProvider;
@@ -150,7 +152,7 @@ impl From<crate::providers::visualization::Error> for Error {
 }
 
 pub struct DurableEngine {
-    executors: HashMap<String, Box<dyn Executor>>,
+    executors: Arc<HashMap<String, Box<dyn Executor>>>,
     persistence: Arc<dyn PersistenceProvider>,
     cache: Arc<dyn CacheProvider>,
     /// Registry of active gRPC listeners, keyed by bind address
@@ -161,6 +163,8 @@ pub struct DurableEngine {
     http_listeners: Arc<RwLock<HashMap<String, Arc<crate::listeners::HttpListener>>>>,
     /// Registry of workflows for nested execution, keyed by "namespace/name/version"
     workflow_registry: Arc<RwLock<HashMap<String, WorkflowDefinition>>>,
+    /// Event buffer size for streaming execution
+    event_buffer_size: usize,
 }
 
 impl std::fmt::Debug for DurableEngine {
@@ -180,6 +184,20 @@ impl DurableEngine {
         persistence: Arc<dyn PersistenceProvider>,
         cache: Arc<dyn CacheProvider>,
     ) -> Result<Self> {
+        Self::new_with_config(persistence, cache, 1000)
+    }
+
+    /// Create a new ``DurableEngine`` instance with custom configuration
+    ///
+    /// This is used internally by the builder. Use [`crate::DurableEngineBuilder`] instead.
+    ///
+    /// # Errors
+    /// Currently, this function does not return errors, but returns `Result` for future extensibility
+    pub(crate) fn new_with_config(
+        persistence: Arc<dyn PersistenceProvider>,
+        cache: Arc<dyn CacheProvider>,
+        event_buffer_size: usize,
+    ) -> Result<Self> {
         let mut executors: HashMap<String, Box<dyn Executor>> = HashMap::new();
         executors.insert(
             "http".into(),
@@ -196,12 +214,13 @@ impl DurableEngine {
         executors.insert("python".into(), Box::new(PythonExecutor::new()));
         executors.insert("javascript".into(), Box::new(TypeScriptExecutor::new()));
         Ok(Self {
-            executors,
+            executors: Arc::new(executors),
             persistence,
             cache,
             grpc_listeners: Arc::new(RwLock::new(HashMap::new())),
             http_listeners: Arc::new(RwLock::new(HashMap::new())),
             workflow_registry: Arc::new(RwLock::new(HashMap::new())),
+            event_buffer_size,
         })
     }
 
@@ -220,20 +239,15 @@ impl DurableEngine {
         graph::build_graph(workflow)
     }
 
-    #[allow(dead_code)]
-    /// Start a workflow execution with empty initial data
+    /// Start a workflow execution with input data
+    ///
+    /// This is an internal method used by the CLI and for nested workflows.
+    /// Library users should use `execute()` which provides better control via `ExecutionHandle`.
     ///
     /// # Errors
     /// Returns an error if the workflow execution fails or if there are issues with persistence
-    pub async fn start(&self, workflow: WorkflowDefinition) -> Result<String> {
-        let (instance_id, _) = self
-            .start_with_input(workflow, serde_json::json!({}))
-            .await?;
-        Ok(instance_id)
-    }
-
-    #[async_recursion(?Send)]
-    pub async fn start_with_input(
+    #[async_recursion]
+    pub(crate) async fn start_with_input(
         &self,
         workflow: WorkflowDefinition,
         initial_data: serde_json::Value,
@@ -316,6 +330,8 @@ impl DurableEngine {
                     | WorkflowEvent::TaskRetried { .. }
                     | WorkflowEvent::TaskEntered { .. }
                     | WorkflowEvent::TaskCompleted { .. }
+                    | WorkflowEvent::WorkflowCorrelationStarted { .. }
+                    | WorkflowEvent::WorkflowCorrelationCompleted { .. }
                     | WorkflowEvent::WorkflowCancelled { .. }
                     | WorkflowEvent::WorkflowSuspended { .. }
                     | WorkflowEvent::WorkflowResumed { .. }
@@ -352,6 +368,156 @@ impl DurableEngine {
         output::format_workflow_resume(&instance_id, None);
         self.run_instance(workflow, Some(instance_id), serde_json::json!({}))
             .await
+    }
+
+    /// Execute a workflow from any source with streaming events
+    ///
+    /// Returns a handle for observing execution and controlling the workflow.
+    /// This is the primary method for library users to execute workflows.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use jackdaw::{DurableEngineBuilder, workflow_source::StringSource};
+    /// # use std::time::Duration;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let engine = DurableEngineBuilder::new().build()?;
+    ///
+    /// let workflow = r#"
+    /// document:
+    ///   dsl: '1.0.0-alpha1'
+    ///   namespace: example
+    ///   name: hello
+    /// do:
+    ///   - greet: { set: { message: "Hello!" } }
+    /// "#;
+    ///
+    /// let mut handle = engine.execute(
+    ///     StringSource::new(workflow),
+    ///     serde_json::json!({})
+    /// ).await?;
+    ///
+    /// // Option 1: Stream events
+    /// while let Some(event) = handle.next_event().await {
+    ///     println!("{:?}", event);
+    /// }
+    ///
+    /// // Option 2: Just wait for result
+    /// // let result = handle.wait_for_completion(Duration::from_secs(60)).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    /// Returns an error if the workflow cannot be loaded from the source
+    pub async fn execute(
+        &self,
+        source: impl WorkflowSource,
+        input: serde_json::Value,
+    ) -> Result<ExecutionHandle> {
+        // Load workflow from source
+        let workflow = source.load().await.map_err(|e| Error::WorkflowExecution {
+            message: format!(
+                "Failed to load workflow from {}: {}",
+                source.source_identifier(),
+                e
+            ),
+        })?;
+
+        // Create channels for event streaming and cancellation
+        let (event_tx, event_rx) = tokio::sync::mpsc::channel(self.event_buffer_size);
+        let (cancel_tx, _cancel_rx) = tokio::sync::mpsc::channel::<()>(1);
+
+        let instance_id = uuid::Uuid::new_v4().to_string();
+
+        // Clone what we need for the background task
+        let executors = self.executors.clone();
+        let persistence = self.persistence.clone();
+        let cache = self.cache.clone();
+        let workflow_registry = self.workflow_registry.clone();
+        let grpc_listeners = self.grpc_listeners.clone();
+        let http_listeners = self.http_listeners.clone();
+
+        let instance_id_clone = instance_id.clone();
+
+        // Spawn workflow execution in background
+        tokio::spawn(async move {
+            // Emit WorkflowStarted event
+            let _ = event_tx
+                .send(WorkflowEvent::WorkflowStarted {
+                    instance_id: instance_id_clone.clone(),
+                    workflow_id: format!(
+                        "{}/{}/{}",
+                        workflow.document.namespace, workflow.document.name, workflow.document.version
+                    ),
+                    timestamp: Utc::now(),
+                    initial_data: input.clone(),
+                })
+                .await;
+
+            // Create a temporary engine for this execution
+            // This is needed because we can't move self into the spawned task
+            let temp_engine = match DurableEngine::new(persistence.clone(), cache.clone()) {
+                Ok(mut engine) => {
+                    engine.executors = executors;
+                    engine.workflow_registry = workflow_registry;
+                    engine.grpc_listeners = grpc_listeners;
+                    engine.http_listeners = http_listeners;
+                    engine
+                }
+                Err(e) => {
+                    let _ = event_tx
+                        .send(WorkflowEvent::WorkflowFailed {
+                            instance_id: instance_id_clone.clone(),
+                            error: format!("Failed to create engine: {}", e),
+                            timestamp: Utc::now(),
+                        })
+                        .await;
+                    return;
+                }
+            };
+
+            // Execute the workflow
+            let start_time = Utc::now();
+            let result = temp_engine
+                .run_instance(workflow.clone(), Some(instance_id_clone.clone()), input.clone())
+                .await;
+
+            // Send completion or failure event
+            match result {
+                Ok(final_data) => {
+                    let duration_ms = (Utc::now() - start_time).num_milliseconds();
+                    let _ = event_tx
+                        .send(WorkflowEvent::WorkflowCompleted {
+                            instance_id: instance_id_clone,
+                            final_data,
+                            timestamp: Utc::now(),
+                            duration_ms,
+                        })
+                        .await;
+                }
+                Err(e) => {
+                    // For TaskExecution errors (e.g., from Raise tasks), extract just the message
+                    // to preserve the JSON error format. For other errors, use the full error string.
+                    let error_msg = match &e {
+                        Error::TaskExecution { message } => message.clone(),
+                        _ => e.to_string(),
+                    };
+                    let _ = event_tx
+                        .send(WorkflowEvent::WorkflowFailed {
+                            instance_id: instance_id_clone,
+                            error: error_msg,
+                            timestamp: Utc::now(),
+                        })
+                        .await;
+                }
+            }
+
+            // TODO: Handle cancellation via cancel_rx
+            // TODO: Emit correlation events for perpetual workflows
+        });
+
+        Ok(ExecutionHandle::new(instance_id, event_rx, cancel_tx))
     }
 
     async fn run_instance(

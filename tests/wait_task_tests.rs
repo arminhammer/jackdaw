@@ -6,11 +6,11 @@ use jackdaw::durableengine::DurableEngine;
 use jackdaw::persistence::PersistenceProvider;
 use jackdaw::providers::cache::RedbCache;
 use jackdaw::providers::persistence::RedbPersistence;
+use jackdaw::workflow_source::StringSource;
 use serde_json::json;
-use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// Helper to set up test infrastructure
 async fn setup_test_engine() -> (Arc<DurableEngine>, tempfile::TempDir) {
@@ -36,11 +36,12 @@ async fn test_wait_task_iso8601_seconds() {
     let fixture = PathBuf::from("tests/fixtures/wait/wait-iso8601-seconds.sw.yaml");
     let workflow_yaml =
         std::fs::read_to_string(&fixture).expect("Failed to read wait-iso8601-seconds.sw.yaml");
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     // Measure execution time
     let start = Instant::now();
-    let result = engine.start_with_input(workflow, json!({})).await;
+    let source = StringSource::new(workflow_yaml);
+    let handle = engine.execute(source, json!({})).await.unwrap();
+    let result = handle.wait_for_completion(Duration::from_secs(30)).await;
     let elapsed = start.elapsed();
 
     assert!(result.is_ok(), "Wait task should complete successfully");
@@ -65,11 +66,12 @@ async fn test_wait_task_iso8601_minutes() {
     let fixture = PathBuf::from("tests/fixtures/wait/wait-iso8601-minutes.sw.yaml");
     let workflow_yaml =
         std::fs::read_to_string(&fixture).expect("Failed to read wait-iso8601-minutes.sw.yaml");
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     // Measure execution time
     let start = Instant::now();
-    let result = engine.start_with_input(workflow, json!({})).await;
+    let source = StringSource::new(workflow_yaml);
+    let handle = engine.execute(source, json!({})).await.unwrap();
+    let result = handle.wait_for_completion(Duration::from_secs(30)).await;
     let elapsed = start.elapsed();
 
     assert!(result.is_ok(), "Wait task should complete successfully");
@@ -94,11 +96,12 @@ async fn test_wait_task_inline_seconds() {
     let fixture = PathBuf::from("tests/fixtures/wait/wait-inline-seconds.sw.yaml");
     let workflow_yaml =
         std::fs::read_to_string(&fixture).expect("Failed to read wait-inline-seconds.sw.yaml");
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     // Measure execution time
     let start = Instant::now();
-    let result = engine.start_with_input(workflow, json!({})).await;
+    let source = StringSource::new(workflow_yaml);
+    let handle = engine.execute(source, json!({})).await.unwrap();
+    let result = handle.wait_for_completion(Duration::from_secs(30)).await;
     let elapsed = start.elapsed();
 
     assert!(result.is_ok(), "Wait task should complete successfully");
@@ -123,11 +126,12 @@ async fn test_wait_task_inline_milliseconds() {
     let fixture = PathBuf::from("tests/fixtures/wait/wait-inline-milliseconds.sw.yaml");
     let workflow_yaml =
         std::fs::read_to_string(&fixture).expect("Failed to read wait-inline-milliseconds.sw.yaml");
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     // Measure execution time
     let start = Instant::now();
-    let result = engine.start_with_input(workflow, json!({})).await;
+    let source = StringSource::new(workflow_yaml);
+    let handle = engine.execute(source, json!({})).await.unwrap();
+    let result = handle.wait_for_completion(Duration::from_secs(30)).await;
     let elapsed = start.elapsed();
 
     assert!(result.is_ok(), "Wait task should complete successfully");
@@ -152,11 +156,12 @@ async fn test_wait_task_inline_composite() {
     let fixture = PathBuf::from("tests/fixtures/wait/wait-inline-composite.sw.yaml");
     let workflow_yaml =
         std::fs::read_to_string(&fixture).expect("Failed to read wait-inline-composite.sw.yaml");
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     // Measure execution time
     let start = Instant::now();
-    let result = engine.start_with_input(workflow, json!({})).await;
+    let source = StringSource::new(workflow_yaml);
+    let handle = engine.execute(source, json!({})).await.unwrap();
+    let result = handle.wait_for_completion(Duration::from_secs(30)).await;
     let elapsed = start.elapsed();
 
     assert!(result.is_ok(), "Wait task should complete successfully");
@@ -181,11 +186,12 @@ async fn test_wait_task_in_sequence() {
     let fixture = PathBuf::from("tests/fixtures/wait/wait-in-sequence.sw.yaml");
     let workflow_yaml =
         std::fs::read_to_string(&fixture).expect("Failed to read wait-in-sequence.sw.yaml");
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     // Measure execution time
     let start = Instant::now();
-    let result = engine.start_with_input(workflow, json!({})).await;
+    let source = StringSource::new(workflow_yaml);
+    let handle = engine.execute(source, json!({})).await.unwrap();
+    let result = handle.wait_for_completion(Duration::from_secs(30)).await;
     let elapsed = start.elapsed();
 
     assert!(result.is_ok(), "Wait tasks should complete successfully");
@@ -210,13 +216,14 @@ async fn test_wait_task_returns_empty_result() {
     let fixture = PathBuf::from("tests/fixtures/wait/wait-returns-empty.sw.yaml");
     let workflow_yaml =
         std::fs::read_to_string(&fixture).expect("Failed to read wait-returns-empty.sw.yaml");
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
-    let result = engine.start_with_input(workflow, json!({})).await;
+    let source = StringSource::new(workflow_yaml);
+    let handle = engine.execute(source, json!({})).await.unwrap();
+    let result = handle.wait_for_completion(Duration::from_secs(30)).await;
 
     assert!(result.is_ok(), "Wait task should complete successfully");
 
-    let (_instance_id, output) = result.unwrap();
+    let output = result.unwrap();
 
     // Wait task should return empty result or minimal metadata
     // The exact output format can be adjusted, but it should be successful

@@ -5,7 +5,7 @@
 use crate::ListenerWorld;
 use crate::common::parse_docstring;
 use cucumber::{given, then, when};
-use serverless_workflow_core::models::workflow::WorkflowDefinition;
+use jackdaw::workflow_source::StringSource;
 
 // Helper to parse JSON/YAML request body
 fn parse_request_body(text: &str) -> serde_json::Value {
@@ -72,18 +72,22 @@ async fn when_http_python_add_endpoint_called(world: &mut ListenerWorld, path: S
             .workflow_definition
             .as_ref()
             .expect("No workflow definition");
-        let workflow: WorkflowDefinition =
-            serde_yaml::from_str(workflow_yaml).expect("Failed to parse workflow");
 
         let engine = world.engine.as_ref().expect("No engine");
 
         // Create an Abortable future for the workflow execution
         let engine_clone = engine.clone();
-        let workflow_clone = workflow.clone();
+        let workflow_yaml_clone = workflow_yaml.clone();
         let (abort_handle, abort_registration) = futures::future::AbortHandle::new_pair();
         let workflow_future = futures::future::Abortable::new(
             async move {
-                let _ = engine_clone.start(workflow_clone).await;
+                let source = StringSource::new(workflow_yaml_clone);
+                if let Ok(mut handle) = engine_clone.execute(source, serde_json::json!({})).await {
+                    // For perpetual workflows, consume events to keep it running
+                    while let Some(_event) = handle.next_event().await {
+                        // Process events as they come
+                    }
+                }
             },
             abort_registration,
         );

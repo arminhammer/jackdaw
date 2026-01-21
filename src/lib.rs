@@ -25,10 +25,39 @@
 //! ## Example Usage
 //!
 //! ```rust,no_run
-//! use jackdaw::durableengine::DurableEngine;
+//! use jackdaw::{DurableEngineBuilder, ExecutionHandle};
+//! use jackdaw::workflow_source::FilesystemSource;
+//! use std::time::Duration;
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! // Create the durable engine with builder (uses in-memory persistence/cache by default)
+//! let engine = DurableEngineBuilder::new().build()?;
+//!
+//! // Load workflow from filesystem
+//! let source = FilesystemSource::new("examples/hello-world.yaml");
+//!
+//! // Execute the workflow
+//! let mut handle = engine.execute(source, serde_json::json!({})).await?;
+//!
+//! // Option 1: Wait for completion with timeout
+//! let result = handle.wait_for_completion(Duration::from_secs(30)).await?;
+//! println!("Workflow result: {}", result);
+//!
+//! // Option 2: Stream events as they occur
+//! // while let Some(event) = handle.next_event().await {
+//! //     println!("Event: {:?}", event);
+//! // }
+//!
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ## Using Custom Persistence and Cache
+//!
+//! ```rust,no_run
+//! use jackdaw::DurableEngineBuilder;
 //! use jackdaw::providers::persistence::RedbPersistence;
 //! use jackdaw::providers::cache::RedbCache;
-//! use serverless_workflow_core::models::workflow::WorkflowDefinition;
 //! use std::sync::Arc;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -36,30 +65,13 @@
 //! let persistence = Arc::new(RedbPersistence::new("workflow.db")?);
 //! let cache = Arc::new(RedbCache::new(persistence.db.clone())?);
 //!
-//! // Create the durable engine
-//! let engine = DurableEngine::new(persistence, cache)?;
+//! // Create the durable engine with custom providers
+//! let engine = DurableEngineBuilder::new()
+//!     .with_persistence(persistence)
+//!     .with_cache(cache)
+//!     .build()?;
 //!
-//! // Parse a workflow from YAML
-//! let workflow_yaml = r#"
-//! document:
-//!   dsl: '1.0.0-alpha1'
-//!   namespace: examples
-//!   name: hello-world
-//! do:
-//!   - sayHello:
-//!       set:
-//!         message: Hello World!
-//! "#;
-//!
-//! let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml)?;
-//!
-//! // Execute the workflow
-//! let (_instance_id, result) = engine.start_with_input(
-//!     workflow,
-//!     serde_json::json!({}),
-//! ).await?;
-//!
-//! println!("Workflow result: {}", result);
+//! // Use the engine...
 //! # Ok(())
 //! # }
 //! ```
@@ -88,12 +100,14 @@
 //!
 //! See [`config::JackdawConfig`] for available options.
 
+pub mod builder;
 pub mod cache;
 pub mod config;
 pub mod container;
 pub mod context;
 pub mod descriptors;
 pub mod durableengine;
+pub mod execution_handle;
 pub mod executionhistory;
 pub mod executor;
 pub mod expressions;
@@ -104,3 +118,8 @@ pub mod providers;
 pub mod task_ext;
 pub mod task_output;
 pub mod workflow;
+pub mod workflow_source;
+
+// Re-export commonly used types for convenience
+pub use builder::DurableEngineBuilder;
+pub use execution_handle::ExecutionHandle;

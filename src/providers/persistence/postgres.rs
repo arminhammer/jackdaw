@@ -82,6 +82,8 @@ impl PostgresPersistence {
             WorkflowEvent::TaskRetried { .. } => "TaskRetried",
             WorkflowEvent::TaskCompleted { .. } => "TaskCompleted",
             WorkflowEvent::WorkflowCompleted { .. } => "WorkflowCompleted",
+            WorkflowEvent::WorkflowCorrelationStarted { .. } => "WorkflowCorrelationStarted",
+            WorkflowEvent::WorkflowCorrelationCompleted { .. } => "WorkflowCorrelationCompleted",
             WorkflowEvent::WorkflowFailed { .. } => "WorkflowFailed",
             WorkflowEvent::WorkflowCancelled { .. } => "WorkflowCancelled",
             WorkflowEvent::WorkflowSuspended { .. } => "WorkflowSuspended",

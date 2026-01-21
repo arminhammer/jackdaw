@@ -6,9 +6,11 @@ use jackdaw::durableengine::DurableEngine;
 use jackdaw::persistence::PersistenceProvider;
 use jackdaw::providers::cache::RedbCache;
 use jackdaw::providers::persistence::RedbPersistence;
+use jackdaw::workflow_source::StringSource;
+use jackdaw::DurableEngineBuilder;
 use serde_json::json;
-use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use std::sync::Arc;
+use std::time::Duration;
 
 #[tokio::test]
 async fn test_exit_directive_terminates_workflow() {
@@ -18,16 +20,14 @@ async fn test_exit_directive_terminates_workflow() {
     let persistence = Arc::new(RedbPersistence::new(db_path.to_str().unwrap()).unwrap());
     let cache =
         Arc::new(RedbCache::new(Arc::clone(&persistence.db)).unwrap()) as Arc<dyn CacheProvider>;
-    let engine = Arc::new(
-        DurableEngine::new(
-            Arc::clone(&persistence) as Arc<dyn PersistenceProvider>,
-            Arc::clone(&cache),
-        )
-        .unwrap(),
-    );
+    let engine = DurableEngineBuilder::new()
+        .with_persistence(Arc::clone(&persistence) as Arc<dyn PersistenceProvider>)
+        .with_cache(Arc::clone(&cache))
+        .build()
+        .unwrap();
 
     // Define a workflow that uses "exit" directive
-    let workflow_yaml = r#" 
+    let workflow_yaml = r#"
 document:
   dsl: '1.0.2'
   namespace: default
@@ -51,15 +51,16 @@ do:
         colors: '${ .colors + ["should_not_run"] }'
 "#;
 
-    let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml).unwrap();
+    let source = StringSource::new(workflow_yaml);
 
     // Execute workflow
-    let result = engine.start_with_input(workflow, json!({})).await;
+    let handle = engine.execute(source, json!({})).await.unwrap();
+    let result = handle.wait_for_completion(Duration::from_secs(60)).await;
 
     // Assert: workflow should complete successfully
     assert!(result.is_ok(), "Workflow should complete successfully");
 
-    let (_instance_id, output) = result.unwrap();
+    let output = result.unwrap();
 
     // The workflow should exit after switchTask, so shouldNotRun should not have executed
     assert_eq!(
@@ -87,13 +88,11 @@ async fn test_end_directive_terminates_workflow() {
     let persistence = Arc::new(RedbPersistence::new(db_path.to_str().unwrap()).unwrap());
     let cache =
         Arc::new(RedbCache::new(Arc::clone(&persistence.db)).unwrap()) as Arc<dyn CacheProvider>;
-    let engine = Arc::new(
-        DurableEngine::new(
-            Arc::clone(&persistence) as Arc<dyn PersistenceProvider>,
-            Arc::clone(&cache),
-        )
-        .unwrap(),
-    );
+    let engine = DurableEngineBuilder::new()
+        .with_persistence(Arc::clone(&persistence) as Arc<dyn PersistenceProvider>)
+        .with_cache(Arc::clone(&cache))
+        .build()
+        .unwrap();
 
     // Define a workflow that uses "end" directive
     let workflow_yaml = r#"
@@ -120,15 +119,16 @@ do:
         colors: '${ .colors + ["should_not_run"] }'
 "#;
 
-    let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml).unwrap();
+    let source = StringSource::new(workflow_yaml);
 
     // Execute workflow
-    let result = engine.start_with_input(workflow, json!({})).await;
+    let handle = engine.execute(source, json!({})).await.unwrap();
+    let result = handle.wait_for_completion(Duration::from_secs(60)).await;
 
     // Assert: workflow should complete successfully
     assert!(result.is_ok(), "Workflow should complete successfully");
 
-    let (_instance_id, output) = result.unwrap();
+    let output = result.unwrap();
 
     // The workflow should end after switchTask, so shouldNotRun should not have executed
     assert_eq!(
@@ -159,13 +159,11 @@ async fn test_exit_vs_end_behavior_identical_in_main_scope() {
     let persistence_exit = Arc::new(RedbPersistence::new(db_path_exit.to_str().unwrap()).unwrap());
     let cache_exit = Arc::new(RedbCache::new(Arc::clone(&persistence_exit.db)).unwrap())
         as Arc<dyn CacheProvider>;
-    let engine_exit = Arc::new(
-        DurableEngine::new(
-            Arc::clone(&persistence_exit) as Arc<dyn PersistenceProvider>,
-            Arc::clone(&cache_exit),
-        )
-        .unwrap(),
-    );
+    let engine_exit = DurableEngineBuilder::new()
+        .with_persistence(Arc::clone(&persistence_exit) as Arc<dyn PersistenceProvider>)
+        .with_cache(Arc::clone(&cache_exit))
+        .build()
+        .unwrap();
 
     // Setup for end test
     let temp_dir_end = tempfile::tempdir().unwrap();
@@ -173,13 +171,11 @@ async fn test_exit_vs_end_behavior_identical_in_main_scope() {
     let persistence_end = Arc::new(RedbPersistence::new(db_path_end.to_str().unwrap()).unwrap());
     let cache_end = Arc::new(RedbCache::new(Arc::clone(&persistence_end.db)).unwrap())
         as Arc<dyn CacheProvider>;
-    let engine_end = Arc::new(
-        DurableEngine::new(
-            Arc::clone(&persistence_end) as Arc<dyn PersistenceProvider>,
-            Arc::clone(&cache_end),
-        )
-        .unwrap(),
-    );
+    let engine_end = DurableEngineBuilder::new()
+        .with_persistence(Arc::clone(&persistence_end) as Arc<dyn PersistenceProvider>)
+        .with_cache(Arc::clone(&cache_end))
+        .build()
+        .unwrap();
 
     let workflow_exit_yaml = r#"
 document:
@@ -213,16 +209,19 @@ do:
         value: 'should not run'
 "#;
 
-    let workflow_exit: WorkflowDefinition = serde_yaml::from_str(workflow_exit_yaml).unwrap();
-    let workflow_end: WorkflowDefinition = serde_yaml::from_str(workflow_end_yaml).unwrap();
+    let source_exit = StringSource::new(workflow_exit_yaml);
+    let source_end = StringSource::new(workflow_end_yaml);
 
     // Execute both workflows
-    let (_instance_id_exit, output_exit) = engine_exit
-        .start_with_input(workflow_exit, json!({}))
+    let handle_exit = engine_exit.execute(source_exit, json!({})).await.unwrap();
+    let output_exit = handle_exit
+        .wait_for_completion(Duration::from_secs(60))
         .await
         .unwrap();
-    let (_instance_id_end, output_end) = engine_end
-        .start_with_input(workflow_end, json!({}))
+
+    let handle_end = engine_end.execute(source_end, json!({})).await.unwrap();
+    let output_end = handle_end
+        .wait_for_completion(Duration::from_secs(60))
         .await
         .unwrap();
 
