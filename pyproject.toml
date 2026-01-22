@@ -1,0 +1,39 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "jackdaw"
+version = "0.1.1"
+description = "A durable, cached, graph-based execution engine for Serverless Workflow"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "Armin Graf" }
+]
+keywords = ["serverless", "workflow", "engine", "durable", "orchestration"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Rust",
+]
+dependencies = [
+    "maturin>=1.11.5",
+]
+
+[project.urls]
+Homepage = "https://github.com/arminhammer/jackdaw"
+Documentation = "https://docs.rs/jackdaw"
+Repository = "https://github.com/arminhammer/jackdaw"
+
+[tool.maturin]
+features = ["python"]
+module-name = "jackdaw"

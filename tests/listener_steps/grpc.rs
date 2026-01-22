@@ -186,7 +186,15 @@ async fn execute_workflow_and_call_grpc(world: &mut ListenerWorld, method: Strin
     let (abort_handle, abort_registration) = futures::future::AbortHandle::new_pair();
     let workflow_future = futures::future::Abortable::new(
         async move {
-            let _ = engine_clone.start(workflow_clone).await;
+            if let Ok(mut handle) = engine_clone
+                .execute(workflow_clone, serde_json::json!({}))
+                .await
+            {
+                // For perpetual workflows, consume events to keep it running
+                while let Some(_event) = handle.next_event().await {
+                    // Process events as they come
+                }
+            }
         },
         abort_registration,
     );

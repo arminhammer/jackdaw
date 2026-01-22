@@ -37,6 +37,11 @@ pub enum Error {
     #[snafu(display("Engine error: {source}"))]
     Engine { source: crate::durableengine::Error },
 
+    #[snafu(display("Execution error: {source}"))]
+    Execution {
+        source: crate::execution_handle::Error,
+    },
+
     #[snafu(display("Cache error: {source}"))]
     Cache { source: crate::cache::Error },
 
@@ -52,6 +57,12 @@ pub type Result<T> = std::result::Result<T, Error>;
 impl From<crate::durableengine::Error> for Error {
     fn from(source: crate::durableengine::Error) -> Self {
         Error::Engine { source }
+    }
+}
+
+impl From<crate::execution_handle::Error> for Error {
+    fn from(source: crate::execution_handle::Error) -> Self {
+        Error::Execution { source }
     }
 }
 
@@ -245,13 +256,14 @@ async fn execute_workflow(
     _verbose: bool,
     input: Option<&String>,
 ) -> Result<(String, serde_json::Value, WorkflowDefinition)> {
+    use std::time::Duration;
+
     if let Some(pb) = progress {
         pb.set_message(format!("Loading {}", workflow_path.display()));
     }
 
     // Read and parse workflow
     let workflow_yaml = std::fs::read_to_string(workflow_path)?;
-
     let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml)?;
 
     if let Some(pb) = progress {
@@ -282,10 +294,12 @@ async fn execute_workflow(
         serde_json::json!({})
     };
 
-    // Execute workflow - returns both instance_id and final result
-    let (instance_id, result) = engine
-        .start_with_input(workflow.clone(), input_data)
-        .await?;
+    // Execute workflow
+    let handle = engine.execute(workflow.clone(), input_data).await?;
+    let instance_id = handle.instance_id().to_string();
+
+    // Wait for completion with a generous timeout for CLI use
+    let result = handle.wait_for_completion(Duration::from_secs(300)).await?;
 
     if let Some(pb) = progress {
         pb.finish_with_message(format!("Completed {}", workflow_path.display()));

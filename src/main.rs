@@ -4,6 +4,7 @@ use snafu::prelude::*;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
+mod builder;
 mod cache;
 mod cmd;
 mod config;
@@ -11,6 +12,7 @@ mod container;
 mod context;
 mod descriptors;
 mod durableengine;
+mod execution_handle;
 mod executionhistory;
 mod executor;
 mod expressions;

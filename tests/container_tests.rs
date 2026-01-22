@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::expect_used)]
 
+use jackdaw::DurableEngineBuilder;
 /// Container Task Feature Tests
 ///
 /// Tests for container advanced features per Serverless Workflow spec:
@@ -17,21 +18,20 @@ use serde_json::json;
 use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 /// Helper to set up test infrastructure
-async fn setup_test_engine() -> (Arc<DurableEngine>, tempfile::TempDir) {
+async fn setup_test_engine() -> (DurableEngine, tempfile::TempDir) {
     let temp_dir = tempfile::tempdir().unwrap();
     let db_path = temp_dir.path().join("test.db");
     let persistence = Arc::new(RedbPersistence::new(db_path.to_str().unwrap()).unwrap());
     let cache =
         Arc::new(RedbCache::new(Arc::clone(&persistence.db)).unwrap()) as Arc<dyn CacheProvider>;
-    let engine = Arc::new(
-        DurableEngine::new(
-            Arc::clone(&persistence) as Arc<dyn PersistenceProvider>,
-            Arc::clone(&cache),
-        )
-        .unwrap(),
-    );
+    let engine = DurableEngineBuilder::new()
+        .with_persistence(Arc::clone(&persistence) as Arc<dyn PersistenceProvider>)
+        .with_cache(Arc::clone(&cache))
+        .build()
+        .unwrap();
     (engine, temp_dir)
 }
 
@@ -40,18 +40,18 @@ async fn test_container_environment_variables() {
     let (engine, _temp_dir) = setup_test_engine().await;
 
     let fixture = PathBuf::from("tests/fixtures/containers/container-env-vars.sw.yaml");
-    let workflow_yaml =
-        std::fs::read_to_string(&fixture).expect("Failed to read container-env-vars.sw.yaml");
+    let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
     let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
-    let result = engine.start_with_input(workflow, json!({})).await;
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
+    let result = handle.wait_for_completion(Duration::from_secs(60)).await;
     assert!(
         result.is_ok(),
         "Workflow should complete successfully: {:?}",
         result.err()
     );
 
-    let (_instance_id, output) = result.unwrap();
+    let output = result.unwrap();
 
     // The output is now the direct string result, not an object with stdout/stderr/exitCode
     let output_str = output.as_str().expect("Output should be a string");
@@ -76,11 +76,11 @@ async fn test_container_volume_mapping() {
     std::fs::create_dir_all(mount_dir).expect("Failed to create mount directory");
 
     let fixture = PathBuf::from("tests/fixtures/containers/container-volume-write.sw.yaml");
-    let workflow_yaml =
-        std::fs::read_to_string(&fixture).expect("Failed to read container-volume-write.sw.yaml");
+    let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
     let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
-    let result = engine.start_with_input(workflow, json!({})).await;
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
+    let result = handle.wait_for_completion(Duration::from_secs(60)).await;
     assert!(
         result.is_ok(),
         "Workflow should complete successfully: {:?}",
@@ -114,11 +114,11 @@ async fn test_container_multiple_volumes() {
     std::fs::write(&input_file, "Input data").expect("Failed to write input file");
 
     let fixture = PathBuf::from("tests/fixtures/containers/container-multiple-volumes.sw.yaml");
-    let workflow_yaml = std::fs::read_to_string(&fixture)
-        .expect("Failed to read container-multiple-volumes.sw.yaml");
+    let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
     let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
-    let result = engine.start_with_input(workflow, json!({})).await;
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
+    let result = handle.wait_for_completion(Duration::from_secs(60)).await;
     assert!(
         result.is_ok(),
         "Workflow should complete successfully: {:?}",
@@ -144,18 +144,18 @@ async fn test_container_environment_with_expressions() {
     let (engine, _temp_dir) = setup_test_engine().await;
 
     let fixture = PathBuf::from("tests/fixtures/containers/container-env-expressions.sw.yaml");
-    let workflow_yaml = std::fs::read_to_string(&fixture)
-        .expect("Failed to read container-env-expressions.sw.yaml");
+    let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
     let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
-    let result = engine.start_with_input(workflow, json!({})).await;
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
+    let result = handle.wait_for_completion(Duration::from_secs(60)).await;
     assert!(
         result.is_ok(),
         "Workflow should complete successfully: {:?}",
         result.err()
     );
 
-    let (_instance_id, output) = result.unwrap();
+    let output = result.unwrap();
 
     // The output is now the direct string result, not an object with stdout/stderr/exitCode
     let output_str = output.as_str().expect("Output should be a string");
@@ -176,18 +176,18 @@ async fn test_container_stdin_and_arguments() {
     let (engine, _temp_dir) = setup_test_engine().await;
 
     let fixture = PathBuf::from("tests/fixtures/containers/container-stdin-args.sw.yaml");
-    let workflow_yaml =
-        std::fs::read_to_string(&fixture).expect("Failed to read container-stdin-args.sw.yaml");
+    let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
     let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
-    let result = engine.start_with_input(workflow, json!({})).await;
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
+    let result = handle.wait_for_completion(Duration::from_secs(60)).await;
     assert!(
         result.is_ok(),
         "Workflow should complete successfully: {:?}",
         result.err()
     );
 
-    let (_instance_id, output) = result.unwrap();
+    let output = result.unwrap();
 
     // The output is now the direct string result, not an object with stdout/stderr/exitCode
     let output_str = output.as_str().expect("Output should be a string");
