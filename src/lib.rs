@@ -123,3 +123,7 @@ pub mod workflow;
 // Re-export commonly used types for convenience
 pub use builder::DurableEngineBuilder;
 pub use execution_handle::ExecutionHandle;
+
+// Optional Python bindings
+#[cfg(feature = "python")]
+pub mod python;
