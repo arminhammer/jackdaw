@@ -3,6 +3,8 @@
 //! This module provides Python wrappers for the core jackdaw functionality.
 //! Enable with the "python" feature flag.
 
+#![allow(unsafe_op_in_unsafe_fn)]
+
 use crate::builder::DurableEngineBuilder;
 use crate::durableengine::DurableEngine;
 use crate::execution_handle::ExecutionHandle;
@@ -31,6 +33,7 @@ pub struct PyExecutionHandle {
 }
 
 #[pymethods]
+#[allow(unsafe_op_in_unsafe_fn)]
 impl PyDurableEngineBuilder {
     #[new]
     fn new() -> Self {
@@ -39,7 +42,7 @@ impl PyDurableEngineBuilder {
         }
     }
 
-    fn build(&mut self) -> PyResult<PyDurableEngine> {
+    unsafe fn build(&mut self) -> PyResult<PyDurableEngine> {
         let builder = self
             .inner
             .take()
@@ -56,13 +59,14 @@ impl PyDurableEngineBuilder {
 }
 
 #[pymethods]
+#[allow(unsafe_op_in_unsafe_fn)]
 impl PyDurableEngine {
     #[staticmethod]
     fn builder() -> PyDurableEngineBuilder {
         PyDurableEngineBuilder::new()
     }
 
-    fn execute<'py>(
+    unsafe fn execute<'py>(
         &self,
         py: Python<'py>,
         workflow_yaml: String,
@@ -94,8 +98,9 @@ impl PyDurableEngine {
 }
 
 #[pymethods]
+#[allow(unsafe_op_in_unsafe_fn)]
 impl PyExecutionHandle {
-    fn wait_for_completion<'py>(
+    unsafe fn wait_for_completion<'py>(
         &mut self,
         py: Python<'py>,
         timeout_secs: f64,
@@ -117,7 +122,7 @@ impl PyExecutionHandle {
         })
     }
 
-    fn instance_id(&self) -> String {
+    unsafe fn instance_id(&self) -> String {
         self.instance_id.clone()
     }
 }
@@ -154,10 +159,10 @@ fn pyany_to_json(obj: &Bound<PyAny>) -> PyResult<serde_json::Value> {
         return Ok(serde_json::Value::Number(val.into()));
     }
 
-    if let Ok(val) = obj.extract::<f64>() {
-        if let Some(num) = serde_json::Number::from_f64(val) {
-            return Ok(serde_json::Value::Number(num));
-        }
+    if let Ok(val) = obj.extract::<f64>()
+        && let Some(num) = serde_json::Number::from_f64(val)
+    {
+        return Ok(serde_json::Value::Number(num));
     }
 
     if let Ok(val) = obj.extract::<String>() {

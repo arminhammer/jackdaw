@@ -83,7 +83,10 @@ async fn when_http_python_add_endpoint_called(world: &mut ListenerWorld, path: S
         let (abort_handle, abort_registration) = futures::future::AbortHandle::new_pair();
         let workflow_future = futures::future::Abortable::new(
             async move {
-                if let Ok(mut handle) = engine_clone.execute(workflow_clone, serde_json::json!({})).await {
+                if let Ok(mut handle) = engine_clone
+                    .execute(workflow_clone, serde_json::json!({}))
+                    .await
+                {
                     // For perpetual workflows, consume events to keep it running
                     while let Some(_event) = handle.next_event().await {
                         // Process events as they come

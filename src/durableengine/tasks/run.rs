@@ -82,7 +82,9 @@ pub async fn exec_run_task(
         // Execute the nested workflow using run_instance (internal method)
         // Generate a new instance ID for the nested workflow
         let instance_id = uuid::Uuid::new_v4().to_string();
-        let final_data = engine.run_instance(workflow, Some(instance_id.clone()), evaluated_input).await?;
+        let final_data = engine
+            .run_instance(workflow, Some(instance_id.clone()), evaluated_input)
+            .await?;
 
         // Wait for completion if await is true (default)
         let should_await = run_task.run.await_.unwrap_or(true);

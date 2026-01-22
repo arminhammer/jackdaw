@@ -335,34 +335,24 @@ impl DurableEngine {
     ///
     /// ```no_run
     /// # use jackdaw::DurableEngineBuilder;
-    /// # use serverless_workflow_core::models::{
-    /// #     document::DocumentMetadata,
-    /// #     task::{SetTaskDefinition, TaskDefinition},
-    /// #     workflow::WorkflowDefinition,
-    /// # };
+    /// # use serverless_workflow_core::models::workflow::WorkflowDefinition;
     /// # use std::time::Duration;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let engine = DurableEngineBuilder::new().build()?;
     ///
-    /// let workflow = WorkflowDefinition {
-    ///     document: DocumentMetadata {
-    ///         dsl: "1.0.2".to_string(),
-    ///         namespace: "example".to_string(),
-    ///         name: "hello".to_string(),
-    ///         version: "1.0.0".to_string(),
-    ///         ..Default::default()
-    ///     },
-    ///     do_: vec![(
-    ///         "greet".to_string(),
-    ///         TaskDefinition::Set(SetTaskDefinition {
-    ///             set: serde_json::json!({ "message": "Hello!" }),
-    ///             ..Default::default()
-    ///         }),
-    ///     )]
-    ///     .into_iter()
-    ///     .collect(),
-    ///     ..Default::default()
-    /// };
+    /// // Load workflow from YAML
+    /// let workflow_yaml = r#"
+    /// document:
+    ///   dsl: '1.0.2'
+    ///   namespace: example
+    ///   name: hello
+    ///   version: 1.0.0
+    /// do:
+    ///   - greet:
+    ///       set:
+    ///         message: "Hello!"
+    /// "#;
+    /// let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml)?;
     ///
     /// let mut handle = engine.execute(workflow, serde_json::json!({})).await?;
     ///
@@ -467,7 +457,21 @@ impl DurableEngine {
                     // to preserve the JSON error format. For other errors, use the full error string.
                     let error_msg = match &e {
                         Error::TaskExecution { message } => message.clone(),
-                        _ => e.to_string(),
+                        Error::WorkflowExecution { .. }
+                        | Error::Listener { .. }
+                        | Error::Configuration { .. }
+                        | Error::Timeout { .. }
+                        | Error::Io { .. }
+                        | Error::Executor { .. }
+                        | Error::Persistence { .. }
+                        | Error::Cache { .. }
+                        | Error::Context { .. }
+                        | Error::Expression { .. }
+                        | Error::Serialization { .. }
+                        | Error::ListenerSetup { .. }
+                        | Error::Protobuf { .. }
+                        | Error::ProtobufDescriptor { .. }
+                        | Error::Visualization { .. } => e.to_string(),
                     };
                     let _ = event_tx
                         .send(WorkflowEvent::WorkflowFailed {

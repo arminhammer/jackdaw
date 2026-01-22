@@ -30,12 +30,14 @@ pub type Result<T> = std::result::Result<T, Error>;
 ///
 /// ## One-shot workflow - wait for result
 /// ```no_run
-/// # use jackdaw::{DurableEngineBuilder, workflow_source::StringSource};
+/// # use jackdaw::DurableEngineBuilder;
+/// # use serverless_workflow_core::models::workflow::WorkflowDefinition;
 /// # use std::time::Duration;
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// # let engine = DurableEngineBuilder::new().build()?;
-/// # let source = StringSource::new("document:\n  dsl: '1.0.0-alpha1'\n  namespace: test\n  name: test\ndo: []");
-/// let mut handle = engine.execute(source, serde_json::json!({})).await?;
+/// # let workflow_yaml = "document:\n  dsl: '1.0.2'\n  namespace: test\n  name: test\n  version: 1.0.0\ndo: []";
+/// # let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml)?;
+/// let mut handle = engine.execute(workflow, serde_json::json!({})).await?;
 /// let result = handle.wait_for_completion(Duration::from_secs(60)).await?;
 /// println!("Result: {}", result);
 /// # Ok(())
@@ -44,11 +46,13 @@ pub type Result<T> = std::result::Result<T, Error>;
 ///
 /// ## Stream events from execution
 /// ```no_run
-/// # use jackdaw::{DurableEngineBuilder, workflow_source::StringSource, workflow::WorkflowEvent};
+/// # use jackdaw::{DurableEngineBuilder, workflow::WorkflowEvent};
+/// # use serverless_workflow_core::models::workflow::WorkflowDefinition;
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// # let engine = DurableEngineBuilder::new().build()?;
-/// # let source = StringSource::new("document:\n  dsl: '1.0.0-alpha1'\n  namespace: test\n  name: test\ndo: []");
-/// let mut handle = engine.execute(source, serde_json::json!({})).await?;
+/// # let workflow_yaml = "document:\n  dsl: '1.0.2'\n  namespace: test\n  name: test\n  version: 1.0.0\ndo: []";
+/// # let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml)?;
+/// let mut handle = engine.execute(workflow, serde_json::json!({})).await?;
 ///
 /// while let Some(event) = handle.next_event().await {
 ///     match event {
@@ -70,11 +74,13 @@ pub type Result<T> = std::result::Result<T, Error>;
 ///
 /// ## Perpetual workflow - process indefinitely
 /// ```no_run
-/// # use jackdaw::{DurableEngineBuilder, workflow_source::StringSource, workflow::WorkflowEvent};
+/// # use jackdaw::{DurableEngineBuilder, workflow::WorkflowEvent};
+/// # use serverless_workflow_core::models::workflow::WorkflowDefinition;
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// # let engine = DurableEngineBuilder::new().build()?;
-/// # let source = StringSource::new("document:\n  dsl: '1.0.0-alpha1'\n  namespace: test\n  name: test\ndo: []");
-/// let mut handle = engine.execute(source, serde_json::json!({})).await?;
+/// # let workflow_yaml = "document:\n  dsl: '1.0.2'\n  namespace: test\n  name: test\n  version: 1.0.0\ndo: []";
+/// # let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml)?;
+/// let mut handle = engine.execute(workflow, serde_json::json!({})).await?;
 ///
 /// // Process events until shutdown signal
 /// while let Some(event) = handle.next_event().await {
@@ -92,6 +98,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub struct ExecutionHandle {
     instance_id: String,
     event_receiver: mpsc::Receiver<WorkflowEvent>,
+    #[allow(dead_code)]
     cancel_sender: mpsc::Sender<()>,
 }
 
@@ -117,11 +124,13 @@ impl ExecutionHandle {
     /// # Examples
     ///
     /// ```no_run
-    /// # use jackdaw::{DurableEngineBuilder, workflow_source::StringSource};
+    /// # use jackdaw::DurableEngineBuilder;
+    /// # use serverless_workflow_core::models::workflow::WorkflowDefinition;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// # let engine = DurableEngineBuilder::new().build()?;
-    /// # let source = StringSource::new("document:\n  dsl: '1.0.0-alpha1'\n  namespace: test\n  name: test\ndo: []");
-    /// let handle = engine.execute(source, serde_json::json!({})).await?;
+    /// # let workflow_yaml = "document:\n  dsl: '1.0.2'\n  namespace: test\n  name: test\n  version: 1.0.0\ndo: []";
+    /// # let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml)?;
+    /// let handle = engine.execute(workflow, serde_json::json!({})).await?;
     /// println!("Workflow instance: {}", handle.instance_id());
     /// # Ok(())
     /// # }
@@ -145,11 +154,13 @@ impl ExecutionHandle {
     /// # Examples
     ///
     /// ```no_run
-    /// # use jackdaw::{DurableEngineBuilder, workflow_source::StringSource, workflow::WorkflowEvent};
+    /// # use jackdaw::{DurableEngineBuilder, workflow::WorkflowEvent};
+    /// # use serverless_workflow_core::models::workflow::WorkflowDefinition;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// # let engine = DurableEngineBuilder::new().build()?;
-    /// # let source = StringSource::new("document:\n  dsl: '1.0.0-alpha1'\n  namespace: test\n  name: test\ndo: []");
-    /// let mut handle = engine.execute(source, serde_json::json!({})).await?;
+    /// # let workflow_yaml = "document:\n  dsl: '1.0.2'\n  namespace: test\n  name: test\n  version: 1.0.0\ndo: []";
+    /// # let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml)?;
+    /// let mut handle = engine.execute(workflow, serde_json::json!({})).await?;
     ///
     /// while let Some(event) = handle.next_event().await {
     ///     println!("Event: {:?}", event);
@@ -175,17 +186,20 @@ impl ExecutionHandle {
     /// # Examples
     ///
     /// ```no_run
-    /// # use jackdaw::{DurableEngineBuilder, workflow_source::StringSource};
+    /// # use jackdaw::DurableEngineBuilder;
+    /// # use serverless_workflow_core::models::workflow::WorkflowDefinition;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// # let engine = DurableEngineBuilder::new().build()?;
-    /// # let source = StringSource::new("document:\n  dsl: '1.0.0-alpha1'\n  namespace: test\n  name: test\ndo: []");
-    /// let handle = engine.execute(source, serde_json::json!({})).await?;
+    /// # let workflow_yaml = "document:\n  dsl: '1.0.2'\n  namespace: test\n  name: test\n  version: 1.0.0\ndo: []";
+    /// # let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml)?;
+    /// let handle = engine.execute(workflow, serde_json::json!({})).await?;
     ///
     /// // ... later ...
     /// handle.cancel().await?;
     /// # Ok(())
     /// # }
     /// ```
+    #[allow(dead_code)]
     pub async fn cancel(self) -> Result<()> {
         self.cancel_sender
             .send(())
@@ -215,12 +229,14 @@ impl ExecutionHandle {
     /// # Examples
     ///
     /// ```no_run
-    /// # use jackdaw::{DurableEngineBuilder, workflow_source::StringSource};
+    /// # use jackdaw::DurableEngineBuilder;
+    /// # use serverless_workflow_core::models::workflow::WorkflowDefinition;
     /// # use std::time::Duration;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// # let engine = DurableEngineBuilder::new().build()?;
-    /// # let source = StringSource::new("document:\n  dsl: '1.0.0-alpha1'\n  namespace: test\n  name: test\ndo: []");
-    /// let mut handle = engine.execute(source, serde_json::json!({})).await?;
+    /// # let workflow_yaml = "document:\n  dsl: '1.0.2'\n  namespace: test\n  name: test\n  version: 1.0.0\ndo: []";
+    /// # let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml)?;
+    /// let mut handle = engine.execute(workflow, serde_json::json!({})).await?;
     /// let result = handle.wait_for_completion(Duration::from_secs(60)).await?;
     /// println!("Result: {}", result);
     /// # Ok(())
@@ -235,16 +251,28 @@ impl ExecutionHandle {
                     return Ok(final_data);
                 }
                 WorkflowEvent::WorkflowFailed { error, .. } => {
-                    return Err(Error::WorkflowExecution {
-                        message: error,
-                    });
+                    return Err(Error::WorkflowExecution { message: error });
                 }
                 WorkflowEvent::WorkflowCancelled { reason, .. } => {
                     return Err(Error::WorkflowExecution {
                         message: format!("Workflow cancelled: {}", reason.unwrap_or_default()),
                     });
                 }
-                _ => {}
+                WorkflowEvent::WorkflowStarted { .. }
+                | WorkflowEvent::WorkflowCorrelationStarted { .. }
+                | WorkflowEvent::WorkflowCorrelationCompleted { .. }
+                | WorkflowEvent::TaskStarted { .. }
+                | WorkflowEvent::TaskCompleted { .. } => {}
+                // Ignore all other events during wait
+                WorkflowEvent::TaskEntered { .. }
+                | WorkflowEvent::TaskCreated { .. }
+                | WorkflowEvent::TaskRetried { .. }
+                | WorkflowEvent::WorkflowSuspended { .. }
+                | WorkflowEvent::WorkflowResumed { .. }
+                | WorkflowEvent::TaskCancelled { .. }
+                | WorkflowEvent::TaskSuspended { .. }
+                | WorkflowEvent::TaskResumed { .. }
+                | WorkflowEvent::TaskFaulted { .. } => {}
             }
 
             if start.elapsed() > timeout {

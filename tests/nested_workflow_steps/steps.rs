@@ -58,7 +58,7 @@ async fn when_execute_workflow(
         .unwrap_or_else(|| panic!("Workflow {} not found in registry", workflow_ref));
 
     // Parse the workflow
-    let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml)
+    let _workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml)
         .unwrap_or_else(|e| panic!("Failed to parse workflow YAML: {}", e));
 
     // Get the engine
@@ -80,7 +80,7 @@ async fn when_execute_workflow(
     // Execute the workflow
     let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml)
         .unwrap_or_else(|e| panic!("Failed to parse workflow YAML: {}", e));
-    let mut handle = engine
+    let handle = engine
         .execute(workflow, input)
         .await
         .unwrap_or_else(|e| panic!("Failed to start workflow: {}", e));

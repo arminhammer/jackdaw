@@ -46,12 +46,14 @@ use std::sync::Arc;
 /// # Ok(())
 /// # }
 /// ```
+#[allow(dead_code)]
 pub struct DurableEngineBuilder {
     persistence: Option<Arc<dyn PersistenceProvider>>,
     cache: Option<Arc<dyn CacheProvider>>,
     event_buffer_size: usize,
 }
 
+#[allow(dead_code)]
 impl DurableEngineBuilder {
     /// Create a new builder with default settings
     ///

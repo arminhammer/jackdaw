@@ -3,7 +3,6 @@
 use jackdaw::DurableEngineBuilder;
 /// Tests for HTTP redirect handling
 use jackdaw::cache::CacheProvider;
-use jackdaw::durableengine::DurableEngine;
 use jackdaw::persistence::PersistenceProvider;
 use jackdaw::providers::cache::RedbCache;
 use jackdaw::providers::persistence::RedbPersistence;

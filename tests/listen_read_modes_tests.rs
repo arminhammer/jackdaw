@@ -51,7 +51,7 @@ async fn test_listen_read_mode_data() {
     let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     // Start workflow (this initializes the listener) - keep handle alive so workflow continues
-    let handle = engine
+    let _handle = engine
         .execute(workflow, json!({}))
         .await
         .expect("Failed to start workflow");
@@ -115,7 +115,7 @@ async fn test_listen_read_mode_envelope() {
     let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     // Start workflow - keep handle alive so workflow continues
-    let handle = engine
+    let _handle = engine
         .execute(workflow, json!({}))
         .await
         .expect("Failed to start workflow");
