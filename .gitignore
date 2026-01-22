@@ -31,6 +31,11 @@ __pycache__/
 dist/
 workflow.db
 
+# Python virtual environments and lock files
+.venv/
+.python-version
+uv.lock
+
 # Generated documentation
 /docs/book/
 examples/**/node_modules/

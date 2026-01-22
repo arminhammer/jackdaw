@@ -11,6 +11,10 @@ license = "Apache-2.0"
 keywords = ["serverless", "workflow", "engine", "durable", "orchestration"]
 categories = ["development-tools", "asynchronous"]
 
+[lib]
+name = "jackdaw"
+crate-type = ["rlib", "cdylib"]
+
 [dependencies]
 serde = { version = "=1.0.219", features = ["derive"] }
 serde_json = "=1.0.120"
@@ -62,6 +66,14 @@ futures = "0.3"
 sha2 = "0.10.9"
 hyper = { version = "1.8.1", features = ["server"] }
 hyper-util = { version = "0.1", features = ["tokio", "server", "server-auto"] }
+
+# Optional Python bindings
+pyo3 = { version = "0.21", optional = true, features = ["extension-module"] }
+pyo3-asyncio-0-21 = { version = "0.21", optional = true, features = ["tokio-runtime"] }
+
+[features]
+default = []
+python = ["pyo3", "pyo3-asyncio-0-21"]
 
 [dev-dependencies]
 cucumber = "0.21"

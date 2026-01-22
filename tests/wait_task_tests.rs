@@ -10,7 +10,7 @@ use serde_json::json;
 use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// Helper to set up test infrastructure
 async fn setup_test_engine() -> (Arc<DurableEngine>, tempfile::TempDir) {
@@ -40,7 +40,8 @@ async fn test_wait_task_iso8601_seconds() {
 
     // Measure execution time
     let start = Instant::now();
-    let result = engine.start_with_input(workflow, json!({})).await;
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
+    let result = handle.wait_for_completion(Duration::from_secs(30)).await;
     let elapsed = start.elapsed();
 
     assert!(result.is_ok(), "Wait task should complete successfully");
@@ -69,7 +70,8 @@ async fn test_wait_task_iso8601_minutes() {
 
     // Measure execution time
     let start = Instant::now();
-    let result = engine.start_with_input(workflow, json!({})).await;
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
+    let result = handle.wait_for_completion(Duration::from_secs(30)).await;
     let elapsed = start.elapsed();
 
     assert!(result.is_ok(), "Wait task should complete successfully");
@@ -98,7 +100,8 @@ async fn test_wait_task_inline_seconds() {
 
     // Measure execution time
     let start = Instant::now();
-    let result = engine.start_with_input(workflow, json!({})).await;
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
+    let result = handle.wait_for_completion(Duration::from_secs(30)).await;
     let elapsed = start.elapsed();
 
     assert!(result.is_ok(), "Wait task should complete successfully");
@@ -127,7 +130,8 @@ async fn test_wait_task_inline_milliseconds() {
 
     // Measure execution time
     let start = Instant::now();
-    let result = engine.start_with_input(workflow, json!({})).await;
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
+    let result = handle.wait_for_completion(Duration::from_secs(30)).await;
     let elapsed = start.elapsed();
 
     assert!(result.is_ok(), "Wait task should complete successfully");
@@ -156,7 +160,8 @@ async fn test_wait_task_inline_composite() {
 
     // Measure execution time
     let start = Instant::now();
-    let result = engine.start_with_input(workflow, json!({})).await;
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
+    let result = handle.wait_for_completion(Duration::from_secs(30)).await;
     let elapsed = start.elapsed();
 
     assert!(result.is_ok(), "Wait task should complete successfully");
@@ -185,7 +190,8 @@ async fn test_wait_task_in_sequence() {
 
     // Measure execution time
     let start = Instant::now();
-    let result = engine.start_with_input(workflow, json!({})).await;
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
+    let result = handle.wait_for_completion(Duration::from_secs(30)).await;
     let elapsed = start.elapsed();
 
     assert!(result.is_ok(), "Wait tasks should complete successfully");
@@ -212,11 +218,12 @@ async fn test_wait_task_returns_empty_result() {
         std::fs::read_to_string(&fixture).expect("Failed to read wait-returns-empty.sw.yaml");
     let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
-    let result = engine.start_with_input(workflow, json!({})).await;
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
+    let result = handle.wait_for_completion(Duration::from_secs(30)).await;
 
     assert!(result.is_ok(), "Wait task should complete successfully");
 
-    let (_instance_id, output) = result.unwrap();
+    let output = result.unwrap();
 
     // Wait task should return empty result or minimal metadata
     // The exact output format can be adjusted, but it should be successful

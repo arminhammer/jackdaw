@@ -7,15 +7,17 @@ mod common;
 mod steps;
 use crate::common::{WorkflowStatus, parse_docstring};
 use cucumber::{World, given, then, when};
+use jackdaw::DurableEngineBuilder;
 use jackdaw::cache::CacheProvider;
 use jackdaw::durableengine::DurableEngine;
 use jackdaw::persistence::PersistenceProvider;
 use jackdaw::providers::cache::RedbCache;
 use jackdaw::providers::persistence::RedbPersistence;
 use serde_json::Value;
-pub use serverless_workflow_core::models::workflow::WorkflowDefinition;
+use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use snafu::prelude::*;
 use std::sync::Arc;
+use std::time::Duration;
 
 #[derive(Debug, Snafu)]
 pub enum TestError {
@@ -85,10 +87,12 @@ impl CtKWorld {
         let persistence = Arc::new(RedbPersistence::new(db_path.to_str().unwrap())?);
         let cache =
             Arc::new(RedbCache::new(Arc::clone(&persistence.db))?) as Arc<dyn CacheProvider>;
-        let engine = Arc::new(DurableEngine::new(
-            Arc::clone(&persistence) as Arc<dyn PersistenceProvider>,
-            Arc::clone(&cache),
-        )?);
+        let engine = Arc::new(
+            DurableEngineBuilder::new()
+                .with_persistence(Arc::clone(&persistence) as Arc<dyn PersistenceProvider>)
+                .with_cache(Arc::clone(&cache))
+                .build()?,
+        );
 
         Ok(Self {
             workflow_definition: None,
@@ -122,24 +126,42 @@ async fn given_workflow_input(world: &mut CtKWorld, step: &cucumber::gherkin::St
 
 #[when(expr = "the workflow is executed")]
 async fn when_workflow_executed(world: &mut CtKWorld) {
+    let workflow_yaml = world.workflow_definition.as_ref().unwrap().clone();
     let workflow: WorkflowDefinition =
-        serde_yaml::from_str(world.workflow_definition.as_ref().unwrap()).unwrap();
+        serde_yaml::from_str(&workflow_yaml).expect("Failed to parse workflow definition");
 
-    let result = if let Some(input) = &world.workflow_input {
-        world
-            .engine
-            .as_ref()
-            .unwrap()
-            .start_with_input(workflow, input.clone())
-            .await
-            .map(|(id, _)| id)
-    } else {
-        world.engine.as_ref().unwrap().start(workflow).await
+    let input = world
+        .workflow_input
+        .clone()
+        .unwrap_or_else(|| serde_json::json!({}));
+
+    let handle = match world
+        .engine
+        .as_ref()
+        .unwrap()
+        .execute(workflow, input)
+        .await
+    {
+        Ok(handle) => handle,
+        Err(e) => {
+            let error_msg = e.to_string();
+            world.workflow_status = Some(WorkflowStatus::Faulted(error_msg));
+            return;
+        }
     };
 
+    let instance_id = handle.instance_id().to_string();
+    world.instance_id = Some(instance_id.clone());
+
+    // Wait for workflow completion (with generous timeout for CTK tests)
+    let result = handle.wait_for_completion(Duration::from_secs(120)).await;
+
     match result {
-        Ok(instance_id) => {
-            world.instance_id = Some(instance_id.clone());
+        Ok(output) => {
+            world.workflow_output = Some(output);
+            world.workflow_status = Some(WorkflowStatus::Completed);
+
+            // Fetch events from persistence for assertions
             if let Ok(events) = world
                 .persistence
                 .as_ref()
@@ -147,27 +169,12 @@ async fn when_workflow_executed(world: &mut CtKWorld) {
                 .get_events(&instance_id)
                 .await
             {
-                world.workflow_events = events.clone();
-                for event in events {
-                    if let jackdaw::workflow::WorkflowEvent::WorkflowCompleted {
-                        final_data, ..
-                    } = event
-                    {
-                        world.workflow_output = Some(final_data);
-                        world.workflow_status = Some(WorkflowStatus::Completed);
-                        return;
-                    }
-                }
+                world.workflow_events = events;
             }
-            world.workflow_status = Some(WorkflowStatus::Completed);
         }
         Err(e) => {
             // Extract the actual message from the error
-            // For TaskExecution errors from Raise tasks, the message is JSON
-            let error_msg = match &e {
-                jackdaw::durableengine::Error::TaskExecution { message } => message.clone(),
-                _ => e.to_string(),
-            };
+            let error_msg = e.to_string();
             world.workflow_status = Some(WorkflowStatus::Faulted(error_msg));
         }
     }

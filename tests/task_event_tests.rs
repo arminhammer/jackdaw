@@ -19,6 +19,7 @@ use serde_json::json;
 use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 /// Helper to set up test infrastructure
 async fn setup_test_engine() -> (
@@ -54,10 +55,10 @@ async fn test_task_created_event_emitted() {
         std::fs::read_to_string(&fixture).expect("Failed to read test-task-created-event.sw.yaml");
     let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
-    let result = engine.start_with_input(workflow, json!({})).await;
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
+    let instance_id = handle.instance_id().to_string();
+    let result = handle.wait_for_completion(Duration::from_secs(30)).await;
     assert!(result.is_ok(), "Workflow should complete successfully");
-
-    let (instance_id, _output) = result.unwrap();
 
     // Get events from persistence
     let events = persistence
@@ -98,10 +99,10 @@ async fn test_task_created_emitted_before_task_started() {
         std::fs::read_to_string(&fixture).expect("Failed to read test-event-order.sw.yaml");
     let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
-    let result = engine.start_with_input(workflow, json!({})).await;
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
+    let instance_id = handle.instance_id().to_string();
+    let result = handle.wait_for_completion(Duration::from_secs(30)).await;
     assert!(result.is_ok(), "Workflow should complete successfully");
-
-    let (instance_id, _output) = result.unwrap();
 
     // Get events from persistence
     let events = persistence
@@ -149,10 +150,10 @@ async fn test_task_created_for_multiple_tasks() {
         std::fs::read_to_string(&fixture).expect("Failed to read test-multiple-tasks.sw.yaml");
     let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
-    let result = engine.start_with_input(workflow, json!({})).await;
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
+    let instance_id = handle.instance_id().to_string();
+    let result = handle.wait_for_completion(Duration::from_secs(30)).await;
     assert!(result.is_ok(), "Workflow should complete successfully");
-
-    let (instance_id, _output) = result.unwrap();
 
     // Get events from persistence
     let events = persistence
@@ -198,10 +199,10 @@ async fn test_task_created_includes_task_type() {
         std::fs::read_to_string(&fixture).expect("Failed to read test-task-types.sw.yaml");
     let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
-    let result = engine.start_with_input(workflow, json!({})).await;
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
+    let instance_id = handle.instance_id().to_string();
+    let result = handle.wait_for_completion(Duration::from_secs(30)).await;
     assert!(result.is_ok(), "Workflow should complete successfully");
-
-    let (instance_id, _output) = result.unwrap();
 
     // Get events from persistence
     let events = persistence
@@ -248,22 +249,19 @@ async fn test_task_retried_event_emitted_on_retry() {
     let fixture = PathBuf::from("tests/fixtures/task-events/test-task-retried.sw.yaml");
     let workflow_yaml =
         std::fs::read_to_string(&fixture).expect("Failed to read test-task-retried.sw.yaml");
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
     // This will fail and retry 2 times before final failure
-    let result = engine.start_with_input(workflow, json!({})).await;
+    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
+    let instance_id = handle.instance_id().to_string();
+    let result = handle.wait_for_completion(Duration::from_secs(30)).await;
 
     // The workflow should eventually fail after retries are exhausted
     // But for now, we just verify it completes (either success or failure)
     // and check that retry events were emitted
-    let instance_id = match result {
-        Ok((id, _)) => id,
-        Err(_) => {
-            // If it failed, we can't easily get the instance_id
-            // For now, just verify the workflow structure was correct
-            return;
-        }
-    };
+    if result.is_err() {
+        // If it failed, we can still check events using the instance_id we saved
+    }
 
     // Get events from persistence
     let events = persistence
@@ -296,10 +294,10 @@ async fn test_task_retried_includes_attempt_number() {
         std::fs::read_to_string(&fixture).expect("Failed to read test-retry-attempt.sw.yaml");
     let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
 
-    let result = engine.start_with_input(workflow, json!({})).await;
+    let handle = engine.execute(workflow, json!({})).await.unwrap();
+    let instance_id = handle.instance_id().to_string();
+    let result = handle.wait_for_completion(Duration::from_secs(30)).await;
     assert!(result.is_ok(), "Workflow should complete successfully");
-
-    let (instance_id, _output) = result.unwrap();
 
     // Get events from persistence
     let events = persistence
