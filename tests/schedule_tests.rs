@@ -52,7 +52,7 @@ async fn test_schedule_every_seconds() {
     local
         .run_until(async {
             let handle = tokio::task::spawn_local(async move {
-                engine_clone.start_with_input(workflow, json!({})).await
+                engine_clone.execute(workflow, json!({})).await
             });
 
             // Run for 5 seconds then abort
@@ -85,7 +85,7 @@ async fn test_schedule_every_milliseconds() {
     local
         .run_until(async {
             let handle = tokio::task::spawn_local(async move {
-                engine_clone.start_with_input(workflow, json!({})).await
+                engine_clone.execute(workflow, json!({})).await
             });
 
             tokio::time::timeout(Duration::from_millis(1600), handle)
@@ -115,7 +115,7 @@ async fn test_schedule_every_composite() {
     local
         .run_until(async {
             let handle = tokio::task::spawn_local(async move {
-                engine_clone.start_with_input(workflow, json!({})).await
+                engine_clone.execute(workflow, json!({})).await
             });
 
             tokio::time::timeout(Duration::from_millis(3600), handle)
@@ -146,7 +146,7 @@ async fn test_schedule_every_iso8601() {
     local
         .run_until(async {
             let handle = tokio::task::spawn_local(async move {
-                engine_clone.start_with_input(workflow, json!({})).await
+                engine_clone.execute(workflow, json!({})).await
             });
 
             tokio::time::timeout(Duration::from_secs(5), handle)
@@ -177,7 +177,7 @@ async fn test_schedule_every_with_long_task() {
     local
         .run_until(async {
             let handle = tokio::task::spawn_local(async move {
-                engine_clone.start_with_input(workflow, json!({})).await
+                engine_clone.execute(workflow, json!({})).await
             });
 
             tokio::time::timeout(Duration::from_secs(4), handle)
@@ -223,7 +223,7 @@ async fn test_schedule_cron_execution() {
     local
         .run_until(async {
             let handle = tokio::task::spawn_local(async move {
-                engine_clone.start_with_input(workflow, json!({})).await
+                engine_clone.execute(workflow, json!({})).await
             });
 
             tokio::time::timeout(Duration::from_secs(12), handle)
@@ -271,7 +271,7 @@ async fn test_schedule_after_seconds() {
     local
         .run_until(async {
             let handle = tokio::task::spawn_local(async move {
-                engine_clone.start_with_input(workflow, json!({})).await
+                engine_clone.execute(workflow, json!({})).await
             });
 
             tokio::time::timeout(Duration::from_secs(5), handle)
@@ -303,7 +303,7 @@ async fn test_schedule_after_iso8601() {
     local
         .run_until(async {
             let handle = tokio::task::spawn_local(async move {
-                engine_clone.start_with_input(workflow, json!({})).await
+                engine_clone.execute(workflow, json!({})).await
             });
 
             tokio::time::timeout(Duration::from_secs(3), handle)
@@ -333,7 +333,7 @@ async fn test_schedule_after_with_task_delay() {
     local
         .run_until(async {
             let handle = tokio::task::spawn_local(async move {
-                engine_clone.start_with_input(workflow, json!({})).await
+                engine_clone.execute(workflow, json!({})).await
             });
 
             tokio::time::timeout(Duration::from_secs(3), handle)
@@ -391,7 +391,7 @@ async fn test_schedule_no_schedule_runs_once() {
     assert!(workflow.schedule.is_none());
 
     let start = Instant::now();
-    let result = engine.start_with_input(workflow, json!({})).await;
+    let result = engine.execute(workflow, json!({})).await;
     let elapsed = start.elapsed();
 
     // Should complete immediately (no schedule = single execution)
@@ -403,8 +403,8 @@ async fn test_schedule_no_schedule_runs_once() {
     );
 
     // Verify it ran exactly once
-    let (instance_id, _output) = result.unwrap();
-    assert!(!instance_id.is_empty());
+    let handle = result.unwrap();
+    assert!(!handle.instance_id().is_empty());
 }
 
 // ====================================================================================
@@ -441,7 +441,7 @@ async fn test_schedule_graceful_shutdown() {
     local
         .run_until(async {
             let handle = tokio::task::spawn_local(async move {
-                engine_clone.start_with_input(workflow, json!({})).await
+                engine_clone.execute(workflow, json!({})).await
             });
 
             tokio::time::timeout(Duration::from_millis(500), handle)
@@ -502,7 +502,7 @@ async fn test_schedule_query_execution_history() {
     local
         .run_until(async {
             let handle = tokio::task::spawn_local(async move {
-                engine_clone.start_with_input(workflow, json!({})).await
+                engine_clone.execute(workflow, json!({})).await
             });
 
             tokio::time::timeout(Duration::from_secs(5), handle)
