@@ -317,9 +317,18 @@ except Exception as e:
             });
         }
 
-        // Return just stdout on success
-        // Try to parse as JSON first, fall back to plain string
+        // Return just stdout on success.
+        // Try the full stdout as JSON first, then fall back to the last non-empty
+        // line. The last-line fallback handles steps that write progress output
+        // before the final JSON result (e.g. DuckDB's progress bar).
         if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&stdout_str) {
+            Ok(json_value)
+        } else if let Some(json_value) = stdout_lines
+            .iter()
+            .rev()
+            .find(|line| !line.trim().is_empty())
+            .and_then(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        {
             Ok(json_value)
         } else {
             Ok(serde_json::Value::String(stdout_str))

@@ -7,7 +7,7 @@ name = "jackdaw"
 version = "0.1.1"
 description = "A durable, cached, graph-based execution engine for Serverless Workflow"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 authors = [
     { name = "Armin Graf" }
@@ -18,15 +18,22 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Rust",
 ]
 dependencies = [
-    "maturin>=1.11.5",
+    "serverlessworkflow-sdk>=1.0.0",
+    "dill>=0.3.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.1",
+    "mypy>=1",
 ]
 
 [project.urls]
@@ -34,6 +41,21 @@ Homepage = "https://github.com/arminhammer/jackdaw"
 Documentation = "https://docs.rs/jackdaw"
 Repository = "https://github.com/arminhammer/jackdaw"
 
+[tool.uv.sources]
+serverlessworkflow-sdk = { path = "../sdk-python" }
+
 [tool.maturin]
 features = ["python"]
-module-name = "jackdaw"
+python-packages = ["jackdaw"]
+module-name = "jackdaw._jackdaw"
+
+[tool.pytest.ini_options]
+testpaths = ["jackdaw/tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "C4", "UP"]

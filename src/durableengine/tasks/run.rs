@@ -229,7 +229,12 @@ pub async fn exec_run_task(
                 &current_data,
                 &ctx.metadata.initial_input,
             )?;
-            evaluated.as_str().map(String::from)
+            // Strings pass through as-is; objects/arrays are serialized to JSON
+            let s = match evaluated {
+                serde_json::Value::String(s) => s,
+                v => v.to_string(),
+            };
+            Some(s)
         } else {
             None
         };
@@ -347,7 +352,6 @@ pub async fn exec_run_task(
     } else if let Some(container) = run_task.run.container.as_ref() {
         // Container execution using provider abstraction
         let image = &container.image;
-        let command = container.command.as_deref().unwrap_or("sh");
 
         // Evaluate arguments against current context
         let current_data = ctx.state.data.read().await.clone();
@@ -381,14 +385,28 @@ pub async fn exec_run_task(
             None
         };
 
-        // Build the command to execute in the container
-        // Format: sh -c "command" -- arg1 arg2 ...
-        // The -- acts as $0, and subsequent args become $1, $2, etc.
-        let mut cmd_with_args = vec![String::from("sh"), String::from("-c"), command.to_string()];
-
-        // Add -- as $0, followed by actual arguments
-        cmd_with_args.push(String::from("--"));
-        cmd_with_args.extend(evaluated_args);
+        // Build the container command:
+        //
+        // Shell mode  (command string present): wrap in sh -c so redirects/pipes work.
+        //   CMD = ["sh", "-c", "<command>", "--", arg1, arg2, ...]
+        //
+        // Exec mode (no command, only arguments): pass args directly as CMD so images
+        //   with custom entrypoints (e.g. valhalla-scripted) receive them correctly.
+        //   CMD = [arg1, arg2, ...]
+        let cmd_with_args = if let Some(cmd_str) = container.command.as_deref() {
+            let mut v = vec![
+                String::from("sh"),
+                String::from("-c"),
+                cmd_str.to_string(),
+                String::from("--"),
+            ];
+            v.extend(evaluated_args);
+            v
+        } else if !evaluated_args.is_empty() {
+            evaluated_args
+        } else {
+            vec![String::from("sh")]
+        };
 
         // Evaluate environment variables if provided
         let environment = if let Some(env) = container.environment.as_ref() {
