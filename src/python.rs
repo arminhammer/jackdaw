@@ -15,6 +15,8 @@ use pyo3_asyncio_0_21 as pyo3_asyncio;
 use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use std::sync::Arc;
 use std::time::Duration;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 #[pyclass(name = "DurableEngine")]
 pub struct PyDurableEngine {
@@ -218,10 +220,30 @@ fn json_to_python(py: Python, value: &serde_json::Value) -> PyResult<PyObject> {
     }
 }
 
+/// Enable or disable jackdaw's structured terminal output.
+/// Defaults to True when using the Python SDK.
+#[pyfunction]
+fn set_output_enabled(enabled: bool) {
+    crate::output::set_debug_mode(enabled);
+}
+
 #[pymodule]
-fn jackdaw(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _jackdaw(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // Enable output by default in the Python SDK, matching CLI behaviour.
+    // Users can suppress it with jackdaw.set_output_enabled(False).
+    crate::output::set_debug_mode(true);
+
+    let _ = tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .with(tracing_indicatif::IndicatifLayer::new())
+        .try_init();
+
     m.add_class::<PyDurableEngine>()?;
     m.add_class::<PyDurableEngineBuilder>()?;
     m.add_class::<PyExecutionHandle>()?;
+    m.add_function(wrap_pyfunction!(set_output_enabled, m)?)?;
     Ok(())
 }

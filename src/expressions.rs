@@ -86,16 +86,54 @@ impl ExpressionPreprocessor {
     ///
     /// Transforms `.parent.child` into `(.parent // {}).child` to prevent
     /// errors when parent is null/missing.
+    ///
+    /// String literals are passed through verbatim so that filenames like
+    /// `"/path/to/file.osm.pbf"` are never rewritten — inside a quoted string
+    /// `.` is a literal character, not a JQ field accessor.
     #[must_use]
     fn apply_null_safe_field_access(&self, expr: &str) -> String {
-        // Transform: .parent.child -> (.parent // {}).child
-        // This ensures that if .parent is null/missing, we get an empty object
-        // instead of a jq error
-        RE_FIELD_ACCESS
-            .replace_all(expr, |caps: &regex::Captures| {
+        let mut result = String::new();
+        let mut chars = expr.chars().peekable();
+        let mut non_literal = String::new();
+
+        while let Some(c) = chars.next() {
+            if c == '"' {
+                // Flush the accumulated non-literal segment with transformation applied.
+                let transformed = RE_FIELD_ACCESS
+                    .replace_all(&non_literal, |caps: &regex::Captures| {
+                        format!("({} // {}).{}", &caps[1], "{}", &caps[2])
+                    })
+                    .to_string();
+                result.push_str(&transformed);
+                non_literal.clear();
+
+                // Copy the string literal verbatim, respecting escape sequences.
+                result.push('"');
+                let mut escaped = false;
+                for inner in chars.by_ref() {
+                    result.push(inner);
+                    if escaped {
+                        escaped = false;
+                    } else if inner == '\\' {
+                        escaped = true;
+                    } else if inner == '"' {
+                        break;
+                    }
+                }
+            } else {
+                non_literal.push(c);
+            }
+        }
+
+        // Flush any remaining non-literal segment.
+        let transformed = RE_FIELD_ACCESS
+            .replace_all(&non_literal, |caps: &regex::Captures| {
                 format!("({} // {}).{}", &caps[1], "{}", &caps[2])
             })
-            .to_string()
+            .to_string();
+        result.push_str(&transformed);
+
+        result
     }
 
     /// Apply null-safe transformations to array addition patterns
