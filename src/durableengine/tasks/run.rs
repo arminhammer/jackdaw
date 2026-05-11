@@ -405,7 +405,7 @@ pub async fn exec_run_task(
         } else if !evaluated_args.is_empty() {
             evaluated_args
         } else {
-            vec![String::from("sh")]
+            vec![]  // empty → use the image's default CMD/ENTRYPOINT
         };
 
         // Evaluate environment variables if provided
@@ -460,8 +460,9 @@ pub async fn exec_run_task(
             None
         };
 
-        // Ports don't need expression evaluation (they're numbers)
+        // Ports and name don't need expression evaluation
         let ports = container.ports.clone();
+        let name = container.name.clone();
 
         // Create container provider (Docker for now, could be configurable later)
         let provider = DockerProvider::new().map_err(|e| Error::TaskExecution {
@@ -471,12 +472,15 @@ pub async fn exec_run_task(
         // Execute container
         let config = ContainerConfig {
             image: image.clone(),
+            name,
             command: cmd_with_args,
             stdin: stdin_data,
             environment,
             working_dir: None,
             volumes,
             ports,
+            task_name: task_name.to_string(),
+            task_index: ctx.state.task_index.unwrap_or(0),
         };
 
         let result = provider

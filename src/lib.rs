@@ -103,6 +103,7 @@
 
 pub mod builder;
 pub mod cache;
+pub mod session;
 pub mod config;
 pub mod container;
 pub mod context;

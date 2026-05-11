@@ -27,9 +27,26 @@ pub struct PythonFunctionRef {
     function: String,
 }
 
+/// Holds the path to the Python interpreter captured from `sys.executable` at
+/// PyO3 module-init time. Never set when jackdaw runs as a native Rust binary,
+/// so the executor falls back to `"python"` in that case (preserving current CLI
+/// behaviour).
+static PYTHON_EXECUTABLE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Called once from `src/python.rs` when the PyO3 module is initialised.
+/// Stores `sys.executable` so that Python script steps use the same interpreter
+/// (and virtualenv) that launched the pipeline.
+pub fn set_python_executable(path: String) {
+    let _ = PYTHON_EXECUTABLE.set(path);
+}
+
+fn python_executable() -> &'static str {
+    PYTHON_EXECUTABLE.get().map(String::as_str).unwrap_or("python")
+}
+
 /// Python executor that uses the system `python` binary
 pub struct PythonExtExecutor {
-    /// Path to the Python binary (defaults to "python3")
+    /// Path to the Python binary
     python_path: String,
 }
 
@@ -40,11 +57,15 @@ impl Default for PythonExtExecutor {
 }
 
 impl PythonExtExecutor {
-    /// Create a new external Python executor with default python3 binary
+    /// Create a new external Python executor.
+    ///
+    /// Uses `sys.executable` from the host Python process when running via the
+    /// Python SDK (set at PyO3 module-init time). Falls back to `"python"` when
+    /// jackdaw is invoked as a native Rust binary.
     #[must_use]
     pub fn new() -> Self {
         Self {
-            python_path: "python".to_string(),
+            python_path: python_executable().to_string(),
         }
     }
 

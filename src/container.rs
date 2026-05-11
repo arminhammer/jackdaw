@@ -13,10 +13,12 @@ pub struct ContainerResult {
 }
 
 /// Container execution configuration
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ContainerConfig {
     /// Container image name
     pub image: String,
+    /// Explicit container name (passed as --name to Docker); auto-assigned if None
+    pub name: Option<String>,
     /// Command to execute
     pub command: Vec<String>,
     /// Standard input to provide to the container
@@ -29,6 +31,10 @@ pub struct ContainerConfig {
     pub volumes: Option<std::collections::HashMap<String, String>>,
     /// Port mappings (container_port -> host_port)
     pub ports: Option<std::collections::HashMap<u16, u16>>,
+    /// Task name used for labeling streamed output lines
+    pub task_name: String,
+    /// Task index used for color selection in streamed output
+    pub task_index: usize,
 }
 
 #[derive(Debug, Snafu)]
@@ -73,4 +79,11 @@ pub trait ContainerProvider: Send + Sync + std::fmt::Debug {
     ///
     /// Returns an error if container creation, execution, or cleanup fails
     async fn execute(&self, config: ContainerConfig) -> Result<ContainerResult>;
+
+    /// Stop a running container by name
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the container cannot be found or stopped
+    async fn stop_container(&self, name: &str) -> Result<()>;
 }

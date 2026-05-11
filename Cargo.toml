@@ -59,6 +59,9 @@ redb = "2"
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "postgres", "chrono", "json", "uuid"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "http2"] }
 bollard = "0.18"
+tar = "0.4"
+walkdir = "2"
+ignore = "0.4"
 
 petgraph = "0.6"
 async-recursion = "1.0"

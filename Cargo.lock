@@ -1749,6 +1749,7 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "ignore",
  "indicatif 0.17.11",
  "indicatif-log-bridge",
  "jaq-core",
@@ -1775,6 +1776,7 @@ dependencies = [
  "sha2",
  "snafu",
  "sqlx",
+ "tar",
  "tempfile",
  "testcontainers",
  "testcontainers-modules",
@@ -1786,6 +1788,7 @@ dependencies = [
  "tracing-indicatif",
  "tracing-subscriber",
  "uuid",
+ "walkdir",
  "wiremock",
 ]
 
@@ -3772,6 +3775,17 @@ dependencies = [
  "quote",
  "sealed",
  "syn",
+]
+
+[[package]]
+name = "tar"
+version = "0.4.45"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22692a6476a21fa75fdfc11d452fda482af402c008cdbaf3476414e122040973"
+dependencies = [
+ "filetime",
+ "libc",
+ "xattr",
 ]
 
 [[package]]

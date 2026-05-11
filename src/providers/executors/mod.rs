@@ -1,6 +1,6 @@
 mod node;
 mod openapi;
-mod python;
+pub mod python;
 mod rest;
 
 pub use node::NodeExecutor as TypeScriptExecutor;

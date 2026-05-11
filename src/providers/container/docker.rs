@@ -1,8 +1,10 @@
 use crate::container::{ContainerConfig, ContainerProvider, ContainerResult, Error, Result};
+use crate::task_output::TaskOutputStreamer;
 use async_trait::async_trait;
 use bollard::Docker;
 use bollard::container::{
-    AttachContainerOptions, Config, RemoveContainerOptions, StartContainerOptions,
+    AttachContainerOptions, Config, CreateContainerOptions, RemoveContainerOptions,
+    StartContainerOptions, StopContainerOptions,
 };
 use bollard::image::CreateImageOptions;
 use bollard::models::{HostConfig, PortBinding};
@@ -42,11 +44,11 @@ impl DockerProvider {
 #[async_trait]
 impl ContainerProvider for DockerProvider {
     async fn execute(&self, config: ContainerConfig) -> Result<ContainerResult> {
-        // Prepare command - if command is empty, use default shell
-        let cmd = if config.command.is_empty() {
-            vec!["/bin/sh".to_string(), "-c".to_string()]
+        // Empty command → None so the image's default CMD/ENTRYPOINT is used unchanged.
+        let cmd: Option<Vec<String>> = if config.command.is_empty() {
+            None
         } else {
-            config.command
+            Some(config.command)
         };
 
         // Prepare environment variables
@@ -110,27 +112,31 @@ impl ContainerProvider for DockerProvider {
             _ => (config.image.as_str(), "latest"),
         };
 
-        let create_image_options = CreateImageOptions {
-            from_image: image_name,
-            tag: image_tag,
-            ..Default::default()
-        };
+        // Skip pull if the image already exists locally.
+        let image_exists_locally = self.docker.inspect_image(&config.image).await.is_ok();
 
-        let mut pull_stream = self
-            .docker
-            .create_image(Some(create_image_options), None, None);
+        if !image_exists_locally {
+            let create_image_options = CreateImageOptions {
+                from_image: image_name,
+                tag: image_tag,
+                ..Default::default()
+            };
 
-        // Process pull stream (this will pull the image if not present, or be a no-op if cached)
-        while let Some(pull_result) = pull_stream.next().await {
-            pull_result.map_err(|e| Error::ImagePull {
-                message: format!("Failed to pull image {}: {}", config.image, e),
-            })?;
+            let mut pull_stream = self
+                .docker
+                .create_image(Some(create_image_options), None, None);
+
+            while let Some(pull_result) = pull_stream.next().await {
+                pull_result.map_err(|e| Error::ImagePull {
+                    message: format!("Failed to pull image {}: {}", config.image, e),
+                })?;
+            }
         }
 
         // Create container configuration
         let container_config = Config {
             image: Some(config.image.clone()),
-            cmd: Some(cmd),
+            cmd,
             env,
             working_dir: config.working_dir.clone(),
             attach_stdin: Some(config.stdin.is_some()),
@@ -144,10 +150,15 @@ impl ContainerProvider for DockerProvider {
             ..Default::default()
         };
 
-        // Create container
+        // Create container, using a caller-supplied name if provided
+        let create_opts = config.name.as_deref().map(|n| CreateContainerOptions {
+            name: n,
+            ..Default::default()
+        });
+
         let container = self
             .docker
-            .create_container::<String, String>(None, container_config)
+            .create_container(create_opts, container_config)
             .await
             .map_err(|e| Error::Creation {
                 message: format!("Failed to create container: {e}"),
@@ -199,7 +210,8 @@ impl ContainerProvider for DockerProvider {
             })?;
         }
 
-        // Collect output
+        // Stream and collect output line-by-line
+        let streamer = TaskOutputStreamer::new(config.task_name.clone(), config.task_index);
         let mut stdout_buffer = String::new();
         let mut stderr_buffer = String::new();
 
@@ -210,14 +222,26 @@ impl ContainerProvider for DockerProvider {
 
             match output_chunk {
                 bollard::container::LogOutput::StdOut { message } => {
-                    stdout_buffer.push_str(&String::from_utf8_lossy(&message));
+                    let text = String::from_utf8_lossy(&message);
+                    for line in text.lines() {
+                        streamer.print_stdout(line).await;
+                    }
+                    stdout_buffer.push_str(&text);
                 }
                 bollard::container::LogOutput::StdErr { message } => {
-                    stderr_buffer.push_str(&String::from_utf8_lossy(&message));
+                    let text = String::from_utf8_lossy(&message);
+                    for line in text.lines() {
+                        streamer.print_stderr(line).await;
+                    }
+                    stderr_buffer.push_str(&text);
                 }
                 bollard::container::LogOutput::StdIn { .. } => {}
                 bollard::container::LogOutput::Console { message } => {
-                    stdout_buffer.push_str(&String::from_utf8_lossy(&message));
+                    let text = String::from_utf8_lossy(&message);
+                    for line in text.lines() {
+                        streamer.print_stdout(line).await;
+                    }
+                    stdout_buffer.push_str(&text);
                 }
             }
         }
@@ -252,6 +276,16 @@ impl ContainerProvider for DockerProvider {
             exit_code,
         })
     }
+
+    async fn stop_container(&self, name: &str) -> Result<()> {
+        self.docker
+            .stop_container(name, None::<StopContainerOptions>)
+            .await
+            .map_err(|e| Error::Execution {
+                message: format!("Failed to stop container '{name}': {e}"),
+            })?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -277,11 +311,7 @@ mod tests {
         let config = ContainerConfig {
             image: "alpine".to_string(),
             command: vec!["echo".to_string(), "hello world".to_string()],
-            stdin: None,
-            environment: None,
-            working_dir: None,
-            volumes: None,
-            ports: None,
+            ..Default::default()
         };
 
         let result = provider.execute(config).await;
@@ -308,10 +338,7 @@ mod tests {
             image: "alpine".to_string(),
             command: vec!["/bin/sh".to_string(), "-c".to_string(), "cat".to_string()],
             stdin: Some("test input".to_string()),
-            environment: None,
-            working_dir: None,
-            volumes: None,
-            ports: None,
+            ..Default::default()
         };
 
         let result = provider.execute(config).await;
@@ -344,11 +371,8 @@ mod tests {
                 "-c".to_string(),
                 "echo $TEST_VAR".to_string(),
             ],
-            stdin: None,
             environment: Some(env),
-            working_dir: None,
-            volumes: None,
-            ports: None,
+            ..Default::default()
         };
 
         let result = provider.execute(config).await;
