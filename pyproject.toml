@@ -24,7 +24,7 @@ classifiers = [
     "Programming Language :: Rust",
 ]
 dependencies = [
-    "serverlessworkflow-sdk>=1.0.0",
+    "serverlessworkflow-sdk @ git+https://github.com/arminhammer/sdk-python@1.0-rewrite",
     "dill>=0.3.8",
 ]
 
@@ -46,6 +46,7 @@ serverlessworkflow-sdk = { path = "../sdk-python" }
 
 [tool.maturin]
 features = ["python"]
+python-source = "clients/python"
 python-packages = ["jackdaw"]
 module-name = "jackdaw._jackdaw"
 
