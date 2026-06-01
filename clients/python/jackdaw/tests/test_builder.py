@@ -13,6 +13,7 @@ from jackdaw.runner import (
     WorkflowBuilder,
     _MAIN_BLOCK,
     _MERGE_OUTPUT,
+    _PASSTHROUGH_OUTPUT,
     _extract_module_imports,
     _imports_from_globals,
     _imports_from_source,
@@ -73,8 +74,6 @@ def test_source_strategy_empty_for_builtins():
 
 
 def test_dill_fallback_triggered_when_source_unavailable():
-    # Patch inspect.getsource to simulate a notebook/REPL environment where
-    # module source cannot be read.
     def step(working_dir: str) -> dict:
         return {"out": os.path.join(working_dir, "result")}
 
@@ -95,7 +94,6 @@ def test_dill_fallback_handles_from_import():
 
 
 def test_dill_fallback_direct():
-    # Call _imports_from_globals directly with a synthetic globals dict.
     fake_globals = {"os": os, "Path": Path}
     imports = _imports_from_globals(fake_globals, {"os", "Path"})
     combined = " ".join(imports)
@@ -117,59 +115,60 @@ def test_build_produces_workflow():
     def greet(name: str) -> dict:
         return {"greeting": f"Hello, {name}!"}
 
-    wf = WorkflowBuilder("test-wf").run_python("greet", greet).build()
+    wf = WorkflowBuilder("test-wf").add("greet", greet).build()
     assert wf.document.name == "test-wf"
     assert len(wf.do) == 1
     assert wf.do[0].name == "greet"
 
 
-def test_args_derived_from_signature():
+def test_callable_step_reads_from_stdin():
     def step(working_dir: str, url: str) -> dict:
         return {}
 
-    wf = WorkflowBuilder("wf").run_python("s", step).build()
-    assert _task(wf, 0).run.script.arguments == ["${ .working_dir }", "${ .url }"]
-
-
-def test_explicit_args_override_signature():
-    def step(x: str) -> dict:
-        return {}
-
-    wf = WorkflowBuilder("wf").run_python("s", step, args=["${ .custom }"]).build()
-    assert _task(wf, 0).run.script.arguments == ["${ .custom }"]
+    wf = WorkflowBuilder("wf").add("s", step).build()
+    task = _task(wf, 0)
+    assert task.run.script.stdin == "${ . }"
 
 
 def test_function_source_embedded_in_code():
     def compute(n: str) -> dict:
         return {"result": int(n) * 2}
 
-    wf = WorkflowBuilder("wf").run_python("compute", compute).build()
+    wf = WorkflowBuilder("wf").add("compute", compute).build()
     code = _task(wf, 0).run.script.code
     assert "def compute" in code
     assert "if __name__" in code
-    assert "compute(*_sys.argv[1:])" in code
+    assert "_json.load(_sys.stdin)" in code
+    assert "compute(" in code
 
 
 def test_module_imports_prepended_to_code():
     def step(working_dir: str) -> dict:
         return {"out": os.path.join(working_dir, "result")}
 
-    wf = WorkflowBuilder("wf").run_python("step", step).build()
+    wf = WorkflowBuilder("wf").add("step", step).build()
     code = _task(wf, 0).run.script.code
-    # import os should appear before the function definition
     assert code.index("import os") < code.index("def step")
 
 
-def test_output_merge_set_on_each_step():
+def test_output_merge_set_on_callable_steps():
     def a(x: str) -> dict:
         return {}
 
     def b(y: str) -> dict:
         return {}
 
-    wf = WorkflowBuilder("wf").run_python("a", a).run_python("b", b).build()
+    wf = WorkflowBuilder("wf").add("a", a).add("b", b).build()
     for item in wf.do:
         assert item.task.output.as_ == _MERGE_OUTPUT
+
+
+def test_add_accepts_pretask():
+    from jackdaw.runner import shell_task
+    task = shell_task("mkdir", arguments=["${ .working_dir }"])
+    wf = WorkflowBuilder("wf").add("make-dir", task).build()
+    assert _task(wf, 0).run.shell.command == "mkdir"
+    assert _task(wf, 0).output.as_ == _PASSTHROUGH_OUTPUT
 
 
 def test_run_container_step():
@@ -180,7 +179,7 @@ def test_run_container_step():
     )
     task = _task(wf, 0)
     assert task.run.container.image == "osmtools:latest"
-    assert task.output.as_ == _MERGE_OUTPUT
+    assert task.output.as_ == _PASSTHROUGH_OUTPUT
 
 
 def test_fork_creates_parallel_branches():
@@ -192,8 +191,8 @@ def test_fork_creates_parallel_branches():
         .fork(
             "parallel",
             {
-                "a": WorkflowBuilder("a").run_python("step-a", branch_fn),
-                "b": WorkflowBuilder("b").run_python("step-b", branch_fn),
+                "a": WorkflowBuilder("a").add("step-a", branch_fn),
+                "b": WorkflowBuilder("b").add("step-b", branch_fn),
             },
         )
         .build()
@@ -209,7 +208,7 @@ def test_chaining_returns_same_builder():
     def fn(x: str) -> dict:
         return {}
 
-    assert builder.run_python("s", fn) is builder
+    assert builder.add("s", fn) is builder
     assert builder.run_container("c", "img:latest", "cmd") is builder
 
 
@@ -217,8 +216,7 @@ def test_workflow_serializes_to_yaml():
     def step(value: str) -> dict:
         return {"out": value}
 
-    wf = WorkflowBuilder("wf").run_python("step", step).build()
+    wf = WorkflowBuilder("wf").add("step", step).build()
     yaml_str = wf.to_yaml()
     assert "document:" in yaml_str
     assert "language: python" in yaml_str
-    assert "${ .value }" in yaml_str

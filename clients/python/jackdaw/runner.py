@@ -4,7 +4,7 @@ import builtins
 import dis
 import inspect
 import textwrap
-from collections.abc import Callable, Generator
+from collections.abc import Callable
 from typing import Any, Protocol, runtime_checkable
 
 from serverlessworkflow.sdk import Workflow
@@ -12,6 +12,8 @@ from serverlessworkflow.sdk.base import Input, Output, Schema, TaskItem
 from serverlessworkflow.sdk.tasks import (
     ContainerConfiguration,
     DoTask,
+    ForConfiguration,
+    ForTask,
     ForkConfiguration,
     ForkTask,
     RunConfiguration,
@@ -361,48 +363,53 @@ def shell_task(
     )
 
 
-def call_step(fn: Callable, ctx: dict, **overrides: Any) -> dict:
-    """Call a pipeline step function directly and return the updated context.
+class _EngineLoop:
+    """Persistent background event loop + WorkflowRunner, shared across all .run() calls.
 
-    In a Jupyter/IPython session: selects parameters from ctx by name, applies
-    any overrides, calls fn, and merges the result dict back into ctx.
-
-    Outside an interactive session (plain ``python script.py``): returns ctx
-    unchanged so that call_step cells in a notebook file are no-ops when the
-    file is executed as a script — the __main__ block handles execution instead.
-
-    Example notebook pattern::
-
-        ctx = cfg.to_pipeline_input()
-
-        def filter_feeds(gtfs_csv_file, bbox, gtfs_ignore_list) -> dict: ...
-        ctx = jackdaw.call_step(filter_feeds, ctx)   # no-op when run as script
-        # ctx["download_urls"]  # inspect / narrow
-
-        def download_feeds(working_dir, download_urls) -> dict: ...
-        ctx = jackdaw.call_step(download_feeds, ctx)
-
-        if __name__ == "__main__":
-            jackdaw.run(build_pipeline(cfg).build(), input=cfg.to_pipeline_input())
+    asyncio.run() tears down the event loop after each call. When a cached
+    DurableEngine is re-used on a fresh loop its internal Tokio futures deadlock.
+    This class keeps one loop running forever in a daemon thread so every engine
+    call lands on the same loop and the in-memory cache stays warm.
     """
-    import sys
-    if "IPython" not in sys.modules:
-        return dict(ctx)
-    sig = inspect.signature(fn)
-    kwargs: dict[str, Any] = {}
-    for name, param in sig.parameters.items():
-        if name in overrides:
-            kwargs[name] = overrides[name]
-        elif name in ctx:
-            kwargs[name] = ctx[name]
-        elif param.default is not inspect.Parameter.empty:
-            kwargs[name] = param.default
-    result = fn(**kwargs)
-    if result is None:
-        return dict(ctx)
-    merged = dict(ctx)
-    merged.update(result)
-    return merged
+
+    def __init__(self) -> None:
+        import asyncio
+        import atexit
+        import threading
+
+        self._loop = asyncio.new_event_loop()
+        self._runner = WorkflowRunner()
+        ready = threading.Event()
+
+        def _run() -> None:
+            asyncio.set_event_loop(self._loop)
+            ready.set()
+            self._loop.run_forever()
+
+        t = threading.Thread(target=_run, daemon=True)
+        t.start()
+        ready.wait()
+
+        # On interpreter exit: stop the asyncio loop, then force-exit after 3 s
+        # so Tokio runtime threads can't block the process and stall kernel restart.
+        def _shutdown() -> None:
+            import os, threading
+            self._loop.call_soon_threadsafe(self._loop.stop)
+            t = threading.Timer(3.0, os._exit, args=(0,))
+            t.daemon = True
+            t.start()
+
+        atexit.register(_shutdown)
+
+    def run(self, workflow: Workflow, ctx: dict, timeout: float) -> dict:
+        import asyncio
+
+        future = asyncio.run_coroutine_threadsafe(
+            self._runner.run_async(workflow, input=ctx, timeout=timeout),
+            self._loop,
+        )
+        result = future.result(timeout + 30)
+        return dict(result)
 
 
 class WorkflowBuilder:
@@ -413,47 +420,48 @@ class WorkflowBuilder:
         self._namespace = namespace
         self._version = version
         self._steps: list[TaskItem] = []
-        # Tracks original callables for debug_run. None for shell/container steps.
-        self._step_fns: list[tuple[str, Callable | None]] = []
+        # Lazily-created persistent engine loop; all .run() calls share it so
+        # the in-memory cache is warm across cells and event loop reuse is safe.
+        self._engine_loop: "_EngineLoop | None" = None
 
-    def step(
-        self,
-        name: str,
-        fn: Callable,
-    ) -> "WorkflowBuilder":
-        """Add a Python function as a sequential step.
+    def add(self, name: str, fn_or_task: "Callable | RunTask") -> "WorkflowBuilder":
+        """Add a step by name.
 
-        This is the default step type — no language qualifier needed.
+        Accepts either a plain Python callable or a pre-built ``RunTask``
+        (from ``shell_task``, ``container_task``, ``mkdir``, etc.):
 
-        Module-level imports are detected and prepended automatically. The function
-        receives its declared parameters by name from the accumulated context via stdin
-        JSON (not positional argv), so types other than str are preserved. Its return
-        dict is merged into the context for subsequent steps.
+            pipeline.add("filter-feeds", filter_feeds)          # callable
+            pipeline.add("make-dir",     mkdir("${ .working_dir }"))  # RunTask
 
-        input.schema is generated from the function's type annotations.
-        input.from_ scopes the task input to exactly the declared parameters.
+        For Python callables, module-level imports are detected and prepended
+        automatically.  The function receives its declared parameters by name
+        from the accumulated context (not positional argv), so non-string
+        types are preserved.  Its return dict is merged into the context for
+        subsequent steps.
         """
-        params = list(inspect.signature(fn).parameters.keys())
-        imports = _extract_module_imports(fn)
-        helpers = _extract_helper_functions(fn)
-        source = textwrap.dedent(inspect.getsource(fn))
-        header = "\n".join(imports) + "\n\n" if imports else ""
-        helper_block = "\n\n".join(helpers) + "\n\n" if helpers else ""
-        code = header + helper_block + source + _MAIN_BLOCK.format(fn_name=fn.__name__, params=params)
-
-        task = RunTask(
-            run=RunConfiguration(
-                script=ScriptConfiguration(
-                    language="python",
-                    code=code,
-                    stdin="${ . }",
+        if callable(fn_or_task):
+            fn = fn_or_task
+            params = list(inspect.signature(fn).parameters.keys())
+            imports = _extract_module_imports(fn)
+            helpers = _extract_helper_functions(fn)
+            source = textwrap.dedent(inspect.getsource(fn))
+            header = "\n".join(imports) + "\n\n" if imports else ""
+            helper_block = "\n\n".join(helpers) + "\n\n" if helpers else ""
+            code = header + helper_block + source + _MAIN_BLOCK.format(fn_name=fn.__name__, params=params)
+            task: RunTask = RunTask(
+                run=RunConfiguration(
+                    script=ScriptConfiguration(
+                        language="python",
+                        code=code,
+                        stdin="${ . }",
+                    ),
                 ),
-            ),
-            input=_input_schema(fn),
-            output=Output(as_=_MERGE_OUTPUT),
-        )
-        self._steps.append(TaskItem(name=name, task=task))
-        self._step_fns.append((name, fn))
+                input=_input_schema(fn),
+                output=Output(as_=_MERGE_OUTPUT),
+            )
+            self._steps.append(TaskItem(name=name, task=task))
+        else:
+            self._steps.append(TaskItem(name=name, task=fn_or_task))
         return self
 
     def run_shell(
@@ -490,7 +498,6 @@ class WorkflowBuilder:
             output=Output(as_=output_as or _PASSTHROUGH_OUTPUT),
         )
         self._steps.append(TaskItem(name=name, task=task))
-        self._step_fns.append((name, None))
         return self
 
     def run_container(
@@ -527,7 +534,34 @@ class WorkflowBuilder:
             output_as=output_as,
         )
         self._steps.append(TaskItem(name=name, task=task))
-        self._step_fns.append((name, None))
+        return self
+
+    def for_loop(
+        self,
+        name: str,
+        each: str,
+        in_: str,
+        body: "WorkflowBuilder",
+    ) -> "WorkflowBuilder":
+        """Add a step that iterates over a collection, executing body steps per item.
+
+        each — variable name injected into context for each item (e.g. "scenario")
+        in_  — raw JQ expression evaluating to the array (e.g. ".scenarios")
+               Do NOT use the ${ } wrapper here — in_ is a runtime expression
+               field that is passed directly to the JQ evaluator.
+        body — WorkflowBuilder whose steps run on each iteration
+
+        Each iteration's output is merged into context so subsequent steps and
+        later iterations accumulate results. The loop variable is removed from
+        context after each iteration.
+        """
+        self._steps.append(TaskItem(
+            name=name,
+            task=ForTask(
+                for_=ForConfiguration(each=each, in_=in_),
+                do=body.steps(),
+            ),
+        ))
         return self
 
     def fork(self, name: str, branches: dict[str, "WorkflowBuilder"]) -> "WorkflowBuilder":
@@ -537,50 +571,40 @@ class WorkflowBuilder:
             for branch_name, sub in branches.items()
         ]
         self._steps.append(TaskItem(name=name, task=ForkTask(fork=ForkConfiguration(branches=branch_items))))
-        self._step_fns.append((name, None))
         return self
 
-    def debug_run(self, input: dict | None = None) -> "Generator[tuple[str, dict], dict | None, None]":
-        """Step through the pipeline one task at a time, yielding after each Python step.
+    def run(self, ctx: dict, timeout: float = 3600.0) -> dict:
+        """Execute all accumulated steps against the given context.
 
-        Yields ``(step_name, ctx)`` after each step completes. The caller may
-        inspect or modify ``ctx`` and inject it back via ``send(modified_ctx)``
-        before the next step runs.  Sending ``None`` (or calling ``next()``)
-        continues with the unmodified context.
+        In a Jupyter/IPython session: runs the full assembled workflow through
+        the jackdaw engine, returns the resulting context dict. The engine
+        instance is reused across calls so the in-memory cache persists —
+        re-running the same cell with unchanged inputs is instant.
 
-        Shell and container steps have no Python callable — they are skipped in
-        debug mode and their names are reported to stderr so you know they were
-        bypassed. Run the full pipeline via ``jackdaw.run()`` to execute them.
+        Outside an interactive session: returns ``ctx`` unchanged so that
+        module-level ``.run()`` calls are no-ops when the file is executed as
+        a script. ``__main__`` handles the actual execution via ``jackdaw.run()``.
 
-        Example::
+        Typical notebook pattern::
 
-            gen = pipeline.debug_run(input=cfg.to_pipeline_input())
-            step, ctx = next(gen)           # runs first Python step
-            ctx["download_urls"]            # inspect
-            ctx["download_urls"] = ctx["download_urls"][:2]
-            step, ctx = gen.send(ctx)       # inject modified ctx, run next step
+            pipeline = jackdaw.WorkflowBuilder("my-pipeline")
+            pipeline.add("step-a", task_a)
+            pipeline.add("step-b", fn_b)
+
+            ctx = pipeline.run(cfg.to_pipeline_input())  # executes both steps
+            ctx["some_key"]                               # inspect
+
+            pipeline.add("step-c", fn_c)
+            ctx = pipeline.run(cfg.to_pipeline_input())  # a+b cache-hit, c runs
         """
         import sys
-        ctx: dict = dict(input or {})
-        for step_name, fn in self._step_fns:
-            if fn is None:
-                print(f"[debug_run] skipping non-Python step: {step_name!r}", file=sys.stderr)
-                new_ctx: dict | None = yield (step_name, ctx)
-            else:
-                ctx = call_step(fn, ctx)
-                new_ctx = yield (step_name, ctx)
-            if new_ctx is not None:
-                ctx = new_ctx
+        if "IPython" not in sys.modules:
+            return dict(ctx)
 
-    def add(self, name: str, task: RunTask) -> "WorkflowBuilder":
-        """Add a pre-built RunTask directly — the entry point for reusable step factories."""
-        self._steps.append(TaskItem(name=name, task=task))
-        self._step_fns.append((name, None))
-        return self
+        if self._engine_loop is None:
+            self._engine_loop = _EngineLoop()
 
-    # Deprecated alias — prefer step()
-    def run_python(self, name: str, fn: Callable, args: list[str] | None = None) -> "WorkflowBuilder":
-        return self.step(name, fn)
+        return self._engine_loop.run(self.build(), dict(ctx), timeout)
 
     def steps(self) -> list[TaskItem]:
         """Return the accumulated steps (used when nesting builders inside fork branches)."""
@@ -596,138 +620,6 @@ class WorkflowBuilder:
                 version=self._version,
             ),
             do=list(self._steps),
-        )
-
-
-class Session:
-    """Interactive pipeline session for notebook-driven workflow development.
-
-    Add steps one at a time and execute them immediately through the jackdaw
-    engine.  The accumulated context is updated after each step and available
-    for inspection.  When you are happy with the result, export the assembled
-    workflow for production use.
-
-    Works for all task types — Python functions, shell commands, containers,
-    forks, and for-loops.  The only exception is ``wait`` tasks (they block on
-    external events and do not fit the synchronous cell-by-cell model).
-
-    Example::
-
-        session = jackdaw.Session(input=cfg.to_pipeline_input())
-
-        def filter_feeds(gtfs_csv_file, bbox, gtfs_ignore_list) -> dict: ...
-        ctx = session.run("filter-feeds", filter_feeds)
-        ctx["download_urls"]                          # inspect
-        ctx["download_urls"] = ctx["download_urls"][:2]
-        session.ctx = ctx                             # inject narrowed list
-
-        ctx = session.run("download-feeds", download_feeds)
-        ctx = session.run("make-dir", mkdir("${ .working_dir }"))
-
-        # Export when done
-        pipeline = session.export("gtfs-pipeline", namespace="data-pipelines")
-        jackdaw.run(pipeline.build(), input=cfg.to_pipeline_input())
-    """
-
-    def __init__(
-        self,
-        input: dict | None = None,
-        name: str = "session",
-        namespace: str = "default",
-        version: str = "0.1.0",
-    ) -> None:
-        from ._jackdaw import Session as _RustSession
-
-        self._session = _RustSession(input or {})
-        self._name = name
-        self._namespace = namespace
-        self._version = version
-        # Kept for WorkflowBuilder-based export (preserves original callables).
-        self._step_fns: list[tuple[str, Any]] = []
-
-    @property
-    def ctx(self) -> dict:
-        """The current accumulated context dict."""
-        return dict(self._session.ctx)
-
-    @ctx.setter
-    def ctx(self, value: dict) -> None:
-        self._session.ctx = value
-
-    def run(self, name: str, fn_or_task: Any, timeout: float = 60.0) -> dict:
-        """Add a step to the session, executing it when in an interactive session.
-
-        fn_or_task — a plain Python callable *or* a pre-built ``RunTask``
-            (from ``shell_task``, ``container_task``, ``mkdir``, etc.).
-            For forks and for-loops pass a ``WorkflowBuilder`` whose sole
-            entry is the compound task.
-
-        **In a Jupyter/IPython session**: the step runs immediately through the
-        jackdaw engine and the updated context dict is returned so you can
-        inspect it in the next cell.
-
-        **Outside an interactive session** (``python script.py``): the step
-        definition is accumulated via ``add`` but not executed — ``__main__``
-        runs the full assembled workflow via ``jackdaw.run(session.export().build())``.
-
-        Returns the current context dict (updated after execution in
-        interactive mode, unchanged in script mode).
-        """
-        import sys
-
-        step_builder = WorkflowBuilder("_step", namespace="interactive")
-        if callable(fn_or_task):
-            step_builder.step(name, fn_or_task)
-        else:
-            step_builder.add(name, fn_or_task)
-        self._step_fns.append((name, fn_or_task))
-
-        workflow_yaml = step_builder.build().to_yaml()
-        if "IPython" in sys.modules:
-            result = self._session.run(workflow_yaml, timeout)
-            return dict(result)
-
-        self._session.add(workflow_yaml)
-        return dict(self._session.ctx)
-
-    def export(
-        self,
-        name: str | None = None,
-        namespace: str | None = None,
-        version: str | None = None,
-    ) -> "WorkflowBuilder":
-        """Return a ``WorkflowBuilder`` with all executed steps.
-
-        The builder can be used directly with ``jackdaw.run()`` or further
-        extended before running.
-        """
-        builder = WorkflowBuilder(
-            name or self._name,
-            namespace=namespace or self._namespace,
-            version=version or self._version,
-        )
-        for step_name, fn_or_task in self._step_fns:
-            if callable(fn_or_task):
-                builder.step(step_name, fn_or_task)
-            else:
-                builder.add(step_name, fn_or_task)
-        return builder
-
-    def export_yaml(
-        self,
-        name: str | None = None,
-        namespace: str | None = None,
-        version: str | None = None,
-    ) -> str:
-        """Return the assembled workflow as a YAML string.
-
-        Built from native Rust ``TaskDefinition`` structs — language-agnostic
-        and suitable for use with ``jackdaw run`` or any other client.
-        """
-        return self._session.export_yaml(
-            name or self._name,
-            namespace or self._namespace,
-            version or self._version,
         )
 
 
