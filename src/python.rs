@@ -321,6 +321,103 @@ fn json_to_python(py: Python, value: &serde_json::Value) -> PyResult<PyObject> {
     }
 }
 
+/// Python-facing HTTP listener.
+///
+/// Wraps `HttpListener` with Python callable route handlers.  Each handler
+/// receives the request payload as a Python dict and must return either:
+///   - a plain dict  →  returned as `application/json`
+///   - a dict matching the spec's HTTP Response schema
+///     `{"statusCode": int, "headers": {"Content-Type": "..."}, "content": str}`
+///     →  returned verbatim with the given status/headers/body.
+///     For binary responses encode `content` as base-64; for text/* types pass
+///     the string directly.
+#[pyclass(name = "HttpListener")]
+pub struct PyHttpListener {
+    inner: Arc<crate::listeners::http::HttpListener>,
+    // Multi-thread runtime that owns the spawned server task.
+    // Kept alive so the background task keeps running after start() returns.
+    rt: Arc<tokio::runtime::Runtime>,
+}
+
+#[pymethods]
+impl PyHttpListener {
+    #[new]
+    fn new(bind_addr: String, routes: Bound<'_, PyDict>) -> PyResult<Self> {
+        use crate::listeners::http::HttpListener;
+        use crate::listeners::Error as ListenerError;
+        use std::collections::HashMap;
+
+        let mut route_handlers: HashMap<
+            String,
+            Arc<dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value> + Send + Sync>,
+        > = HashMap::new();
+
+        for (key, val) in routes.iter() {
+            let path: String = key.extract()?;
+            let py_fn: PyObject = val.unbind();
+
+            let handler: Arc<
+                dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value> + Send + Sync,
+            > = Arc::new(move |value: serde_json::Value| {
+                Python::with_gil(|py| {
+                    let py_input = json_to_python(py, &value).map_err(|e| ListenerError::Listener {
+                        message: e.to_string(),
+                    })?;
+                    let result = py_fn
+                        .call1(py, (py_input,))
+                        .map_err(|e| ListenerError::Listener { message: e.to_string() })?;
+                    let bound = result.into_bound(py);
+                    if let Ok(dict) = bound.downcast::<PyDict>() {
+                        python_dict_to_json(dict)
+                            .map_err(|e| ListenerError::Listener { message: e.to_string() })
+                    } else {
+                        Ok(serde_json::json!({}))
+                    }
+                })
+            });
+
+            route_handlers.insert(path, handler);
+        }
+
+        let listener = HttpListener::new_multi_route(bind_addr, route_handlers)
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+
+        // Multi-thread runtime required so block_in_place (used by get_endpoint) works.
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| PyRuntimeError::new_err(format!("runtime: {e}")))?;
+
+        Ok(Self { inner: Arc::new(listener), rt: Arc::new(rt) })
+    }
+
+    /// Start the HTTP server in the background.  Returns immediately; the
+    /// server keeps running as long as this object is alive.
+    fn start(&self) -> PyResult<()> {
+        use crate::listeners::Listener;
+        let inner = self.inner.clone();
+        self.rt
+            .block_on(inner.start())
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    }
+
+    /// Gracefully stop the HTTP server.
+    fn stop(&self) -> PyResult<()> {
+        use crate::listeners::Listener;
+        let inner = self.inner.clone();
+        self.rt
+            .block_on(inner.stop())
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    }
+
+    /// Return the bound endpoint string.
+    #[getter]
+    fn endpoint(&self) -> String {
+        use crate::listeners::Listener;
+        self.rt.block_on(async { self.inner.get_endpoint() })
+    }
+}
+
 /// Enable or disable jackdaw's structured terminal output.
 /// Defaults to True when using the Python SDK.
 #[pyfunction]
@@ -497,6 +594,7 @@ fn _jackdaw(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDurableEngineBuilder>()?;
     m.add_class::<PyExecutionHandle>()?;
     m.add_class::<PySession>()?;
+    m.add_class::<PyHttpListener>()?;
     m.add_function(wrap_pyfunction!(set_output_enabled, m)?)?;
     m.add_function(wrap_pyfunction!(build_image, m)?)?;
     m.add_function(wrap_pyfunction!(stop_container, m)?)?;
