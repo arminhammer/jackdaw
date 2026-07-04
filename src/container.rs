@@ -85,5 +85,6 @@ pub trait ContainerProvider: Send + Sync + std::fmt::Debug {
     /// # Errors
     ///
     /// Returns an error if the container cannot be found or stopped
+    #[allow(dead_code)]
     async fn stop_container(&self, name: &str) -> Result<()>;
 }

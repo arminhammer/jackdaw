@@ -232,7 +232,10 @@ pub async fn exec_run_task(
             // Strings pass through as-is; objects/arrays are serialized to JSON
             let s = match evaluated {
                 serde_json::Value::String(s) => s,
-                v => v.to_string(),
+                serde_json::Value::Number(n) => n.to_string(),
+                serde_json::Value::Bool(b) => b.to_string(),
+                serde_json::Value::Null => String::from("null"),
+                serde_json::Value::Array(_) | serde_json::Value::Object(_) => evaluated.to_string(),
             };
             Some(s)
         } else {
@@ -405,7 +408,7 @@ pub async fn exec_run_task(
         } else if !evaluated_args.is_empty() {
             evaluated_args
         } else {
-            vec![]  // empty → use the image's default CMD/ENTRYPOINT
+            vec![] // empty → use the image's default CMD/ENTRYPOINT
         };
 
         // Evaluate environment variables if provided
