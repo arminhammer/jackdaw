@@ -39,3 +39,7 @@ uv.lock
 # Generated documentation
 /docs/book/
 examples/**/node_modules/
+
+# Compiled Python extensions (maturin build output)
+*.so
+clients/python/jackdaw/_jackdaw*.so
