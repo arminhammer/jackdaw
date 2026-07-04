@@ -36,12 +36,16 @@ static PYTHON_EXECUTABLE: std::sync::OnceLock<String> = std::sync::OnceLock::new
 /// Called once from `src/python.rs` when the PyO3 module is initialised.
 /// Stores `sys.executable` so that Python script steps use the same interpreter
 /// (and virtualenv) that launched the pipeline.
+#[allow(dead_code)]
 pub fn set_python_executable(path: String) {
     let _ = PYTHON_EXECUTABLE.set(path);
 }
 
 fn python_executable() -> &'static str {
-    PYTHON_EXECUTABLE.get().map(String::as_str).unwrap_or("python")
+    PYTHON_EXECUTABLE
+        .get()
+        .map(String::as_str)
+        .unwrap_or("python")
 }
 
 /// Python executor that uses the system `python` binary

@@ -7,9 +7,9 @@
 
 use crate::{builder::DurableEngineBuilder, durableengine::DurableEngine};
 use serverless_workflow_core::models::{
+    map::Map,
     task::TaskDefinition,
     workflow::{WorkflowDefinition, WorkflowDefinitionMetadata},
-    map::Map,
 };
 use snafu::Snafu;
 use std::{sync::Arc, time::Duration};
@@ -75,6 +75,7 @@ impl Session {
     }
 
     /// The current accumulated context.
+    #[must_use]
     pub fn context(&self) -> &serde_json::Value {
         &self.ctx
     }
@@ -160,12 +161,13 @@ impl Session {
         })?;
 
         let result = rt.block_on(async move {
-            let handle = engine
-                .execute(workflow, ctx_snapshot)
-                .await
-                .map_err(|e| Error::Engine {
-                    message: e.to_string(),
-                })?;
+            let handle =
+                engine
+                    .execute(workflow, ctx_snapshot)
+                    .await
+                    .map_err(|e| Error::Engine {
+                        message: e.to_string(),
+                    })?;
             handle
                 .wait_for_completion(timeout)
                 .await
@@ -180,6 +182,7 @@ impl Session {
     }
 
     /// Build a [`WorkflowDefinition`] from all accumulated steps.
+    #[must_use]
     pub fn build(&self, name: &str, namespace: &str, version: &str) -> WorkflowDefinition {
         let mut do_ = Map::new();
         for (step_name, task) in &self.steps {
@@ -187,12 +190,7 @@ impl Session {
         }
 
         let mut wf = WorkflowDefinition::new(WorkflowDefinitionMetadata::new(
-            namespace,
-            name,
-            version,
-            None,
-            None,
-            None,
+            namespace, name, version, None, None, None,
         ));
         wf.do_ = do_;
         wf

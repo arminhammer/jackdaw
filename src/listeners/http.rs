@@ -93,58 +93,65 @@ fn create_method_router(
                     // If the handler returned a structured HTTP Response object
                     // (spec §HTTP Response: statusCode + headers + content),
                     // honour its headers and body verbatim rather than forcing JSON.
-                    if let Some(obj) = response.as_object() {
-                        if obj.contains_key("statusCode") && obj.contains_key("headers") {
-                            let status = obj
-                                .get("statusCode")
-                                .and_then(|v| v.as_u64())
-                                .and_then(|n| StatusCode::from_u16(n as u16).ok())
-                                .unwrap_or(StatusCode::OK);
+                    if let Some(obj) = response.as_object()
+                        && obj.contains_key("statusCode")
+                        && obj.contains_key("headers")
+                    {
+                        let status = obj
+                            .get("statusCode")
+                            .and_then(|v| v.as_u64())
+                            .and_then(|n| StatusCode::from_u16(n as u16).ok())
+                            .unwrap_or(StatusCode::OK);
 
-                            let mut builder = axum::http::Response::builder().status(status);
+                        let mut builder = axum::http::Response::builder().status(status);
 
-                            if let Some(headers) = obj.get("headers").and_then(|v| v.as_object()) {
-                                for (k, v) in headers {
-                                    if let Some(v_str) = v.as_str() {
-                                        builder = builder.header(k.as_str(), v_str);
-                                    }
+                        if let Some(headers) = obj.get("headers").and_then(|v| v.as_object()) {
+                            for (k, v) in headers {
+                                if let Some(v_str) = v.as_str() {
+                                    builder = builder.header(k.as_str(), v_str);
                                 }
                             }
-
-                            let body_bytes: Vec<u8> = match obj.get("content") {
-                                Some(serde_json::Value::String(s)) => {
-                                    // For text/* types the string is the body verbatim.
-                                    // For binary types callers should base-64 encode the
-                                    // content (spec §HTTP Response); decode it here.
-                                    use base64::Engine as _;
-                                    if let Ok(decoded) =
-                                        base64::engine::general_purpose::STANDARD.decode(s)
-                                    {
-                                        // Only treat as base64 if the Content-Type is not text.
-                                        let is_text = obj
-                                            .get("headers")
-                                            .and_then(|h| h.as_object())
-                                            .and_then(|h| h.get("Content-Type"))
-                                            .and_then(|ct| ct.as_str())
-                                            .map(|ct| ct.starts_with("text/"))
-                                            .unwrap_or(false);
-                                        if is_text { s.as_bytes().to_vec() } else { decoded }
-                                    } else {
-                                        s.as_bytes().to_vec()
-                                    }
-                                }
-                                Some(other) => other.to_string().into_bytes(),
-                                None => vec![],
-                            };
-
-                            return builder
-                                .body(axum::body::Body::from(body_bytes))
-                                .unwrap_or_else(|e| {
-                                    (StatusCode::INTERNAL_SERVER_ERROR,
-                                     Json(serde_json::json!({"error": e.to_string()})))
-                                        .into_response()
-                                });
                         }
+
+                        let body_bytes: Vec<u8> = match obj.get("content") {
+                            Some(serde_json::Value::String(s)) => {
+                                // For text/* types the string is the body verbatim.
+                                // For binary types callers should base-64 encode the
+                                // content (spec §HTTP Response); decode it here.
+                                use base64::Engine as _;
+                                if let Ok(decoded) =
+                                    base64::engine::general_purpose::STANDARD.decode(s)
+                                {
+                                    // Only treat as base64 if the Content-Type is not text.
+                                    let is_text = obj
+                                        .get("headers")
+                                        .and_then(|h| h.as_object())
+                                        .and_then(|h| h.get("Content-Type"))
+                                        .and_then(|ct| ct.as_str())
+                                        .map(|ct| ct.starts_with("text/"))
+                                        .unwrap_or(false);
+                                    if is_text {
+                                        s.as_bytes().to_vec()
+                                    } else {
+                                        decoded
+                                    }
+                                } else {
+                                    s.as_bytes().to_vec()
+                                }
+                            }
+                            Some(other) => other.to_string().into_bytes(),
+                            None => vec![],
+                        };
+
+                        return builder
+                            .body(axum::body::Body::from(body_bytes))
+                            .unwrap_or_else(|e| {
+                                (
+                                    StatusCode::INTERNAL_SERVER_ERROR,
+                                    Json(serde_json::json!({"error": e.to_string()})),
+                                )
+                                    .into_response()
+                            });
                     }
                     (StatusCode::OK, Json(response)).into_response()
                 }
