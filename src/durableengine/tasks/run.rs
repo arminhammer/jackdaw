@@ -79,6 +79,9 @@ pub async fn exec_run_task(
             &ctx.metadata.initial_input,
         )?;
 
+        // Nested workflows enforce their own declared input contract too.
+        crate::durableengine::schema::validate_workflow_input(&workflow, &evaluated_input)?;
+
         // Execute the nested workflow using run_instance (internal method)
         // Generate a new instance ID for the nested workflow
         let instance_id = uuid::Uuid::new_v4().to_string();

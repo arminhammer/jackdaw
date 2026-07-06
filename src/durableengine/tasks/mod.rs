@@ -4,7 +4,7 @@ use crate::context::Context;
 use crate::output;
 use crate::task_ext::TaskDefinitionExt;
 
-use super::{DurableEngine, Result};
+use super::{DurableEngine, Error, Result};
 
 // Submodules for individual task types
 mod call;
@@ -254,28 +254,74 @@ async fn exec_set_task(
     }
 }
 
-/// Execute a Do task - sequential execution of subtasks
+/// Execute a Do task - sequential execution of subtasks with scoped flow control.
+///
+/// Flow directives set by subtasks (switch cases, `then:` targets) resolve
+/// within this block: a named target jumps to the sibling subtask of that
+/// name, `continue` proceeds to the next subtask, `exit` leaves this scope,
+/// and `end` terminates the whole workflow (propagated to the parent scope).
 async fn exec_do_task(
     engine: &DurableEngine,
     _task_name: &str,
     do_task: &serverless_workflow_core::models::task::DoTaskDefinition,
     ctx: &Context,
 ) -> Result<serde_json::Value> {
+    // Flatten (name, task) pairs and index them for scoped jumps.
+    let subtasks: Vec<(&String, &serverless_workflow_core::models::task::TaskDefinition)> =
+        do_task
+            .do_
+            .entries
+            .iter()
+            .flat_map(|entry| entry.iter())
+            .collect();
+    let index_of: std::collections::HashMap<&str, usize> = subtasks
+        .iter()
+        .enumerate()
+        .map(|(i, (name, _))| (name.as_str(), i))
+        .collect();
+
     let mut last_result = serde_json::Value::Null;
 
-    // Execute subtasks sequentially in order
-    for entry in &do_task.do_.entries {
-        for (subtask_name, subtask) in entry {
-            // Box the recursive call to avoid infinite sized future
-            let result = Box::pin(engine.exec_task(subtask_name, subtask, ctx)).await?;
+    let mut i = 0;
+    while let Some((subtask_name, subtask)) = subtasks.get(i) {
+        // Box the recursive call to avoid infinite sized future
+        let result = Box::pin(engine.exec_task(subtask_name, subtask, ctx)).await?;
 
-            // Update task_input for the next subtask
-            *ctx.state.task_input.write().await = result.clone();
+        // Update task_input for the next subtask
+        *ctx.state.task_input.write().await = result.clone();
 
-            // Handle export.as for subtasks (same logic as main execution loop)
-            super::export::apply_export_to_context(subtask, &result, ctx).await?;
+        // Handle export.as for subtasks (same logic as main execution loop)
+        super::export::apply_export_to_context(subtask, &result, ctx).await?;
 
-            last_result = result;
+        last_result = result;
+
+        // Resolve flow directives within this scope. Switch tasks communicate
+        // their chosen target via next_task state; plain tasks carry a `then:`
+        // field (handled via graph edges at the top level, consumed here for
+        // nested scopes).
+        let directive = ctx
+            .state
+            .next_task
+            .write()
+            .await
+            .take()
+            .or_else(|| super::graph::get_task_transitions(subtask).into_iter().next());
+        match directive.as_deref() {
+            None | Some("continue") => i += 1,
+            Some("exit") => break,
+            Some("end") => {
+                // Terminate the whole workflow: propagate to the parent scope.
+                *ctx.state.next_task.write().await = Some("end".to_string());
+                break;
+            }
+            Some(target) => {
+                let Some(&next_index) = index_of.get(target) else {
+                    return Err(Error::TaskExecution {
+                        message: format!("Next task not found in scope: {target}"),
+                    });
+                };
+                i = next_index;
+            }
         }
     }
 

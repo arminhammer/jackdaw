@@ -72,25 +72,14 @@ pub(super) fn build_graph(
 ///
 /// Returns a vector of task names that this task can transition to
 pub(super) fn get_task_transitions(task: &TaskDefinition) -> Vec<String> {
+    fn common_then(then: Option<&String>) -> Vec<String> {
+        then.map(|s| vec![s.clone()]).unwrap_or_default()
+    }
+
     match task {
-        TaskDefinition::Call(t) => t
-            .common
-            .then
-            .as_ref()
-            .map(|s| vec![s.clone()])
-            .unwrap_or_default(),
-        TaskDefinition::Set(t) => t
-            .common
-            .then
-            .as_ref()
-            .map(|s| vec![s.clone()])
-            .unwrap_or_default(),
-        TaskDefinition::Fork(t) => t
-            .common
-            .then
-            .as_ref()
-            .map(|s| vec![s.clone()])
-            .unwrap_or_default(),
+        TaskDefinition::Call(t) => common_then(t.common.then.as_ref()),
+        TaskDefinition::Set(t) => common_then(t.common.then.as_ref()),
+        TaskDefinition::Fork(t) => common_then(t.common.then.as_ref()),
         TaskDefinition::Switch(t) => {
             let mut transitions = Vec::new();
             for entry in &t.switch.entries {
@@ -102,23 +91,13 @@ pub(super) fn get_task_transitions(task: &TaskDefinition) -> Vec<String> {
             }
             transitions
         }
-        TaskDefinition::Do(t) => t
-            .common
-            .then
-            .as_ref()
-            .map(|s| vec![s.clone()])
-            .unwrap_or_default(),
-        TaskDefinition::Emit(t) => t
-            .common
-            .then
-            .as_ref()
-            .map(|s| vec![s.clone()])
-            .unwrap_or_default(),
-        TaskDefinition::For(_)
-        | TaskDefinition::Listen(_)
-        | TaskDefinition::Raise(_)
-        | TaskDefinition::Run(_)
-        | TaskDefinition::Try(_)
-        | TaskDefinition::Wait(_) => vec![],
+        TaskDefinition::Do(t) => common_then(t.common.then.as_ref()),
+        TaskDefinition::Emit(t) => common_then(t.common.then.as_ref()),
+        TaskDefinition::For(t) => common_then(t.common.then.as_ref()),
+        TaskDefinition::Listen(t) => common_then(t.common.then.as_ref()),
+        TaskDefinition::Raise(t) => common_then(t.common.then.as_ref()),
+        TaskDefinition::Run(t) => common_then(t.common.then.as_ref()),
+        TaskDefinition::Try(t) => common_then(t.common.then.as_ref()),
+        TaskDefinition::Wait(t) => common_then(t.common.then.as_ref()),
     }
 }

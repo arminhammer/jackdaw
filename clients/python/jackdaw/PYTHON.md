@@ -30,6 +30,57 @@ pip install target/wheels/jackdaw-*.whl
 
 ## Usage
 
+### Interactive pipeline construction (notebooks)
+
+`jackdaw.Session` is the primary API for building pipelines step by step.
+It holds the evolving workflow context; you iterate on one step at a time
+with a git-style preview/commit flow:
+
+```python
+import jackdaw
+
+sess = jackdaw.Session("gtfs-pipeline", input={"working_dir": "/tmp/data"})
+
+def filter_feeds(gtfs_csv_file: str, bbox: dict) -> dict:
+    ...
+    return {"download_urls": urls}
+
+# Iterate freely: preview executes the step against the current context
+# through the real engine but records nothing. Re-run the cell until the
+# output looks right.
+out = sess.preview(filter_feeds)
+out["download_urls"][:5]
+
+# Accept the step: record it and advance the context.
+sess.commit(filter_feeds)
+
+# Steps are keyed by name. Editing the function and re-running the commit
+# cell REPLACES the step (the context rewinds to the step's original input
+# first) and marks later steps stale.
+sess.status()    # [{"name": "filter-feeds", "stale": False}, ...]
+sess.replay()    # re-runs the stale suffix in order
+
+# Narrow data between steps:
+sess.update(download_urls=sess.ctx["download_urls"][:3])
+
+# Work that isn't Python stays a typed shell/container task
+# (RunShellTask / RunContainerTask; explicit name required):
+sess.commit(jackdaw.shell_task("mkdir", ["-p", "${ .working_dir }"]), name="make-dir")
+
+# When it looks right, export the reproducible artifact. The notebook is
+# not the artifact — the YAML is.
+sess.export("gtfs.sw.yaml")
+```
+
+Other session verbs: `sess.rollback(name)` rewinds the context to just
+before `name` ran and drops it plus everything after; `sess.ctx` returns a
+copy of the current context (assign a dict to replace it). Rewinds restore
+the *context* only — files or containers created by executed steps are not
+undone.
+
+Run the exported artifact later with `jackdaw.run(...)`, the engine API
+below, or the jackdaw CLI.
+
 ### Basic Workflow Execution
 
 ```python
@@ -110,6 +161,26 @@ asyncio.run(main())
 ```
 
 ## API Reference
+
+### Session
+
+Interactive, context-first pipeline construction (see usage above).
+
+**Methods:**
+- `__init__(name="", input=None, namespace="default", version="0.1.0")` - Create a session with an initial context
+- `preview(step, name=None, timeout=3600.0) -> dict` - Execute a step against the current context; records nothing
+- `commit(step, name=None, timeout=3600.0) -> dict` - Execute and record a step; upserts by name and marks later steps stale on replace
+- `replay(timeout=3600.0) -> dict` - Re-execute from the first stale step onward
+- `rollback(name) -> dict` - Rewind context to before `name` and drop it plus later steps
+- `status() -> list[dict]` - Committed steps as `{"name", "stale"}` dicts
+- `update(**kwargs) -> dict` - Merge keys into the context
+- `ctx` - Current context (property; returns a copy, assignable)
+- `export(path=None, name=None, ...) -> str` - Workflow YAML artifact; raises if stale steps exist
+
+`step` may be a plain Python function (parameters are bound by name from the
+context; the returned dict merges back in), a task object from `shell_task` /
+`container_task`, or a `WorkflowBuilder` block (committed as one `do` step;
+explicit `name` required for non-functions).
 
 ### DurableEngineBuilder
 
@@ -268,7 +339,7 @@ Setup:
 - The Python bindings are completely optional and do not affect the core Rust library or CLI binary
 - The CLI binary is built without the `python` feature and remains a static musl binary
 - Only enable the `python` feature when building Python wheels with maturin
-- Workflow definitions are passed as YAML strings (programmatic workflow construction from Python is not yet supported)
+- Workflows can be built programmatically (`Session`, `WorkflowBuilder`) or passed as YAML strings to the engine API
 
 ## Publishing Both Rust Crate and Python Package
 

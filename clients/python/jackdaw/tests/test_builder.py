@@ -1,24 +1,17 @@
-import inspect
-import os
 import json
-import textwrap
+import os
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 from serverlessworkflow.sdk.tasks import ForkTask, RunTask
 
-import jackdaw
 from jackdaw.runner import (
-    WorkflowBuilder,
-    _MAIN_BLOCK,
     _MERGE_OUTPUT,
     _PASSTHROUGH_OUTPUT,
+    WorkflowBuilder,
     _extract_module_imports,
     _imports_from_globals,
-    _imports_from_source,
 )
-
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -174,7 +167,9 @@ def test_add_accepts_pretask():
 def test_run_container_step():
     wf = (
         WorkflowBuilder("wf")
-        .run_container("extract", image="osmtools:latest", command="osmium extract -o out.pbf in.pbf")
+        .run_container(
+            "extract", image="osmtools:latest", command="osmium extract -o out.pbf in.pbf"
+        )
         .build()
     )
     task = _task(wf, 0)

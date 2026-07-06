@@ -1,240 +1,88 @@
-import ast
+"""Workflow composition and one-shot execution.
+
+`WorkflowBuilder` assembles workflows from Python functions, shell commands,
+and containers; `run` / `run_async` execute an assembled workflow through the
+jackdaw engine. For interactive, step-at-a-time construction in notebooks use
+:class:`jackdaw.Session` instead — builders remain the composition layer for
+control-flow blocks (`for_loop`, `fork`) committed into a session as a single
+step.
+"""
+
 import asyncio
-import builtins
-import dis
-import inspect
 import textwrap
 from collections.abc import Callable
 from typing import Any, Protocol, runtime_checkable
 
 from serverlessworkflow.sdk import Workflow
-from serverlessworkflow.sdk.base import Input, Output, Schema, TaskItem
+from serverlessworkflow.sdk.base import Output, TaskItem
 from serverlessworkflow.sdk.tasks import (
     ContainerConfiguration,
     DoTask,
     ForConfiguration,
-    ForTask,
     ForkConfiguration,
     ForkTask,
+    ForTask,
     RunConfiguration,
     RunTask,
     ScriptConfiguration,
     ShellConfiguration,
 )
+from dataclasses import dataclass
+
 from serverlessworkflow.sdk.workflow import Document
 
+# Re-exported for backwards compatibility (tests and downstream imports).
+from ._expr import Expr, as_arg, as_in, as_output_as
+from ._codegen import (  # noqa: F401
+    _MAIN_BLOCK,
+    _MERGE_OUTPUT,
+    _PASSTHROUGH_OUTPUT,
+    _extract_helper_functions,
+    _extract_module_imports,
+    _imports_from_globals,
+    _imports_from_source,
+    _input_schema,
+    function_to_task,
+)
 from ._jackdaw import DurableEngineBuilder, ExecutionHandle
 
-# Appended to every extracted function.
-# Reads the full context from stdin as JSON, extracts only the named parameters,
-# calls the function with kwargs, and prints the return value as JSON.
-_MAIN_BLOCK = """
-if __name__ == "__main__":
-    import sys as _sys
-    import json as _json
-    _ctx = _json.load(_sys.stdin)
-    _result = {fn_name}(**{{k: _ctx[k] for k in {params!r} if k in _ctx}})
-    if _result is not None:
-        print(_json.dumps(_result))
-"""
-
-# Merges the task's input context with its output dict so each step accumulates
-# all values produced so far. $input is the task's input; . is the raw output.
-_MERGE_OUTPUT = "$input + ."
-
-# Shell/container steps with no JSON output just pass the context through unchanged.
-_PASSTHROUGH_OUTPUT = "$input"
-
-_BUILTIN_NAMES = frozenset(dir(builtins))
-
-# Maps Python primitive type annotations to JSON Schema type strings.
-_PY_TO_JSON_SCHEMA: dict[type, dict[str, str]] = {
-    str: {"type": "string"},
-    int: {"type": "integer"},
-    float: {"type": "number"},
-    bool: {"type": "boolean"},
-    dict: {"type": "object"},
-    list: {"type": "array"},
-}
+# Typed task markers: each specializes RunTask to one process kind so steps
+# are well-typed objects (a session step is either a typed Python function or
+# one of these). They add no fields — `run` stays a RunConfiguration with the
+# matching process set, which is what serializes to valid workflow YAML
+# (run: {shell: ...}, run: {script: ...}, run: {container: ...}).
 
 
-def _input_schema(fn: Callable) -> Input:
-    """Build an Input with JSON Schema derived from fn's type annotations.
+@dataclass
+class RunShellTask(RunTask):
+    """A run task executing a shell command (``run.shell``)."""
 
-    Uses input.from_ to scope the task's input to exactly the keys the function
-    declares, so the schema and the actual data passed to stdin are in sync.
-    The expression selects each named parameter from the accumulated context.
+
+@dataclass
+class RunScriptTask(RunTask):
+    """A run task executing a script (``run.script``).
+
+    Typed Python step functions compile to script tasks automatically — this
+    type is for predefined script helpers like ``build_image_task`` and
+    ``stop_container_task`` that generate their code.
     """
-    sig = inspect.signature(fn)
-    params = list(sig.parameters.keys())
-
-    properties: dict[str, Any] = {}
-    for name, param in sig.parameters.items():
-        ann = param.annotation
-        properties[name] = _PY_TO_JSON_SCHEMA.get(ann, {}) if ann is not inspect.Parameter.empty else {}
-
-    schema_doc = {
-        "type": "object",
-        "properties": properties,
-        "required": params,
-    }
-
-    # input.from_ selects only the declared parameters from the full context.
-    # e.g. for fn(working_dir, url) -> "{working_dir: .working_dir, url: .url}"
-    selections = ", ".join(f"{p}: .{p}" for p in params)
-    from_expr = "{" + selections + "}"
-
-    return Input(
-        schema=Schema(document=schema_doc),
-        from_=from_expr,
-    )
 
 
-def _needed_global_names(fn: Callable) -> set[str]:
-    """Return global names that fn loads via LOAD_GLOBAL and are not builtins."""
-    loaded = {
-        instr.argval
-        for instr in dis.get_instructions(fn)
-        if instr.opname == "LOAD_GLOBAL"
-    }
-    fn_globals = fn.__globals__
-    return {name for name in loaded if name in fn_globals and name not in _BUILTIN_NAMES}
-
-
-def _imports_from_source(module_source: str, needed: set[str]) -> list[str]:
-    """Extract import statements from module source text (AST-based).
-
-    Narrows `from x import a, b` to only the names actually needed.
-    Skips relative imports since they cannot be resolved outside their package.
-    """
-    module_ast = ast.parse(module_source)
-    imports: list[str] = []
-    seen: set[str] = set()
-
-    for node in ast.iter_child_nodes(module_ast):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                bound = alias.asname or alias.name.split(".")[0]
-                if bound in needed and bound not in seen:
-                    imports.append(ast.unparse(node))
-                    seen.add(bound)
-                    break
-
-        elif isinstance(node, ast.ImportFrom):
-            if node.level > 0:
-                continue
-            relevant = [
-                a for a in node.names
-                if (a.asname or a.name) in needed and (a.asname or a.name) not in seen
-            ]
-            if relevant:
-                narrowed = ast.ImportFrom(module=node.module, names=relevant, level=0)
-                imports.append(ast.unparse(narrowed))
-                for alias in relevant:
-                    seen.add(alias.asname or alias.name)
-
-    return imports
-
-
-def _imports_from_globals(fn_globals: dict[str, Any], needed: set[str]) -> list[str]:
-    """Reconstruct import statements from live objects using dill.
-
-    Used as a fallback when module source is unavailable (notebooks, REPL, -c strings).
-    dill.source.getimport resolves the correct public module path for each object,
-    handling aliases, `from x import y`, and stdlib re-exports like os.path correctly.
-    """
-    import dill.source
-
-    imports: list[str] = []
-    for name in sorted(needed):
-        val = fn_globals.get(name)
-        if val is None:
-            continue
-        try:
-            stmt = dill.source.getimport(val, alias=name)
-            if stmt:
-                imports.append(stmt.strip())
-        except Exception:
-            pass
-    return imports
-
-
-def _collect_helpers(
-    fn: Callable,
-    fn_module: Any,
-    fn_globals: dict[str, Any],
-    visited: set[str],
-    result: list[str],
-) -> None:
-    """Post-order DFS: collect source for module-local helper functions fn calls.
-
-    Processes dependencies before the functions that depend on them so the
-    generated script defines helpers in the right order.
-    """
-    for name in _needed_global_names(fn):
-        if name in visited:
-            continue
-        visited.add(name)
-        val = fn_globals.get(name)
-        if val is None or not callable(val):
-            continue
-        if inspect.getmodule(val) is not fn_module:
-            continue
-        try:
-            _collect_helpers(val, fn_module, fn_globals, visited, result)
-            result.append(textwrap.dedent(inspect.getsource(val)))
-        except (OSError, TypeError):
-            pass
-
-
-def _extract_helper_functions(fn: Callable) -> list[str]:
-    """Return source snippets for module-local helper functions that fn depends on.
-
-    Handles transitive dependencies via post-order DFS so each helper is defined
-    before its callers. Skips builtins and names that come from imports.
-    """
-    fn_module = inspect.getmodule(fn)
-    if fn_module is None:
-        return []
-    result: list[str] = []
-    visited: set[str] = {fn.__name__}
-    _collect_helpers(fn, fn_module, fn.__globals__, visited, result)
-    return result
-
-
-def _extract_module_imports(fn: Callable) -> list[str]:
-    """Return import statements for globals that fn references.
-
-    Strategy 1 — AST source parsing: reads the module's .py file, finds the exact
-    import statements, narrows multi-name imports to only what's needed.
-
-    Strategy 2 — dill runtime reconstruction: used when source is unavailable (Jupyter
-    notebooks, interactive REPL, python -c).
-    """
-    needed = _needed_global_names(fn)
-    if not needed:
-        return []
-
-    module = inspect.getmodule(fn)
-    if module is not None:
-        try:
-            return _imports_from_source(inspect.getsource(module), needed)
-        except (OSError, TypeError):
-            pass
-
-    return _imports_from_globals(fn.__globals__, needed)
+@dataclass
+class RunContainerTask(RunTask):
+    """A run task executing a container (``run.container``)."""
 
 
 def container_task(
     image: str,
     command: str | None = None,
-    arguments: list[str] | None = None,
-    environment: dict[str, str] | None = None,
-    volumes: dict[str, Any] | None = None,
+    arguments: "list[str | Expr] | None" = None,
+    environment: "dict[str, str | Expr] | None" = None,
+    volumes: "dict[str | Expr, str | Expr] | None" = None,
     ports: dict[int, int] | None = None,
     name: str | None = None,
-    output_as: str | None = None,
-) -> RunTask:
+    output_as: "str | Expr | None" = None,
+) -> RunContainerTask:
     """Standalone factory for a reusable container step.
 
     Volume keys and values may be JQ expressions evaluated against the context at runtime:
@@ -249,19 +97,23 @@ def container_task(
     pattern where a sibling branch stops the container by name.
     Use `ports` to publish ports: {container_port: host_port}.
     """
-    return RunTask(
+    return RunContainerTask(
         run=RunConfiguration(
             container=ContainerConfiguration(
                 image=image,
                 name=name,
                 command=command,
-                arguments=arguments,
-                environment=environment,
-                volumes=volumes,
+                arguments=[as_arg(a) for a in arguments] if arguments else arguments,
+                environment=(
+                    {k: as_arg(v) for k, v in environment.items()} if environment else environment
+                ),
+                volumes=(
+                    {as_arg(k): as_arg(v) for k, v in volumes.items()} if volumes else volumes
+                ),
                 ports=ports,
             ),
         ),
-        output=Output(as_=output_as or _PASSTHROUGH_OUTPUT),
+        output=Output(as_=as_output_as(output_as) or _PASSTHROUGH_OUTPUT),
     )
 
 
@@ -269,7 +121,7 @@ def build_image_task(
     tag: str,
     dockerfile: str,
     context_dir: str = "",
-) -> RunTask:
+) -> RunScriptTask:
     """Generate a Python script step that builds a Docker image via jackdaw's bollard runtime.
 
     tag          — image tag to apply, e.g. "sedona-spark4:local"
@@ -290,7 +142,7 @@ def build_image_task(
         f"    print('Image {tag} built successfully.', flush=True)\n"
     )
 
-    return RunTask(
+    return RunScriptTask(
         run=RunConfiguration(
             script=ScriptConfiguration(
                 language="python",
@@ -302,7 +154,7 @@ def build_image_task(
     )
 
 
-def stop_container_task(container_name: str) -> RunTask:
+def stop_container_task(container_name: str) -> RunScriptTask:
     """Generate a Python script step that stops a named container via jackdaw's bollard runtime.
 
     container_name — literal container name, e.g. "sedona".
@@ -319,7 +171,7 @@ def stop_container_task(container_name: str) -> RunTask:
             _jd.stop_container({container_name!r})
     """)
 
-    return RunTask(
+    return RunScriptTask(
         run=RunConfiguration(
             script=ScriptConfiguration(
                 language="python",
@@ -330,99 +182,49 @@ def stop_container_task(container_name: str) -> RunTask:
         output=Output(as_=_PASSTHROUGH_OUTPUT),
     )
 
-
 def shell_task(
     command: str,
-    arguments: list[str] | None = None,
-    environment: dict[str, str] | None = None,
-    output_as: str | None = None,
-) -> RunTask:
+    arguments: "list[str | Expr] | None" = None,
+    environment: "dict[str, str | Expr] | None" = None,
+    output_as: "str | Expr | None" = None,
+) -> RunShellTask:
     """Standalone factory for a reusable shell step.
 
-    Use this to define named, reusable command specs as plain Python functions.
-    Pass JQ expressions as arguments at call-site to bind to different context keys:
+    Arguments bind to context keys at runtime — pass `jackdaw.ref(...)` /
+    `jackdaw.ctx` expressions (or raw JQ strings) at call-site:
 
-        def osmium_extract(polygon: str, input_pbf: str, output_pbf: str) -> RunTask:
-            return shell_task("osmium", ["extract", "-p", polygon, input_pbf, "-o", output_pbf])
-
-        builder.add("extract-region", osmium_extract(
-            polygon="${ .unified_division_geojson }",
-            input_pbf="${ .raw_pbf_file }",
-            output_pbf="${ .working_dir + \\"/valhalla_runs/scoped.osm.pbf\\" }",
-        ))
+        ctx = jackdaw.ref(OsmInput)
+        shell_task("osmium", [
+            "extract", "-p", ctx.combined_geojson,
+            ctx.raw_pbf_file, "-o", ctx.working_dir / "valhalla_runs/scoped.osm.pbf",
+        ], output_as=jackdaw.merge(scoped_pbf_file=ctx.working_dir / "valhalla_runs/scoped.osm.pbf"))
     """
-    return RunTask(
+    return RunShellTask(
         run=RunConfiguration(
             shell=ShellConfiguration(
                 command=command,
-                arguments=arguments,
-                environment=environment,
+                arguments=[as_arg(a) for a in arguments] if arguments else arguments,
+                environment=(
+                    {k: as_arg(v) for k, v in environment.items()} if environment else environment
+                ),
             ),
         ),
-        output=Output(as_=output_as or _PASSTHROUGH_OUTPUT),
+        output=Output(as_=as_output_as(output_as) or _PASSTHROUGH_OUTPUT),
     )
 
-
-class _EngineLoop:
-    """Persistent background event loop + WorkflowRunner, shared across all .run() calls.
-
-    asyncio.run() tears down the event loop after each call. When a cached
-    DurableEngine is re-used on a fresh loop its internal Tokio futures deadlock.
-    This class keeps one loop running forever in a daemon thread so every engine
-    call lands on the same loop and the in-memory cache stays warm.
-    """
-
-    def __init__(self) -> None:
-        import asyncio
-        import atexit
-        import threading
-
-        self._loop = asyncio.new_event_loop()
-        self._runner = WorkflowRunner()
-        ready = threading.Event()
-
-        def _run() -> None:
-            asyncio.set_event_loop(self._loop)
-            ready.set()
-            self._loop.run_forever()
-
-        t = threading.Thread(target=_run, daemon=True)
-        t.start()
-        ready.wait()
-
-        # On interpreter exit: stop the asyncio loop, then force-exit after 3 s
-        # so Tokio runtime threads can't block the process and stall kernel restart.
-        def _shutdown() -> None:
-            import os, threading
-            self._loop.call_soon_threadsafe(self._loop.stop)
-            t = threading.Timer(3.0, os._exit, args=(0,))
-            t.daemon = True
-            t.start()
-
-        atexit.register(_shutdown)
-
-    def run(self, workflow: Workflow, ctx: dict, timeout: float) -> dict:
-        import asyncio
-
-        future = asyncio.run_coroutine_threadsafe(
-            self._runner.run_async(workflow, input=ctx, timeout=timeout),
-            self._loop,
-        )
-        result = future.result(timeout + 30)
-        return dict(result)
-
-
 class WorkflowBuilder:
-    """Fluent builder that assembles a Workflow from Python functions, shell commands, and containers."""
+    """Composes a Workflow from Python functions, shell commands, and containers.
+
+    In notebooks, prefer :class:`jackdaw.Session` for step-at-a-time
+    construction; builders are the composition layer for multi-task blocks
+    (fork branches, for-loop bodies) committed into a session as one step.
+    """
 
     def __init__(self, name: str = "", namespace: str = "default", version: str = "0.1.0") -> None:
         self._name = name
         self._namespace = namespace
         self._version = version
         self._steps: list[TaskItem] = []
-        # Lazily-created persistent engine loop; all .run() calls share it so
-        # the in-memory cache is warm across cells and event loop reuse is safe.
-        self._engine_loop: "_EngineLoop | None" = None
 
     def add(self, name: str, fn_or_task: "Callable | RunTask") -> "WorkflowBuilder":
         """Add a step by name.
@@ -440,26 +242,7 @@ class WorkflowBuilder:
         subsequent steps.
         """
         if callable(fn_or_task):
-            fn = fn_or_task
-            params = list(inspect.signature(fn).parameters.keys())
-            imports = _extract_module_imports(fn)
-            helpers = _extract_helper_functions(fn)
-            source = textwrap.dedent(inspect.getsource(fn))
-            header = "\n".join(imports) + "\n\n" if imports else ""
-            helper_block = "\n\n".join(helpers) + "\n\n" if helpers else ""
-            code = header + helper_block + source + _MAIN_BLOCK.format(fn_name=fn.__name__, params=params)
-            task: RunTask = RunTask(
-                run=RunConfiguration(
-                    script=ScriptConfiguration(
-                        language="python",
-                        code=code,
-                        stdin="${ . }",
-                    ),
-                ),
-                input=_input_schema(fn),
-                output=Output(as_=_MERGE_OUTPUT),
-            )
-            self._steps.append(TaskItem(name=name, task=task))
+            self._steps.append(TaskItem(name=name, task=function_to_task(fn_or_task)))
         else:
             self._steps.append(TaskItem(name=name, task=fn_or_task))
         return self
@@ -487,15 +270,11 @@ class WorkflowBuilder:
             .run_shell("extract", "osmium", arguments=[...],
                        output_as="${ $input + {scoped_pbf: ($input.working_dir + '/out.pbf')} }")
         """
-        task = RunTask(
-            run=RunConfiguration(
-                shell=ShellConfiguration(
-                    command=command,
-                    arguments=arguments,
-                    environment=environment,
-                ),
-            ),
-            output=Output(as_=output_as or _PASSTHROUGH_OUTPUT),
+        task = shell_task(
+            command=command,
+            arguments=arguments,
+            environment=environment,
+            output_as=output_as,
         )
         self._steps.append(TaskItem(name=name, task=task))
         return self
@@ -540,7 +319,7 @@ class WorkflowBuilder:
         self,
         name: str,
         each: str,
-        in_: str,
+        in_: "str | Expr",
         body: "WorkflowBuilder",
     ) -> "WorkflowBuilder":
         """Add a step that iterates over a collection, executing body steps per item.
@@ -558,7 +337,7 @@ class WorkflowBuilder:
         self._steps.append(TaskItem(
             name=name,
             task=ForTask(
-                for_=ForConfiguration(each=each, in_=in_),
+                for_=ForConfiguration(each=each, in_=as_in(in_)),
                 do=body.steps(),
             ),
         ))
@@ -570,41 +349,10 @@ class WorkflowBuilder:
             TaskItem(name=branch_name, task=DoTask(do=sub.steps()))
             for branch_name, sub in branches.items()
         ]
-        self._steps.append(TaskItem(name=name, task=ForkTask(fork=ForkConfiguration(branches=branch_items))))
+        self._steps.append(
+            TaskItem(name=name, task=ForkTask(fork=ForkConfiguration(branches=branch_items)))
+        )
         return self
-
-    def run(self, ctx: dict, timeout: float = 3600.0) -> dict:
-        """Execute all accumulated steps against the given context.
-
-        In a Jupyter/IPython session: runs the full assembled workflow through
-        the jackdaw engine, returns the resulting context dict. The engine
-        instance is reused across calls so the in-memory cache persists —
-        re-running the same cell with unchanged inputs is instant.
-
-        Outside an interactive session: returns ``ctx`` unchanged so that
-        module-level ``.run()`` calls are no-ops when the file is executed as
-        a script. ``__main__`` handles the actual execution via ``jackdaw.run()``.
-
-        Typical notebook pattern::
-
-            pipeline = jackdaw.WorkflowBuilder("my-pipeline")
-            pipeline.add("step-a", task_a)
-            pipeline.add("step-b", fn_b)
-
-            ctx = pipeline.run(cfg.to_pipeline_input())  # executes both steps
-            ctx["some_key"]                               # inspect
-
-            pipeline.add("step-c", fn_c)
-            ctx = pipeline.run(cfg.to_pipeline_input())  # a+b cache-hit, c runs
-        """
-        import sys
-        if "IPython" not in sys.modules:
-            return dict(ctx)
-
-        if self._engine_loop is None:
-            self._engine_loop = _EngineLoop()
-
-        return self._engine_loop.run(self.build(), dict(ctx), timeout)
 
     def steps(self) -> list[TaskItem]:
         """Return the accumulated steps (used when nesting builders inside fork branches)."""

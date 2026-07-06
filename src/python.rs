@@ -8,8 +8,8 @@
 use crate::builder::DurableEngineBuilder;
 use crate::durableengine::DurableEngine;
 use crate::execution_handle::ExecutionHandle;
-use crate::session::Session;
 use crate::providers::container::DockerProvider;
+use crate::session::Session;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -133,95 +133,174 @@ impl PyExecutionHandle {
 
 /// Python-facing interactive pipeline session.
 ///
-/// Each `run()` call parses the supplied single-step workflow YAML, executes it
-/// through the jackdaw engine with the current context, and accumulates the
-/// native `TaskDefinition` for later export.  The context is updated in place
-/// after every step and exposed as a Python dict via the `ctx` property.
+/// Two core verbs:
+///
+/// - `preview(workflow_yaml)` — execute a step against the current context
+///   and return the candidate result. Mutates nothing; call it repeatedly
+///   while iterating on a step.
+/// - `commit(workflow_yaml)` — accept a step: execute it, record it with
+///   context snapshots, and advance the context. Committing an existing step
+///   name rewinds to that step's prior input, replaces it in place, and
+///   marks later steps stale; `replay()` heals them.
+///
+/// The session owns a dedicated Tokio runtime so every engine call lands on
+/// the same runtime for the lifetime of the session.
 #[pyclass(name = "Session")]
 pub struct PySession {
     inner: Session,
+    rt: tokio::runtime::Runtime,
+}
+
+impl PySession {
+    fn parse_workflow(workflow_yaml: &str) -> PyResult<WorkflowDefinition> {
+        serde_yaml::from_str(workflow_yaml)
+            .map_err(|e| PyValueError::new_err(format!("Invalid workflow YAML: {e}")))
+    }
 }
 
 #[pymethods]
-#[allow(unsafe_op_in_unsafe_fn)]
 impl PySession {
     /// Create a new session.
     ///
     /// `input` — initial context dict; defaults to an empty object when omitted.
+    /// `input_schema` — JSON Schema document for the workflow's input; when
+    ///   provided, the seed context is validated against it immediately and
+    ///   the schema is embedded in the exported workflow.
+    /// `output_schema` — JSON Schema document for the workflow's output,
+    ///   embedded in the exported workflow.
     #[new]
-    #[pyo3(signature = (input=None))]
-    unsafe fn new(input: Option<Bound<'_, PyDict>>) -> PyResult<Self> {
+    #[pyo3(signature = (input=None, input_schema=None, output_schema=None))]
+    fn new(
+        input: Option<Bound<'_, PyDict>>,
+        input_schema: Option<Bound<'_, PyDict>>,
+        output_schema: Option<Bound<'_, PyDict>>,
+    ) -> PyResult<Self> {
         let ctx = match input {
             Some(ref d) => python_dict_to_json(d)?,
             None => serde_json::Value::Object(Default::default()),
         };
-        let session = Session::new(ctx)
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to create session: {e}")))?;
-        Ok(Self { inner: session })
+        let input_schema = input_schema.as_ref().map(python_dict_to_json).transpose()?;
+        let output_schema = output_schema
+            .as_ref()
+            .map(python_dict_to_json)
+            .transpose()?;
+
+        let rt = tokio::runtime::Runtime::new()
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to create runtime: {e}")))?;
+        let session = Session::new(ctx, input_schema, output_schema)
+            .map_err(|e| PyValueError::new_err(format!("Failed to create session: {e}")))?;
+        Ok(Self { inner: session, rt })
     }
 
-    /// Execute one step and return the updated context dict.
-    ///
-    /// `workflow_yaml` — a complete single-step workflow YAML document produced
-    ///   by `WorkflowBuilder.build().to_yaml()` on the Python side.
-    /// `timeout_secs`  — per-step timeout in seconds (default 60).
+    /// Execute a step against the current context and return the candidate
+    /// context dict. The session itself is not modified.
     #[pyo3(signature = (workflow_yaml, timeout_secs = 60.0))]
-    unsafe fn run(
+    fn preview(
+        &self,
+        py: Python<'_>,
+        workflow_yaml: String,
+        timeout_secs: f64,
+    ) -> PyResult<PyObject> {
+        let workflow = Self::parse_workflow(&workflow_yaml)?;
+        let timeout = Duration::from_secs_f64(timeout_secs);
+
+        let result = py
+            .allow_threads(|| self.rt.block_on(self.inner.preview(workflow, timeout)))
+            .map_err(|e| PyRuntimeError::new_err(format!("Preview failed: {e}")))?;
+
+        json_to_python(py, &result)
+    }
+
+    /// Commit one step and return the updated context dict.
+    ///
+    /// `workflow_yaml` must contain exactly one named task. Re-committing an
+    /// existing step name replaces that step (rewinding the context to the
+    /// step's recorded input) and marks every later step stale.
+    #[pyo3(signature = (workflow_yaml, timeout_secs = 60.0))]
+    fn commit(
         &mut self,
         py: Python<'_>,
         workflow_yaml: String,
         timeout_secs: f64,
     ) -> PyResult<PyObject> {
-        use serverless_workflow_core::models::workflow::WorkflowDefinition;
-        use std::time::Duration;
-
-        let workflow: WorkflowDefinition =
-            serde_yaml::from_str(&workflow_yaml).map_err(|e| {
-                PyValueError::new_err(format!("Invalid workflow YAML: {e}"))
-            })?;
-
+        let workflow = Self::parse_workflow(&workflow_yaml)?;
         let timeout = Duration::from_secs_f64(timeout_secs);
-        let result = self
-            .inner
-            .execute_step_sync(workflow, timeout)
-            .map_err(|e| PyRuntimeError::new_err(format!("Step execution failed: {e}")))?;
+
+        let inner = &mut self.inner;
+        let rt = &self.rt;
+        let result = py
+            .allow_threads(|| rt.block_on(inner.commit(workflow, timeout)))
+            .map_err(|e| PyRuntimeError::new_err(format!("Commit failed: {e}")))?;
 
         json_to_python(py, &result)
     }
 
+    /// Re-execute every step from the first stale one onward and return the
+    /// final context dict. No-op when nothing is stale. `timeout_secs`
+    /// applies per step.
+    #[pyo3(signature = (timeout_secs = 60.0))]
+    fn replay(&mut self, py: Python<'_>, timeout_secs: f64) -> PyResult<PyObject> {
+        let timeout = Duration::from_secs_f64(timeout_secs);
+
+        let inner = &mut self.inner;
+        let rt = &self.rt;
+        let result = py
+            .allow_threads(|| rt.block_on(inner.replay(timeout)))
+            .map_err(|e| PyRuntimeError::new_err(format!("Replay failed: {e}")))?;
+
+        json_to_python(py, &result)
+    }
+
+    /// Rewind the context to just before `name` ran, drop that step and
+    /// everything after it, and return the restored context dict.
+    fn rollback(&mut self, py: Python<'_>, name: &str) -> PyResult<PyObject> {
+        let result = self
+            .inner
+            .rollback(name)
+            .map_err(|e| PyRuntimeError::new_err(format!("Rollback failed: {e}")))?;
+        json_to_python(py, &result)
+    }
+
+    /// Return the committed steps in order as a list of
+    /// `{"name": str, "stale": bool}` dicts.
+    fn status<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, pyo3::types::PyList>> {
+        let list = pyo3::types::PyList::empty_bound(py);
+        for step in self.inner.status() {
+            let entry = PyDict::new_bound(py);
+            entry.set_item("name", step.name)?;
+            entry.set_item("stale", step.stale)?;
+            list.append(entry)?;
+        }
+        Ok(list)
+    }
+
     /// Return the current accumulated context as a Python dict.
+    ///
+    /// Note: this is a copy — in-place mutation is discarded. Use `update()`
+    /// or assign to `ctx` to change the context.
     #[getter]
-    unsafe fn ctx(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn ctx(&self, py: Python<'_>) -> PyResult<PyObject> {
         json_to_python(py, self.inner.context())
     }
 
     /// Replace the current context with a Python dict.
     #[setter]
-    unsafe fn set_ctx(&mut self, ctx: Bound<'_, PyDict>) -> PyResult<()> {
+    fn set_ctx(&mut self, ctx: Bound<'_, PyDict>) -> PyResult<()> {
         let json = python_dict_to_json(&ctx)?;
         self.inner.set_context(json);
         Ok(())
     }
 
-    /// Accumulate a step without executing it.
-    ///
-    /// Used in script mode: the step definition is registered so that
-    /// `export_yaml()` includes it, but the engine is not invoked and the
-    /// context is not changed.
-    #[pyo3(signature = (workflow_yaml))]
-    unsafe fn add(&mut self, workflow_yaml: String) -> PyResult<()> {
-        use serverless_workflow_core::models::workflow::WorkflowDefinition;
-
-        let workflow: WorkflowDefinition =
-            serde_yaml::from_str(&workflow_yaml).map_err(|e| {
-                PyValueError::new_err(format!("Invalid workflow YAML: {e}"))
-            })?;
-
-        self.inner.add_step(workflow);
-        Ok(())
+    /// Merge the top-level keys of `patch` into the current context
+    /// (e.g. narrowing a list before committing the next step). Returns the
+    /// updated context dict.
+    fn update(&mut self, py: Python<'_>, patch: Bound<'_, PyDict>) -> PyResult<PyObject> {
+        let json = python_dict_to_json(&patch)?;
+        self.inner.update_context(json);
+        json_to_python(py, self.inner.context())
     }
 
-    /// Serialise all accumulated steps as a YAML workflow string.
+    /// Serialise all committed steps as a YAML workflow string.
     #[pyo3(signature = (name, namespace = "default", version = "0.1.0"))]
     fn export_yaml(&self, name: String, namespace: &str, version: &str) -> PyResult<String> {
         self.inner
@@ -343,13 +422,17 @@ pub struct PyHttpListener {
 impl PyHttpListener {
     #[new]
     fn new(bind_addr: String, routes: Bound<'_, PyDict>) -> PyResult<Self> {
-        use crate::listeners::http::HttpListener;
         use crate::listeners::Error as ListenerError;
+        use crate::listeners::http::HttpListener;
         use std::collections::HashMap;
 
         let mut route_handlers: HashMap<
             String,
-            Arc<dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value> + Send + Sync>,
+            Arc<
+                dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value>
+                    + Send
+                    + Sync,
+            >,
         > = HashMap::new();
 
         for (key, val) in routes.iter() {
@@ -357,19 +440,26 @@ impl PyHttpListener {
             let py_fn: PyObject = val.unbind();
 
             let handler: Arc<
-                dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value> + Send + Sync,
+                dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value>
+                    + Send
+                    + Sync,
             > = Arc::new(move |value: serde_json::Value| {
                 Python::with_gil(|py| {
-                    let py_input = json_to_python(py, &value).map_err(|e| ListenerError::Listener {
-                        message: e.to_string(),
-                    })?;
-                    let result = py_fn
-                        .call1(py, (py_input,))
-                        .map_err(|e| ListenerError::Listener { message: e.to_string() })?;
+                    let py_input =
+                        json_to_python(py, &value).map_err(|e| ListenerError::Listener {
+                            message: e.to_string(),
+                        })?;
+                    let result =
+                        py_fn
+                            .call1(py, (py_input,))
+                            .map_err(|e| ListenerError::Listener {
+                                message: e.to_string(),
+                            })?;
                     let bound = result.into_bound(py);
                     if let Ok(dict) = bound.downcast::<PyDict>() {
-                        python_dict_to_json(dict)
-                            .map_err(|e| ListenerError::Listener { message: e.to_string() })
+                        python_dict_to_json(dict).map_err(|e| ListenerError::Listener {
+                            message: e.to_string(),
+                        })
                     } else {
                         Ok(serde_json::json!({}))
                     }
@@ -388,7 +478,10 @@ impl PyHttpListener {
             .build()
             .map_err(|e| PyRuntimeError::new_err(format!("runtime: {e}")))?;
 
-        Ok(Self { inner: Arc::new(listener), rt: Arc::new(rt) })
+        Ok(Self {
+            inner: Arc::new(listener),
+            rt: Arc::new(rt),
+        })
     }
 
     /// Start the HTTP server in the background.  Returns immediately; the
@@ -438,6 +531,68 @@ fn set_output_enabled(enabled: bool) {
 ///
 /// Called from Python script steps generated by `build_image_task()` in the Python SDK.
 /// Synchronous so callers need no asyncio setup.
+/// Load registry credentials the way `docker build` does: from the local
+/// container auth config's `auths` map. Sources checked in order:
+/// `$REGISTRY_AUTH_FILE`, `$DOCKER_CONFIG/config.json`,
+/// `~/.docker/config.json`, `$XDG_RUNTIME_DIR/containers/auth.json`
+/// (podman login). Credential helpers (credsStore/credHelpers) are not
+/// invoked — only static auth entries are forwarded.
+///
+/// Returns an empty map when nothing is found. The map is always passed to
+/// bollard as `Some(..)` so the X-Registry-Config header is valid JSON
+/// (`{}`); with `None` bollard sends an empty header value, which Podman's
+/// docker-compat API rejects with "unexpected end of JSON input".
+fn registry_credentials() -> std::collections::HashMap<String, bollard::auth::DockerCredentials> {
+    use bollard::auth::DockerCredentials;
+    use std::collections::HashMap;
+
+    let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+    if let Ok(p) = std::env::var("REGISTRY_AUTH_FILE") {
+        candidates.push(p.into());
+    }
+    if let Ok(p) = std::env::var("DOCKER_CONFIG") {
+        candidates.push(std::path::Path::new(&p).join("config.json"));
+    }
+    if let Some(home) = std::env::var_os("HOME") {
+        candidates.push(std::path::Path::new(&home).join(".docker/config.json"));
+    }
+    if let Ok(p) = std::env::var("XDG_RUNTIME_DIR") {
+        candidates.push(std::path::Path::new(&p).join("containers/auth.json"));
+    }
+
+    for path in candidates {
+        let Ok(contents) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(json) = serde_json::from_str::<serde_json::Value>(&contents) else {
+            continue;
+        };
+        let Some(auths) = json.get("auths").and_then(|a| a.as_object()) else {
+            continue;
+        };
+        let mut creds = HashMap::new();
+        for (registry, entry) in auths {
+            let get = |key: &str| entry.get(key).and_then(|v| v.as_str()).map(String::from);
+            creds.insert(
+                registry.clone(),
+                DockerCredentials {
+                    username: get("username"),
+                    password: get("password"),
+                    auth: get("auth"),
+                    email: get("email"),
+                    serveraddress: Some(registry.clone()),
+                    identitytoken: get("identitytoken"),
+                    registrytoken: get("registrytoken"),
+                },
+            );
+        }
+        if !creds.is_empty() {
+            return creds;
+        }
+    }
+    HashMap::new()
+}
+
 #[pyfunction]
 fn build_image(tag: String, dockerfile: String, context_dir: String) -> PyResult<()> {
     use bollard::image::BuildImageOptions;
@@ -462,9 +617,8 @@ fn build_image(tag: String, dockerfile: String, context_dir: String) -> PyResult
         // Write the Dockerfile into the context directory.
         let dockerfile_path = ctx_path.join("Dockerfile");
         {
-            let mut f = std::fs::File::create(&dockerfile_path).map_err(|e| {
-                PyRuntimeError::new_err(format!("Failed to write Dockerfile: {e}"))
-            })?;
+            let mut f = std::fs::File::create(&dockerfile_path)
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to write Dockerfile: {e}")))?;
             f.write_all(dockerfile.as_bytes()).map_err(|e| {
                 PyRuntimeError::new_err(format!("Failed to write Dockerfile contents: {e}"))
             })?;
@@ -487,14 +641,22 @@ fn build_image(tag: String, dockerfile: String, context_dir: String) -> PyResult
                 .hidden(false)
                 .build();
 
-            for entry in walker.filter_map(|e| e.ok()).filter(|e| e.file_type().map_or(false, |t| t.is_file())) {
+            for entry in walker
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_type().is_some_and(|t| t.is_file()))
+            {
                 let rel = entry
                     .path()
                     .strip_prefix(&ctx_path)
                     .map_err(|e| PyRuntimeError::new_err(format!("Path error: {e}")))?;
-                archive.append_path_with_name(entry.path(), rel).map_err(|e| {
-                    PyRuntimeError::new_err(format!("Failed to add {} to tar: {e}", rel.display()))
-                })?;
+                archive
+                    .append_path_with_name(entry.path(), rel)
+                    .map_err(|e| {
+                        PyRuntimeError::new_err(format!(
+                            "Failed to add {} to tar: {e}",
+                            rel.display()
+                        ))
+                    })?;
             }
 
             let inner = archive
@@ -514,7 +676,7 @@ fn build_image(tag: String, dockerfile: String, context_dir: String) -> PyResult
             ..Default::default()
         };
 
-        let mut stream = docker.build_image(options, None, Some(tar_bytes));
+        let mut stream = docker.build_image(options, Some(registry_credentials()), Some(tar_bytes));
         while let Some(msg) = stream.next().await {
             match msg {
                 Ok(info) => {
@@ -522,10 +684,8 @@ fn build_image(tag: String, dockerfile: String, context_dir: String) -> PyResult
                         print!("{stream_line}");
                         let _ = std::io::Write::flush(&mut std::io::stdout());
                     }
-                    if let Some(aux) = &info.aux {
-                        if let Some(id) = aux.id.as_deref() {
-                            println!("Built image id: {id}");
-                        }
+                    if let Some(id) = info.aux.as_ref().and_then(|aux| aux.id.as_deref()) {
+                        println!("Built image id: {id}");
                     }
                     if let Some(err) = &info.error {
                         return Err(PyRuntimeError::new_err(format!("Build error: {err}")));
@@ -583,7 +743,7 @@ fn _jackdaw(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // virtualenv. Falls back to "python" if this fails (e.g. unusual embed setup).
     if let Ok(exe) = m
         .py()
-        .import("sys")
+        .import_bound("sys")
         .and_then(|sys| sys.getattr("executable"))
         .and_then(|exe| exe.extract::<String>())
     {

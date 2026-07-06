@@ -103,7 +103,6 @@
 
 pub mod builder;
 pub mod cache;
-pub mod session;
 pub mod config;
 pub mod container;
 pub mod context;
@@ -117,6 +116,7 @@ pub mod listeners;
 pub mod output;
 pub mod persistence;
 pub mod providers;
+pub mod session;
 pub mod task_ext;
 pub mod task_output;
 pub mod workflow;

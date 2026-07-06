@@ -1,16 +1,51 @@
-from ._jackdaw import DurableEngine, DurableEngineBuilder, ExecutionHandle, HttpListener, set_output_enabled
-from .runner import Config, WorkflowBuilder, WorkflowRunner, build_image_task, container_task, run, run_async, run_from_config, run_from_config_async, shell_task, stop_container_task
+from ._jackdaw import (
+    DurableEngine,
+    DurableEngineBuilder,
+    ExecutionHandle,
+    HttpListener,
+    set_output_enabled,
+)
+from .runner import (
+    Config,
+    RunContainerTask,
+    RunScriptTask,
+    RunShellTask,
+    WorkflowBuilder,
+    WorkflowRunner,
+    build_image_task,
+    container_task,
+    run,
+    run_async,
+    run_from_config,
+    run_from_config_async,
+    shell_task,
+    stop_container_task,
+)
+from ._expr import Expr, ctx, join, merge, ref
+from .session import Case, Session, Switch, case, switch
 
 __all__ = [
+    "Case",
     "Config",
+    "Expr",
     "DurableEngine",
     "DurableEngineBuilder",
     "ExecutionHandle",
     "HttpListener",
+    "RunContainerTask",
+    "RunScriptTask",
+    "RunShellTask",
+    "Session",
+    "Switch",
     "WorkflowBuilder",
     "WorkflowRunner",
     "build_image_task",
+    "case",
     "container_task",
+    "ctx",
+    "join",
+    "merge",
+    "ref",
     "run",
     "run_async",
     "run_from_config",
@@ -18,4 +53,5 @@ __all__ = [
     "set_output_enabled",
     "shell_task",
     "stop_container_task",
+    "switch",
 ]

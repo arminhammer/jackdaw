@@ -150,6 +150,23 @@ impl ContainerProvider for DockerProvider {
             ..Default::default()
         };
 
+        // Named containers are idempotent: force-remove any leftover container
+        // holding the name (e.g. stopped but not removed by a previous run) so
+        // re-running the step never fails with a name conflict. NotFound is the
+        // expected case; any other removal error surfaces via create below.
+        if let Some(name) = config.name.as_deref() {
+            let _ = self
+                .docker
+                .remove_container(
+                    name,
+                    Some(RemoveContainerOptions {
+                        force: true,
+                        ..Default::default()
+                    }),
+                )
+                .await;
+        }
+
         // Create container, using a caller-supplied name if provided
         let create_opts = config.name.as_deref().map(|n| CreateContainerOptions {
             name: n,

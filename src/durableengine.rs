@@ -28,6 +28,7 @@ mod catalog;
 mod export;
 mod graph;
 mod listeners;
+pub(crate) mod schema;
 mod tasks;
 mod timeout;
 
@@ -374,6 +375,10 @@ impl DurableEngine {
         workflow: WorkflowDefinition,
         input: serde_json::Value,
     ) -> Result<ExecutionHandle> {
+        // Enforce the workflow's declared input contract (if any) before
+        // anything starts — callers get an immediate error, no instance spawns.
+        schema::validate_workflow_input(&workflow, &input)?;
+
         // Create channels for event streaming and cancellation
         let (event_tx, event_rx) = tokio::sync::mpsc::channel(self.event_buffer_size);
         let (cancel_tx, _cancel_rx) = tokio::sync::mpsc::channel::<()>(1);
@@ -713,6 +718,10 @@ impl DurableEngine {
             obj.remove("__workflow");
             obj.remove("__runtime");
         }
+
+        // Enforce the workflow's declared output contract (if any) on the
+        // transformed output, before the workflow is marked completed.
+        schema::validate_workflow_output(&workflow, &final_data)?;
 
         // Calculate workflow duration
         let workflow_end_time = Utc::now();

@@ -1,5 +1,5 @@
 import pytest
-from serverlessworkflow.sdk import Workflow, Document
+from serverlessworkflow.sdk import Document, Workflow
 
 import jackdaw
 
