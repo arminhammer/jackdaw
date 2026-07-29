@@ -231,6 +231,81 @@ def test_untyped_steps_are_rejected():
 
 
 # --------------------------------------------------------------------- #
+# on-disk persistence and cache (durable_db / cache_db)
+# --------------------------------------------------------------------- #
+
+
+def test_durable_db_and_cache_db_create_files(tmp_path):
+    durable_db = tmp_path / "durable.db"
+    cache_db = tmp_path / "cache.db"
+    sess = make_session(durable_db=str(durable_db), cache_db=str(cache_db))
+    sess.commit(double)
+
+    assert durable_db.exists()
+    assert cache_db.exists()
+    assert cache_db.stat().st_size > 0
+
+
+def test_cache_db_survives_across_separate_sessions(tmp_path):
+    """A step committed on one Session instance is a cache hit on a brand
+    new Session pointed at the same cache_db — proving the cache is real
+    on-disk state, not per-process memory.
+
+    The step runs in a subprocess via generated source, so it can't close
+    over a Python-side counter — it counts its own executions by appending
+    to a file, a real external side effect only a real re-run would repeat.
+    """
+    cache_db = str(tmp_path / "cache.db")
+    call_log = str(tmp_path / "calls.log")
+
+    def counted(x: int, call_log: str) -> dict:
+        with open(call_log, "a") as f:
+            f.write("call\n")
+        return {"y": x * 2}
+
+    sess_a = make_session(cache_db=cache_db)
+    sess_a.update(call_log=call_log)
+    sess_a.commit(counted, name="counted")
+    assert open(call_log).read().count("call\n") == 1
+
+    # redb holds an exclusive file lock while open, so the first session must
+    # release it before a second one opens the same file — exactly why the
+    # real usage pattern is "reopen in a new process" (kernel restart), not
+    # two live handles at once.
+    del sess_a
+
+    # Fresh Session, fresh in-process engine, same on-disk cache file, same
+    # step name/definition/input: must be a cache hit, not a re-execution.
+    sess_b = make_session(cache_db=cache_db)
+    sess_b.update(call_log=call_log)
+    sess_b.commit(counted, name="counted")
+    assert open(call_log).read().count("call\n") == 1, (
+        "step should not re-execute: same cache_db, same input"
+    )
+
+
+def test_without_cache_db_each_session_re_executes(tmp_path):
+    """Baseline: without cache_db, a fresh Session has no memory of prior
+    runs, so the same step executes again."""
+    call_log = str(tmp_path / "calls.log")
+
+    def counted(x: int, call_log: str) -> dict:
+        with open(call_log, "a") as f:
+            f.write("call\n")
+        return {"y": x * 2}
+
+    s1 = make_session()
+    s1.update(call_log=call_log)
+    s1.commit(counted, name="counted")
+
+    s2 = make_session()
+    s2.update(call_log=call_log)
+    s2.commit(counted, name="counted")
+
+    assert open(call_log).read().count("call\n") == 2
+
+
+# --------------------------------------------------------------------- #
 # switch: runtime conditional steps
 # --------------------------------------------------------------------- #
 
@@ -279,6 +354,53 @@ def test_switch_requires_name():
         sess.commit(make_extract_switch())
 
 
+# --------------------------------------------------------------------- #
+# foreach: iteration steps
+# --------------------------------------------------------------------- #
+
+
+class LoopInput(BaseModel):
+    items: list[int]
+    total_offset: int
+
+
+def test_foreach_iterates_and_accumulates():
+    sess = jackdaw.Session(
+        name="loopy",
+        input=LoopInput(items=[1, 2, 3], total_offset=100),
+        output=PipelineOutput,
+    )
+
+    def per_item(item: int, total_offset: int) -> dict:
+        # `item` is the loop variable injected by the engine each iteration.
+        return {"y": total_offset + item}
+
+    ctx_after = sess.commit(
+        jackdaw.foreach("item", jackdaw.ctx.items, per_item), name="per-item"
+    )
+    # Iteration outputs merge into the context; the last item wins for `y`.
+    assert ctx_after["y"] == 103
+
+    yaml_doc = sess._prepare(jackdaw.foreach("item", jackdaw.ctx.items, per_item), "per-item")
+    assert "for:" in yaml_doc and "each: item" in yaml_doc and "in: .items" in yaml_doc
+
+
+def test_foreach_body_may_use_loop_variable_not_in_context():
+    """The loop variable is injected per-iteration; commit-time validation
+    must not demand it from the seed context."""
+    sess = jackdaw.Session(
+        name="loopy",
+        input=LoopInput(items=[5], total_offset=0),
+        output=PipelineOutput,
+    )
+
+    def body(item: int) -> dict:
+        return {"y": item}
+
+    ctx_after = sess.commit(jackdaw.foreach("item", ".items", body), name="loop")
+    assert ctx_after["y"] == 5
+
+
 def test_exported_switch_branches_on_input():
     """The exported artifact carries BOTH branches; the input decides."""
     sess = _switch_session(polygon=None)
@@ -293,3 +415,97 @@ def test_exported_switch_branches_on_input():
 
     assert asyncio.run(run_with({"x": 5, "polygon": "/p.geojson"}))["z"] == 100
     assert asyncio.run(run_with({"x": 5, "polygon": None}))["z"] == 200
+
+
+# --------------------------------------------------------------------- #
+# subworkflow: composing sessions from already-exported artifacts
+# --------------------------------------------------------------------- #
+
+
+class SubInput(BaseModel):
+    a: int
+
+
+class SubOutput(TypedDict):
+    b: int
+
+
+def double_a(a: int) -> dict:
+    return {"b": a * 2}
+
+
+def _export_sub_pipeline(tmp_path) -> str:
+    sub = jackdaw.Session(
+        name="sub-pipeline",
+        namespace="test-ns",
+        version="1.0.0",
+        input=SubInput(a=1),
+        output=SubOutput,
+    )
+    sub.commit(double_a)
+    path = tmp_path / "sub.sw.yaml"
+    sub.export(str(path))
+    return str(path)
+
+
+class CallerInput(BaseModel):
+    x: int
+
+
+class CallerOutput(TypedDict):
+    b: int
+
+
+def test_subworkflow_calls_exported_artifact_and_merges_output(tmp_path):
+    sub_path = _export_sub_pipeline(tmp_path)
+
+    caller = jackdaw.Session(
+        name="caller",
+        input=CallerInput(x=21),
+        output=CallerOutput,
+        registry=[sub_path],
+    )
+    ctx = caller.commit(
+        jackdaw.subworkflow(
+            namespace="test-ns", name="sub-pipeline", version="1.0.0",
+            input={"a": jackdaw.ctx.x},
+        ),
+        name="call-sub",
+    )
+    assert ctx["b"] == 42
+
+
+def test_subworkflow_enforces_its_own_input_schema(tmp_path):
+    """The sub-workflow's contract is enforced at the call boundary,
+    independently of the caller's own contract."""
+    sub_path = _export_sub_pipeline(tmp_path)
+
+    caller = jackdaw.Session(
+        name="caller",
+        input=CallerInput(x=21),
+        output=CallerOutput,
+        registry=[sub_path],
+    )
+    with pytest.raises(RuntimeError, match="schema validation"):
+        caller.commit(
+            jackdaw.subworkflow(
+                namespace="test-ns", name="sub-pipeline", version="1.0.0",
+                input={"a": jackdaw.ctx.x != jackdaw.ctx.x},  # bool, not int
+            ),
+            name="call-sub",
+        )
+
+
+def test_unregistered_subworkflow_fails_clearly():
+    caller = jackdaw.Session(name="caller", input=CallerInput(x=21), output=CallerOutput)
+    with pytest.raises(RuntimeError, match="not found|not registered|Unknown workflow"):
+        caller.commit(
+            jackdaw.subworkflow(namespace="test-ns", name="sub-pipeline", version="1.0.0"),
+            name="call-sub",
+        )
+
+
+def test_subworkflow_requires_name():
+    caller = jackdaw.Session(name="caller", input=CallerInput(x=21), output=CallerOutput)
+    with pytest.raises(ValueError, match="name"):
+        caller.commit(jackdaw.subworkflow(namespace="test-ns", name="sub-pipeline"))

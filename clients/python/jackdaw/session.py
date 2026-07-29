@@ -61,14 +61,22 @@ from typing import Any
 
 from serverlessworkflow.sdk import Workflow
 from serverlessworkflow.sdk.base import TaskItem
-from serverlessworkflow.sdk.tasks import DoTask, RunTask, SetTask, SwitchCase, SwitchTask
+from serverlessworkflow.sdk.tasks import (
+    DoTask,
+    ForConfiguration,
+    ForTask,
+    RunTask,
+    SetTask,
+    SwitchCase,
+    SwitchTask,
+)
 from serverlessworkflow.sdk.workflow import Document
 
 from ._codegen import function_to_task, required_params
 from ._contract import input_contract, output_contract
-from ._expr import Expr, as_when
+from ._expr import Expr, as_in, as_when
 from ._jackdaw import Session as _NativeSession
-from .runner import RunContainerTask, RunScriptTask, RunShellTask
+from .runner import RunContainerTask, RunScriptTask, RunShellTask, RunWorkflowTask
 
 
 @dataclass
@@ -116,10 +124,46 @@ def switch(*cases: Case) -> Switch:
     return Switch(cases=cases)
 
 
+@dataclass
+class ForEach:
+    """An iteration step: run `step` once per item of a context collection.
+
+    Authoring sugar only — compiles to the spec's `for` task, which the Rust
+    engine executes. Each iteration merges its output into the context, so
+    results accumulate across items. Build with :func:`foreach`.
+    """
+
+    each: str
+    in_: "str | Expr"
+    step: "Step"
+
+
+def foreach(each: str, in_: "str | Expr", step: "Step") -> ForEach:
+    """Iterate a step over a context collection.
+
+    `each` names the loop variable injected into the context for every
+    iteration (the step function can consume it as a parameter); `in_` is a
+    context expression evaluating to the collection.
+
+        consolidate = jackdaw.foreach("scenario", ctx.scenarios, consolidate_isochrone)
+        sess.commit(consolidate, name="consolidated-isochrones")
+    """
+    return ForEach(each=each, in_=in_, step=step)
+
+
 # A session step: a typed Python function, a specific task type for
-# non-Python work (shell commands, containers, scripts), or a runtime
-# conditional built with switch().
-Step = Callable | RunShellTask | RunContainerTask | RunScriptTask | Switch
+# non-Python work (shell commands, containers, scripts, sub-workflows), a
+# runtime conditional built with switch(), or an iteration built with
+# foreach().
+Step = (
+    Callable
+    | RunShellTask
+    | RunContainerTask
+    | RunScriptTask
+    | RunWorkflowTask
+    | Switch
+    | ForEach
+)
 
 
 class Session:
@@ -155,7 +199,24 @@ class Session:
         output: type,
         namespace: str = "default",
         version: str = "0.1.0",
+        durable_db: str | None = None,
+        cache_db: str | None = None,
+        registry: "list[str] | None" = None,
     ) -> None:
+        """
+        `durable_db` / `cache_db` — paths to redb files for on-disk workflow
+        event persistence and cached task results. Omit either for in-memory
+        (the default: fast, but lost on kernel restart — every `commit`
+        re-executes from scratch). With `cache_db` set, re-running a notebook
+        against the same file resumes with cache hits for any step whose
+        name, definition, and input haven't changed.
+
+        `registry` — paths to exported workflow YAML files (e.g. from another
+        session's :meth:`export`) to make callable from this session via
+        `jackdaw.subworkflow(namespace, name, version, ...)` steps. Each file
+        is registered under the (namespace, name, version) in its own
+        `document` block.
+        """
         values, input_schema = input_contract(input)
         output_schema = output_contract(output)
         self._name = name
@@ -165,6 +226,9 @@ class Session:
             input=values,
             input_schema=input_schema,
             output_schema=output_schema,
+            durable_db=durable_db,
+            cache_db=cache_db,
+            registry=registry or [],
         )
 
     # ------------------------------------------------------------------ #
@@ -298,17 +362,25 @@ class Session:
 
         A step is a typed Python function (params = consumed context keys,
         returned dict merges into the context), a specific task type —
-        `RunShellTask`, `RunContainerTask`, `RunScriptTask` — for work that
-        isn't Python, or a :func:`switch` conditional.
+        `RunShellTask`, `RunContainerTask`, `RunScriptTask`, `RunWorkflowTask`
+        — for work that isn't Python, or a :func:`switch` conditional.
         """
-        if isinstance(step, (Switch, RunShellTask, RunScriptTask, RunContainerTask)):
+        if isinstance(
+            step,
+            (Switch, ForEach, RunShellTask, RunScriptTask, RunContainerTask, RunWorkflowTask),
+        ):
             if name is None:
                 raise ValueError(
                     "Task objects need an explicit name: "
                     "commit(mkdir('${ .working_dir }'), name='make-dir')"
                 )
             step_name = name
-            task = self._switch_to_task(step) if isinstance(step, Switch) else step
+            if isinstance(step, Switch):
+                task = self._switch_to_task(step)
+            elif isinstance(step, ForEach):
+                task = self._foreach_to_task(step)
+            else:
+                task = step
         elif callable(step) and not isinstance(step, RunTask):
             step_name = name or step.__name__.replace("_", "-")
             self._check_params(step)
@@ -316,7 +388,8 @@ class Session:
         else:
             raise TypeError(
                 "Session steps are typed Python functions or specific task "
-                "types (RunShellTask / RunContainerTask / RunScriptTask); "
+                "types (RunShellTask / RunContainerTask / RunScriptTask / "
+                "RunWorkflowTask); "
                 f"got: {step!r}"
             )
 
@@ -359,24 +432,47 @@ class Session:
         items.append(TaskItem(name="join", task=SetTask(set="${ . }")))
         return DoTask(do=items)
 
-    def _branch_to_task(self, c: Case):
-        """Convert one switch branch's step to a task."""
-        if isinstance(c.step, (RunShellTask, RunScriptTask, RunContainerTask)):
-            return c.step
-        if callable(c.step) and not isinstance(c.step, RunTask):
-            self._check_params(c.step)
-            return function_to_task(c.step)
-        raise TypeError(
-            f"switch case {c.name!r}: branch steps are typed Python functions "
-            f"or specific task types, got {c.step!r}"
+    def _foreach_to_task(self, fe: ForEach) -> ForTask:
+        """Compile a ForEach into the spec's `for` task. The loop variable
+        (`each`) is injected into the context per iteration by the engine, so
+        it is exempt from commit-time context checks."""
+        body_task = self._inner_step_to_task(
+            fe.step, label="foreach body", extra_keys=(fe.each,)
+        )
+        body_name = (
+            fe.step.__name__.replace("_", "-")
+            if callable(fe.step) and hasattr(fe.step, "__name__")
+            else "body"
+        )
+        return ForTask(
+            for_=ForConfiguration(each=fe.each, in_=as_in(fe.in_)),
+            do=[TaskItem(name=body_name, task=body_task)],
         )
 
-    def _check_params(self, fn: Callable) -> None:
+    def _branch_to_task(self, c: Case):
+        """Convert one switch branch's step to a task."""
+        return self._inner_step_to_task(c.step, label=f"switch case {c.name!r}")
+
+    def _inner_step_to_task(self, step, label: str, extra_keys: tuple[str, ...] = ()):
+        """Convert a nested step (switch branch, foreach body) to a task."""
+        if isinstance(step, (RunShellTask, RunScriptTask, RunContainerTask, RunWorkflowTask)):
+            return step
+        if callable(step) and not isinstance(step, RunTask):
+            self._check_params(step, extra_keys=extra_keys)
+            return function_to_task(step)
+        raise TypeError(
+            f"{label}: steps are typed Python functions or specific task "
+            "types (RunShellTask / RunContainerTask / RunScriptTask / "
+            f"RunWorkflowTask), got {step!r}"
+        )
+
+    def _check_params(self, fn: Callable, extra_keys: tuple[str, ...] = ()) -> None:
         """Fail fast, in the cell, when required parameters are missing."""
-        missing = [p for p in required_params(fn) if p not in self._inner.ctx]
+        available = set(self._inner.ctx) | set(extra_keys)
+        missing = [p for p in required_params(fn) if p not in available]
         if missing:
             raise ValueError(
                 f"{fn.__name__}() requires context keys that are not present: "
                 f"{', '.join(missing)}. Available keys: "
-                f"{', '.join(sorted(self._inner.ctx.keys())) or '(none)'}"
+                f"{', '.join(sorted(available)) or '(none)'}"
             )

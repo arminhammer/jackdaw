@@ -168,12 +168,23 @@ impl PySession {
     ///   the schema is embedded in the exported workflow.
     /// `output_schema` — JSON Schema document for the workflow's output,
     ///   embedded in the exported workflow.
+    /// `durable_db` — path to a redb file for workflow event persistence;
+    ///   omit for in-memory (lost on process exit).
+    /// `cache_db` — path to a redb file for cached task results; when set,
+    ///   a `commit` for a step whose name, definition, and input match a
+    ///   prior run on the same file is a cache hit even in a fresh process.
+    /// `registry` — paths to exported workflow YAML files to register with
+    ///   this session's engine; a committed step whose task is
+    ///   `run: workflow: {namespace, name, version}` resolves against these.
     #[new]
-    #[pyo3(signature = (input=None, input_schema=None, output_schema=None))]
+    #[pyo3(signature = (input=None, input_schema=None, output_schema=None, durable_db=None, cache_db=None, registry=None))]
     fn new(
         input: Option<Bound<'_, PyDict>>,
         input_schema: Option<Bound<'_, PyDict>>,
         output_schema: Option<Bound<'_, PyDict>>,
+        durable_db: Option<String>,
+        cache_db: Option<String>,
+        registry: Option<Vec<String>>,
     ) -> PyResult<Self> {
         let ctx = match input {
             Some(ref d) => python_dict_to_json(d)?,
@@ -187,7 +198,15 @@ impl PySession {
 
         let rt = tokio::runtime::Runtime::new()
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to create runtime: {e}")))?;
-        let session = Session::new(ctx, input_schema, output_schema)
+        let session = rt
+            .block_on(Session::new(
+                ctx,
+                input_schema,
+                output_schema,
+                durable_db,
+                cache_db,
+                registry.unwrap_or_default(),
+            ))
             .map_err(|e| PyValueError::new_err(format!("Failed to create session: {e}")))?;
         Ok(Self { inner: session, rt })
     }

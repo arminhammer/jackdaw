@@ -84,7 +84,7 @@ pub struct StepStatus {
 /// let step_yaml = std::fs::read_to_string("step.yaml")?;
 /// let step_wf: WorkflowDefinition = serde_yaml::from_str(&step_yaml)?;
 ///
-/// let mut session = Session::new(serde_json::json!({"working_dir": "/tmp"}), None, None)?;
+/// let mut session = Session::new(serde_json::json!({"working_dir": "/tmp"}), None, None, None, None, Vec::new()).await?;
 ///
 /// // Iterate freely: preview never mutates the session.
 /// let candidate = session.preview(step_wf.clone(), Duration::from_secs(60)).await?;
@@ -118,21 +118,83 @@ impl Session {
     /// When `input_schema` is provided, the seed context is validated against
     /// it immediately — a session cannot be created from input that violates
     /// its own declared contract.
-    pub fn new(
+    ///
+    /// By default the session's engine uses in-memory persistence and cache,
+    /// which are lost when the process exits — every `commit` re-executes
+    /// from scratch after a kernel restart. Pass `durable_db` / `cache_db`
+    /// (paths to redb files) to persist workflow events and cached task
+    /// results to disk instead: a `commit` for a step whose name, definition,
+    /// and input all match a prior run on the same `cache_db` is a cache hit
+    /// even in a fresh process.
+    ///
+    /// `registry` is a list of exported workflow YAML file paths to register
+    /// with this session's engine before it's returned. A committed step
+    /// whose task is `run: workflow: {namespace, name, version}` resolves
+    /// against these — the mechanism for composing a pipeline out of other,
+    /// already-exported pipelines as opaque, reusable artifacts (mirrors the
+    /// CLI's `--registry` flag).
+    pub async fn new(
         ctx: serde_json::Value,
         input_schema: Option<serde_json::Value>,
         output_schema: Option<serde_json::Value>,
+        durable_db: Option<String>,
+        cache_db: Option<String>,
+        registry: Vec<String>,
     ) -> Result<Self> {
         if let Some(schema) = input_schema.as_ref() {
             crate::durableengine::schema::check_document(schema, &ctx, "input")
                 .map_err(|message| Error::Schema { message })?;
         }
 
-        let engine = DurableEngineBuilder::new()
-            .build()
-            .map_err(|e| Error::Engine {
-                message: e.to_string(),
+        let mut builder = DurableEngineBuilder::new();
+
+        if let Some(path) = durable_db.as_ref() {
+            let persistence =
+                crate::providers::persistence::RedbPersistence::new(path).map_err(|e| {
+                    Error::Engine {
+                        message: format!("Failed to open durable_db at {path}: {e}"),
+                    }
+                })?;
+            builder = builder.with_persistence(Arc::new(persistence));
+        }
+
+        if let Some(path) = cache_db.as_ref() {
+            // RedbCache wraps a redb::Database handle; a dedicated
+            // RedbPersistence at the same path is just the vehicle for
+            // opening it (mirrors the CLI's --cache-provider redb wiring).
+            let cache_persistence =
+                crate::providers::persistence::RedbPersistence::new(path).map_err(|e| {
+                    Error::Engine {
+                        message: format!("Failed to open cache_db at {path}: {e}"),
+                    }
+                })?;
+            let cache = crate::providers::cache::RedbCache::new(cache_persistence.db.clone())
+                .map_err(|e| Error::Engine {
+                    message: format!("Failed to open cache_db at {path}: {e}"),
+                })?;
+            builder = builder.with_cache(Arc::new(cache));
+        }
+
+        let engine = builder.build().map_err(|e| Error::Engine {
+            message: e.to_string(),
+        })?;
+
+        for path in &registry {
+            let yaml = std::fs::read_to_string(path).map_err(|e| Error::Engine {
+                message: format!("Failed to read registry file {path}: {e}"),
             })?;
+            let workflow: WorkflowDefinition =
+                serde_yaml::from_str(&yaml).map_err(|e| Error::Yaml {
+                    message: format!("Invalid workflow YAML in registry file {path}: {e}"),
+                })?;
+            engine
+                .register_workflow(workflow)
+                .await
+                .map_err(|e| Error::Engine {
+                    message: format!("Failed to register workflow from {path}: {e}"),
+                })?;
+        }
+
         Ok(Self {
             engine: Arc::new(engine),
             ctx,
@@ -438,7 +500,7 @@ do:
 
     #[tokio::test]
     async fn preview_does_not_mutate() {
-        let session = Session::new(json!({"seed": 1}), None, None).unwrap();
+        let session = Session::new(json!({"seed": 1}), None, None, None, None, Vec::new()).await.unwrap();
 
         let out = session.preview(step("a", "{a: 1}"), TIMEOUT).await.unwrap();
         assert_eq!(out.get("a"), Some(&json!(1)));
@@ -452,7 +514,7 @@ do:
 
     #[tokio::test]
     async fn commit_appends_and_advances_context() {
-        let mut session = Session::new(json!({}), None, None).unwrap();
+        let mut session = Session::new(json!({}), None, None, None, None, Vec::new()).await.unwrap();
 
         session.commit(step("a", "{a: 1}"), TIMEOUT).await.unwrap();
         let ctx = session.commit(step("b", "{b: 2}"), TIMEOUT).await.unwrap();
@@ -476,7 +538,7 @@ do:
 
     #[tokio::test]
     async fn commit_same_name_rewinds_and_marks_downstream_stale() {
-        let mut session = Session::new(json!({}), None, None).unwrap();
+        let mut session = Session::new(json!({}), None, None, None, None, Vec::new()).await.unwrap();
         session.commit(step("a", "{a: 1}"), TIMEOUT).await.unwrap();
         session.commit(step("b", "{b: 2}"), TIMEOUT).await.unwrap();
 
@@ -509,7 +571,7 @@ do:
 
     #[tokio::test]
     async fn replay_without_stale_steps_is_a_no_op() {
-        let mut session = Session::new(json!({}), None, None).unwrap();
+        let mut session = Session::new(json!({}), None, None, None, None, Vec::new()).await.unwrap();
         session.commit(step("a", "{a: 1}"), TIMEOUT).await.unwrap();
 
         let before = session.context().clone();
@@ -519,7 +581,7 @@ do:
 
     #[tokio::test]
     async fn rollback_truncates_and_restores_context() {
-        let mut session = Session::new(json!({"seed": 1}), None, None).unwrap();
+        let mut session = Session::new(json!({"seed": 1}), None, None, None, None, Vec::new()).await.unwrap();
         session.commit(step("a", "{a: 1}"), TIMEOUT).await.unwrap();
         session.commit(step("b", "{b: 2}"), TIMEOUT).await.unwrap();
 
@@ -535,7 +597,7 @@ do:
 
     #[tokio::test]
     async fn export_has_no_duplicates_after_recommit() {
-        let mut session = Session::new(json!({}), None, None).unwrap();
+        let mut session = Session::new(json!({}), None, None, None, None, Vec::new()).await.unwrap();
         session.commit(step("a", "{a: 1}"), TIMEOUT).await.unwrap();
         session.commit(step("a", "{a: 2}"), TIMEOUT).await.unwrap();
         session.commit(step("b", "{b: 3}"), TIMEOUT).await.unwrap();
@@ -557,7 +619,7 @@ do:
 
     #[tokio::test]
     async fn commit_rejects_multi_task_workflows() {
-        let mut session = Session::new(json!({}), None, None).unwrap();
+        let mut session = Session::new(json!({}), None, None, None, None, Vec::new()).await.unwrap();
         let yaml = r"
 document:
   dsl: '1.0.2'
@@ -587,10 +649,13 @@ do:
             "properties": {"working_dir": {"type": "string"}}
         });
 
-        assert!(Session::new(json!({"working_dir": "/tmp"}), Some(schema.clone()), None).is_ok());
+        assert!(
+            Session::new(json!({"working_dir": "/tmp"}), Some(schema.clone()), None, None, None, Vec::new()).await
+                .is_ok()
+        );
 
         // .err() avoids requiring Session: Debug (unwrap_err would).
-        let err = Session::new(json!({}), Some(schema), None).err().unwrap();
+        let err = Session::new(json!({}), Some(schema), None, None, None, Vec::new()).await.err().unwrap();
         assert!(matches!(err, Error::Schema { .. }));
         assert!(err.to_string().contains("working_dir"));
     }
@@ -603,7 +668,11 @@ do:
             json!({"seed": 1}),
             Some(input_schema.clone()),
             Some(output_schema.clone()),
+            None,
+            None,
+            Vec::new(),
         )
+        .await
         .unwrap();
         session.commit(step("a", "{a: 1}"), TIMEOUT).await.unwrap();
 
@@ -617,8 +686,113 @@ do:
 
     #[tokio::test]
     async fn update_context_merges_top_level_keys() {
-        let mut session = Session::new(json!({"a": 1, "b": 2}), None, None).unwrap();
+        let mut session = Session::new(json!({"a": 1, "b": 2}), None, None, None, None, Vec::new()).await.unwrap();
         session.update_context(json!({"b": 5, "c": 6}));
         assert_eq!(session.context(), &json!({"a": 1, "b": 5, "c": 6}));
+    }
+
+    #[tokio::test]
+    async fn registry_resolves_run_workflow_tasks() {
+        // A tiny "sub-pipeline" artifact: takes `x`, produces `y = x + 1`.
+        // Field shape verified against WorkflowProcessDefinition/ProcessTypeDefinition
+        // in submodules/sdk-rust/core/src/models/task.rs.
+        let sub_workflow_yaml = r"
+document:
+  dsl: '1.0.2'
+  namespace: test-ns
+  name: sub-pipeline
+  version: '1.0.0'
+do:
+  - compute:
+      set: '${ . + {y: (.x + 1)} }'
+";
+        let dir = tempfile::tempdir().unwrap();
+        let sub_path = dir.path().join("sub_pipeline.sw.yaml");
+        std::fs::write(&sub_path, sub_workflow_yaml).unwrap();
+
+        let mut session = Session::new(
+            json!({"x": 41}),
+            None,
+            None,
+            None,
+            None,
+            vec![sub_path.to_str().unwrap().to_string()],
+        )
+        .await
+        .unwrap();
+
+        // A step that calls the registered sub-pipeline by namespace/name/version,
+        // mapping the outer context's `x` onto the sub-workflow's own input.
+        let caller_yaml = r#"
+document:
+  dsl: '1.0.2'
+  namespace: test
+  name: caller
+  version: '0.1.0'
+do:
+  - call-sub:
+      run:
+        workflow:
+          namespace: test-ns
+          name: sub-pipeline
+          version: '1.0.0'
+          input:
+            x: "${ .x }"
+"#;
+        let caller: WorkflowDefinition = serde_yaml::from_str(caller_yaml).unwrap();
+
+        let ctx = session.commit(caller, TIMEOUT).await.unwrap();
+        assert_eq!(ctx.get("y"), Some(&json!(42)), "{ctx}");
+    }
+
+    #[tokio::test]
+    async fn unregistered_run_workflow_task_fails_clearly() {
+        let mut session = Session::new(json!({}), None, None, None, None, Vec::new())
+            .await
+            .unwrap();
+
+        let caller_yaml = r#"
+document:
+  dsl: '1.0.2'
+  namespace: test
+  name: caller
+  version: '0.1.0'
+do:
+  - call-sub:
+      run:
+        workflow:
+          namespace: test-ns
+          name: never-registered
+          version: '1.0.0'
+"#;
+        let caller: WorkflowDefinition = serde_yaml::from_str(caller_yaml).unwrap();
+        assert!(session.commit(caller, TIMEOUT).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn redb_backed_session_creates_db_files_and_commits() {
+        let dir = tempfile::tempdir().unwrap();
+        let durable_db = dir.path().join("durable.db");
+        let cache_db = dir.path().join("cache.db");
+
+        let mut session = Session::new(
+            json!({}),
+            None,
+            None,
+            Some(durable_db.to_str().unwrap().to_string()),
+            Some(cache_db.to_str().unwrap().to_string()),
+            Vec::new(),
+        )
+        .await
+        .unwrap();
+
+        session
+            .commit(step("a", "{a: 1}"), TIMEOUT)
+            .await
+            .unwrap();
+
+        assert!(durable_db.exists(), "durable_db file should be created");
+        assert!(cache_db.exists(), "cache_db file should be created");
+        assert!(std::fs::metadata(&cache_db).unwrap().len() > 0);
     }
 }

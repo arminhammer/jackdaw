@@ -159,6 +159,17 @@ def _imports_from_globals(fn_globals: dict[str, Any], needed: set[str]) -> list[
     return imports
 
 
+def _is_literal(val: Any) -> bool:
+    """True if val is a plain literal (or nested combination) safely re-creatable via repr()."""
+    if val is None or isinstance(val, (bool, int, float, str, bytes)):
+        return True
+    if isinstance(val, (list, tuple, set, frozenset)):
+        return all(_is_literal(v) for v in val)
+    if isinstance(val, dict):
+        return all(_is_literal(k) and _is_literal(v) for k, v in val.items())
+    return False
+
+
 def _collect_helpers(
     fn: Callable,
     fn_module: Any,
@@ -166,7 +177,9 @@ def _collect_helpers(
     visited: set[str],
     result: list[str],
 ) -> None:
-    """Post-order DFS: collect source for module-local helper functions fn calls.
+    """Post-order DFS: collect source for module-local helpers fn depends on —
+    both functions it calls and literal constants it references (e.g. a
+    module-level `NATURE_CLASSES = [...]` list).
 
     Processes dependencies before the functions that depend on them so the
     generated script defines helpers in the right order.
@@ -175,8 +188,17 @@ def _collect_helpers(
         if name in visited:
             continue
         visited.add(name)
-        val = fn_globals.get(name)
-        if val is None or not callable(val):
+        if name not in fn_globals:
+            continue
+        val = fn_globals[name]
+        if not callable(val):
+            # Module-level constant referenced by the function: inline it as
+            # a literal assignment when it's safely representable. Anything
+            # else (class instances, compiled regexes, ...) can't be
+            # serialized into the generated script and is left for the
+            # caller to discover as a NameError, same as an unhandled import.
+            if _is_literal(val):
+                result.append(f"{name} = {val!r}")
             continue
         if inspect.getmodule(val) is not fn_module:
             continue

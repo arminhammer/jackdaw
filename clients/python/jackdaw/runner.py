@@ -11,6 +11,7 @@ step.
 import asyncio
 import textwrap
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
 from serverlessworkflow.sdk import Workflow
@@ -26,13 +27,10 @@ from serverlessworkflow.sdk.tasks import (
     RunTask,
     ScriptConfiguration,
     ShellConfiguration,
+    WorkflowConfiguration,
 )
-from dataclasses import dataclass
-
 from serverlessworkflow.sdk.workflow import Document
 
-# Re-exported for backwards compatibility (tests and downstream imports).
-from ._expr import Expr, as_arg, as_in, as_output_as
 from ._codegen import (  # noqa: F401
     _MAIN_BLOCK,
     _MERGE_OUTPUT,
@@ -44,6 +42,9 @@ from ._codegen import (  # noqa: F401
     _input_schema,
     function_to_task,
 )
+
+# Re-exported for backwards compatibility (tests and downstream imports).
+from ._expr import Expr, as_arg, as_in, as_output_as
 from ._jackdaw import DurableEngineBuilder, ExecutionHandle
 
 # Typed task markers: each specializes RunTask to one process kind so steps
@@ -71,6 +72,54 @@ class RunScriptTask(RunTask):
 @dataclass
 class RunContainerTask(RunTask):
     """A run task executing a container (``run.container``)."""
+
+
+@dataclass
+class RunWorkflowTask(RunTask):
+    """A run task executing another workflow (``run.workflow``) — the
+    mechanism for composing a pipeline out of other, already-exported
+    pipelines as opaque, reusable artifacts. Build with :func:`subworkflow`;
+    commit into a session with ``registry=[...]`` set to the exported YAML
+    paths so the referenced (namespace, name, version) resolves at run time.
+    """
+
+
+def subworkflow(
+    namespace: str,
+    name: str,
+    version: str = "0.1.0",
+    input: "dict[str, Any] | None" = None,
+    await_: bool = True,
+) -> RunWorkflowTask:
+    """Call another workflow by (namespace, name, version) as a single step.
+
+    `input` maps this session's context onto the sub-workflow's own input
+    contract; values may be `jackdaw.ref`/`jackdaw.ctx` expressions (or raw
+    JQ strings), evaluated against the *calling* context at run time:
+
+        jackdaw.subworkflow(
+            "data-pipelines", "osm-pipeline", "0.1.0",
+            input={"working_dir": ctx.working_dir, "raw_pbf_file": jackdaw.ctx.raw_pbf_file},
+        )
+
+    The sub-workflow's own output merges into the calling context, same as
+    any other step. Its input/output schemas (if it has any) are enforced
+    independently, at the call boundary. Requires the target to be
+    registered on the session (`jackdaw.Session(..., registry=[...])`) —
+    otherwise the engine raises a clear "workflow not found" error.
+    """
+    return RunWorkflowTask(
+        run=RunConfiguration(
+            await_=await_,
+            workflow=WorkflowConfiguration(
+                namespace=namespace,
+                name=name,
+                version=version,
+                input={k: as_arg(v) for k, v in input.items()} if input else None,
+            ),
+        ),
+        output=Output(as_=_MERGE_OUTPUT),
+    )
 
 
 def container_task(

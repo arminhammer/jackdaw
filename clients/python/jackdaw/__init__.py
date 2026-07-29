@@ -1,3 +1,4 @@
+from ._expr import Expr, ctx, join, merge, ref
 from ._jackdaw import (
     DurableEngine,
     DurableEngineBuilder,
@@ -10,6 +11,7 @@ from .runner import (
     RunContainerTask,
     RunScriptTask,
     RunShellTask,
+    RunWorkflowTask,
     WorkflowBuilder,
     WorkflowRunner,
     build_image_task,
@@ -20,14 +22,15 @@ from .runner import (
     run_from_config_async,
     shell_task,
     stop_container_task,
+    subworkflow,
 )
-from ._expr import Expr, ctx, join, merge, ref
-from .session import Case, Session, Switch, case, switch
+from .session import Case, ForEach, Session, Switch, case, foreach, switch
 
 __all__ = [
     "Case",
     "Config",
     "Expr",
+    "ForEach",
     "DurableEngine",
     "DurableEngineBuilder",
     "ExecutionHandle",
@@ -35,6 +38,7 @@ __all__ = [
     "RunContainerTask",
     "RunScriptTask",
     "RunShellTask",
+    "RunWorkflowTask",
     "Session",
     "Switch",
     "WorkflowBuilder",
@@ -42,6 +46,7 @@ __all__ = [
     "build_image_task",
     "case",
     "container_task",
+    "foreach",
     "ctx",
     "join",
     "merge",
@@ -53,5 +58,6 @@ __all__ = [
     "set_output_enabled",
     "shell_task",
     "stop_container_task",
+    "subworkflow",
     "switch",
 ]
