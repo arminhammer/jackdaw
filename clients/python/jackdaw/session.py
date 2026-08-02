@@ -64,6 +64,8 @@ from serverlessworkflow.sdk.base import TaskItem
 from serverlessworkflow.sdk.tasks import (
     DoTask,
     ForConfiguration,
+    ForkConfiguration,
+    ForkTask,
     ForTask,
     RunTask,
     SetTask,
@@ -76,7 +78,13 @@ from ._codegen import function_to_task, required_params
 from ._contract import input_contract, output_contract
 from ._expr import Expr, as_in, as_when
 from ._jackdaw import Session as _NativeSession
-from .runner import RunContainerTask, RunScriptTask, RunShellTask, RunWorkflowTask
+from .runner import (
+    RunContainerTask,
+    RunScriptTask,
+    RunShellTask,
+    RunWorkflowTask,
+    WorkflowBuilder,
+)
 
 
 @dataclass
@@ -151,10 +159,45 @@ def foreach(each: str, in_: "str | Expr", step: "Step") -> ForEach:
     return ForEach(each=each, in_=in_, step=step)
 
 
+@dataclass
+class Fork:
+    """Parallel branches: run several independent step sequences concurrently.
+
+    Authoring sugar only — compiles to the spec's `fork` task (each branch
+    gets its own isolated context; no branch observes another's writes
+    mid-flight) followed by a `join` that flattens the branch-keyed result
+    back into the context. Build with :func:`fork`.
+    """
+
+    branches: "dict[str, WorkflowBuilder]"
+
+
+def fork(branches: "dict[str, WorkflowBuilder]") -> Fork:
+    """Build a step that runs named branches concurrently.
+
+    Each branch is a `WorkflowBuilder` — build multi-step branches with
+    `WorkflowBuilder().add(...).add(...)`:
+
+        step = jackdaw.fork({
+            "a": jackdaw.WorkflowBuilder().add("do-a", do_a),
+            "b": jackdaw.WorkflowBuilder().add("do-b", do_b),
+        })
+        sess.commit(step, name="parallel-work")
+
+    Every branch runs against its own isolated copy of the context; once all
+    branches finish, each branch's own accumulated keys merge back — a later
+    branch's keys win over an earlier one's on conflict, the same
+    last-writer-wins rule `+` uses elsewhere.
+    """
+    if not branches:
+        raise ValueError("fork() needs at least one branch")
+    return Fork(branches=branches)
+
+
 # A session step: a typed Python function, a specific task type for
 # non-Python work (shell commands, containers, scripts, sub-workflows), a
-# runtime conditional built with switch(), or an iteration built with
-# foreach().
+# runtime conditional built with switch(), an iteration built with
+# foreach(), or parallel branches built with fork().
 Step = (
     Callable
     | RunShellTask
@@ -163,6 +206,7 @@ Step = (
     | RunWorkflowTask
     | Switch
     | ForEach
+    | Fork
 )
 
 
@@ -363,11 +407,20 @@ class Session:
         A step is a typed Python function (params = consumed context keys,
         returned dict merges into the context), a specific task type —
         `RunShellTask`, `RunContainerTask`, `RunScriptTask`, `RunWorkflowTask`
-        — for work that isn't Python, or a :func:`switch` conditional.
+        — for work that isn't Python, a :func:`switch` conditional, or
+        parallel branches built with :func:`fork`.
         """
         if isinstance(
             step,
-            (Switch, ForEach, RunShellTask, RunScriptTask, RunContainerTask, RunWorkflowTask),
+            (
+                Switch,
+                ForEach,
+                Fork,
+                RunShellTask,
+                RunScriptTask,
+                RunContainerTask,
+                RunWorkflowTask,
+            ),
         ):
             if name is None:
                 raise ValueError(
@@ -379,6 +432,8 @@ class Session:
                 task = self._switch_to_task(step)
             elif isinstance(step, ForEach):
                 task = self._foreach_to_task(step)
+            elif isinstance(step, Fork):
+                task = self._fork_to_task(step)
             else:
                 task = step
         elif callable(step) and not isinstance(step, RunTask):
@@ -448,6 +503,36 @@ class Session:
             for_=ForConfiguration(each=fe.each, in_=as_in(fe.in_)),
             do=[TaskItem(name=body_name, task=body_task)],
         )
+
+    def _fork_to_task(self, fk: Fork) -> DoTask:
+        """Compile a Fork into one `do` block: the `fork` task itself (the
+        engine runs each branch against its own isolated context), followed
+        by a `join` that flattens the branch-keyed result back into the
+        context. `fork` doesn't implement `output.as` itself — the same
+        reason `_switch_to_task` ends in a plain `set` rather than relying on
+        the switch task's own output — so the join step does that work.
+
+        The join reads `$input` (the fork's own raw, unmodified result), not
+        `.` — by the time this step runs, `.` is the *context*, which the
+        engine has already merged the fork's branch-keyed result into
+        (default no-`export.as` behavior), mixed in with whatever else was
+        already there (e.g. seed input fields). `[.[]] | add` over that would
+        try to JQ-`+` those other, non-object values together with each
+        branch's own result and fail; `$input` is exactly and only the fork's
+        own `{branch_name: branch_result}` map.
+        """
+        branch_items = [
+            TaskItem(name=name, task=DoTask(do=branch.steps()))
+            for name, branch in fk.branches.items()
+        ]
+        items = [
+            TaskItem(
+                name="parallel",
+                task=ForkTask(fork=ForkConfiguration(branches=branch_items)),
+            ),
+            TaskItem(name="join", task=SetTask(set="${ [$input[]] | add }")),
+        ]
+        return DoTask(do=items)
 
     def _branch_to_task(self, c: Case):
         """Convert one switch branch's step to a task."""

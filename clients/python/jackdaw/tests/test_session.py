@@ -418,6 +418,44 @@ def test_exported_switch_branches_on_input():
 
 
 # --------------------------------------------------------------------- #
+# fork: parallel branches
+# --------------------------------------------------------------------- #
+
+
+def test_fork_runs_branches_concurrently_and_merges_results():
+    sess = make_session()
+
+    def branch_a(x: int) -> dict:
+        return {"from_a": x * 2}
+
+    def branch_b(x: int) -> dict:
+        return {"from_b": x * 3}
+
+    step = jackdaw.fork(
+        {
+            "a": jackdaw.WorkflowBuilder().add("do-a", branch_a),
+            "b": jackdaw.WorkflowBuilder().add("do-b", branch_b),
+        }
+    )
+    ctx = sess.commit(step, name="parallel-work")
+    # Each branch only ever sees its own contribution — no cross-talk.
+    assert ctx["from_a"] == 4
+    assert ctx["from_b"] == 6
+
+
+def test_fork_requires_name():
+    sess = make_session()
+    step = jackdaw.fork({"a": jackdaw.WorkflowBuilder().add("do-a", double)})
+    with pytest.raises(ValueError, match="name"):
+        sess.commit(step)
+
+
+def test_fork_needs_at_least_one_branch():
+    with pytest.raises(ValueError, match="branch"):
+        jackdaw.fork({})
+
+
+# --------------------------------------------------------------------- #
 # subworkflow: composing sessions from already-exported artifacts
 # --------------------------------------------------------------------- #
 

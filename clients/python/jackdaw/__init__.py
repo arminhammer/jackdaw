@@ -24,12 +24,13 @@ from .runner import (
     stop_container_task,
     subworkflow,
 )
-from .session import Case, ForEach, Session, Switch, case, foreach, switch
+from .session import Case, ForEach, Fork, Session, Switch, case, foreach, fork, switch
 
 __all__ = [
     "Case",
     "Config",
     "Expr",
+    "Fork",
     "ForEach",
     "DurableEngine",
     "DurableEngineBuilder",
@@ -46,6 +47,7 @@ __all__ = [
     "build_image_task",
     "case",
     "container_task",
+    "fork",
     "foreach",
     "ctx",
     "join",
