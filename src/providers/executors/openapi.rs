@@ -65,7 +65,7 @@ impl Executor for OpenApiExecutor {
 
         println!(
             "  Fetched spec (first 200 chars): {}",
-            &spec_text.chars().take(200).collect::<String>()
+            spec_text.chars().take(200).collect::<String>()
         );
 
         // Parse as JSON value first to check version
