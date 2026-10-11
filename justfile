@@ -104,7 +104,7 @@ fmt:
 
 # Run clippy linter
 lint:
-    cargo clippy -- -D warnings
+    cargo clippy --all-targets --all-features -- -D warnings
 
 # Check for potential panics (unwrap, expect, etc.)
 lint-panics:
