@@ -390,8 +390,10 @@ fn extract_all_expressions(workflow: &WorkflowDefinition) -> Vec<(String, String
                 }
                 TaskDefinition::For(for_task) => {
                     // Extract from for 'in' expression (the collection)
-                    let in_expr = &for_task.for_.in_;
-                    expressions.push((format!("task.{}.for.in", task_name), in_expr.clone()));
+                    if let Some(in_expr) = for_task.for_.in_.as_str() {
+                        expressions
+                            .push((format!("task.{}.for.in", task_name), in_expr.to_string()));
+                    }
 
                     // Extract common expressions
                     if let Some(input) = &for_task.common.input

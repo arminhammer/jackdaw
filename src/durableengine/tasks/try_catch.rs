@@ -51,7 +51,7 @@ pub async fn exec_try_task(
                                 } else {
                                     // If extraction failed, create a generic error object
                                     serde_json::json!({
-                                        "type": "https://serverlessworkflow.io/dsl/errors/types/runtime",
+                                        "type": "https://open-workflow-specification.org/dsl/errors/types/runtime",
                                         "status": 500,
                                         "title": "Runtime Error",
                                         "detail": error_str,
@@ -61,7 +61,7 @@ pub async fn exec_try_task(
                             } else {
                                 // No JSON found, create a generic error object
                                 serde_json::json!({
-                                    "type": "https://serverlessworkflow.io/dsl/errors/types/runtime",
+                                    "type": "https://open-workflow-specification.org/dsl/errors/types/runtime",
                                     "status": 500,
                                     "title": "Runtime Error",
                                     "detail": error_str,

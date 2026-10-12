@@ -309,8 +309,22 @@ pub async fn exec_run_task(
         let task_index = ctx.state.task_index.unwrap_or(0);
         let streamer = TaskOutputStreamer::new(task_name.to_string(), task_index);
 
+        // A command containing whitespace is a shell script (the spec example passes a
+        // multi-line script and reads its arguments as $1, $2). Run it via `sh -c`; the
+        // extra "sh" fills $0 so the arguments start at $1. A bare command name is
+        // executed directly, with the arguments passed to it.
+        let mut cmd = if command.contains(char::is_whitespace) {
+            let mut cmd = tokio::process::Command::new("sh");
+            cmd.arg("-c").arg(command).arg("sh");
+            // Don't let the script block reading an inherited terminal
+            cmd.stdin(Stdio::null());
+            cmd
+        } else {
+            tokio::process::Command::new(command)
+        };
+
         // Execute shell command with piped stdout/stderr for streaming
-        let child = tokio::process::Command::new(command)
+        let child = cmd
             .args(&evaluated_args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
