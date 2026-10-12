@@ -1,6 +1,8 @@
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-use serverless_workflow_core::models::task::{ListenTaskDefinition, TaskDefinition};
+use serverless_workflow_core::models::task::{
+    CallTaskDefinition, ListenTaskDefinition, TaskDefinition,
+};
 use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -412,16 +414,18 @@ impl DurableEngine {
 
         // Extract call task details
         if let TaskDefinition::Call(call_task) = task_def {
+            let CallTaskDefinition::Function(call_fn) = call_task else {
+                return Err(Error::Configuration {
+                    message: "...expected a function call".into(),
+                });
+            };
             // Get the call type (python, etc.)
-            let call_type = &call_task.call;
+            let call_type = &call_fn.call;
 
             // Get module and function from 'with' attributes
-            let with_attrs = call_task
-                .with
-                .as_ref()
-                .ok_or_else(|| Error::Configuration {
-                    message: "Call task requires 'with' attributes".to_string(),
-                })?;
+            let with_attrs = call_fn.with.as_ref().ok_or_else(|| Error::Configuration {
+                message: "Call task requires 'with' attributes".to_string(),
+            })?;
 
             let module = with_attrs
                 .get("module")

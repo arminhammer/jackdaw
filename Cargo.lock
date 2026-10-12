@@ -3364,7 +3364,7 @@ dependencies = [
 [[package]]
 name = "serverless_workflow_core"
 version = "1.0.0-alpha6.3"
-source = "git+https://github.com/serverlessworkflow/sdk-rust.git?rev=12d7c5b2ef76bc5186f949e3a3d649db6a3f3ba5#12d7c5b2ef76bc5186f949e3a3d649db6a3f3ba5"
+source = "git+https://github.com/arminhammer/sdk-rust.git?rev=183924f73a9b62febed44d275692aaf4527677ab#183924f73a9b62febed44d275692aaf4527677ab"
 dependencies = [
  "serde",
  "serde_derive",

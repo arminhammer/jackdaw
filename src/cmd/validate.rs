@@ -1,3 +1,4 @@
+use crate::task_ext::call_parts;
 use clap::Parser;
 use console::style;
 use serde_json::Value;
@@ -356,8 +357,8 @@ fn extract_all_expressions(workflow: &WorkflowDefinition) -> Vec<(String, String
                 }
                 TaskDefinition::Call(call_task) => {
                     // Extract from call 'with' parameters
-                    if let Some(with) = &call_task.with {
-                        for (param_name, param_value) in with {
+                    if let Ok((_, with)) = call_parts(call_task) {
+                        for (param_name, param_value) in &with {
                             extract_expressions_from_value(
                                 param_value,
                                 &format!("task.{}.call.with.{}", task_name, param_name),
@@ -367,7 +368,7 @@ fn extract_all_expressions(workflow: &WorkflowDefinition) -> Vec<(String, String
                     }
 
                     // Extract common expressions
-                    if let Some(input) = &call_task.common.input
+                    if let Some(input) = &call_task.common().input
                         && let Some(from) = &input.from
                         && let Some(from_str) = from.as_str()
                     {
@@ -376,14 +377,14 @@ fn extract_all_expressions(workflow: &WorkflowDefinition) -> Vec<(String, String
                             from_str.to_string(),
                         ));
                     }
-                    if let Some(output) = &call_task.common.output
+                    if let Some(output) = &call_task.common().output
                         && let Some(as_expr) = &output.as_
                         && let Some(as_str) = as_expr.as_str()
                     {
                         expressions
                             .push((format!("task.{}.output.as", task_name), as_str.to_string()));
                     }
-                    if let Some(if_cond) = &call_task.common.if_ {
+                    if let Some(if_cond) = &call_task.common().if_ {
                         expressions.push((format!("task.{}.if", task_name), if_cond.clone()));
                     }
                 }
@@ -742,7 +743,9 @@ fn validate_references(workflow: &WorkflowDefinition, issues: &mut Vec<Validatio
     for entry in &workflow.do_.entries {
         for (task_name, task_def) in entry {
             if let TaskDefinition::Call(call_task) = task_def {
-                let function_ref = &call_task.call;
+                let Ok((function_ref, _)) = call_parts(call_task) else {
+                    continue;
+                };
 
                 // Skip HTTP/HTTPS calls and catalog references
                 if function_ref.starts_with("http://")

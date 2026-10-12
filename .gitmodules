@@ -1,6 +1,3 @@
 [submodule "submodules/specification"]
 	path = submodules/specification
 	url = https://github.com/serverlessworkflow/specification.git
-[submodule "submodules/sdk-rust"]
-	path = submodules/sdk-rust
-	url = https://github.com/arminhammer/sdk-rust.git

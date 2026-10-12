@@ -138,6 +138,7 @@ mod tests {
     #[test]
     fn test_parse_timeout_inline_duration() {
         let timeout = OneOfTimeoutDefinitionOrReference::Timeout(TimeoutDefinition {
+            use_: None,
             after: OneOfDurationOrIso8601Expression::Duration(Duration::from_seconds(10)),
         });
         let duration = parse_timeout_duration(&timeout).unwrap();
@@ -147,6 +148,7 @@ mod tests {
     #[test]
     fn test_parse_timeout_iso8601() {
         let timeout = OneOfTimeoutDefinitionOrReference::Timeout(TimeoutDefinition {
+            use_: None,
             after: OneOfDurationOrIso8601Expression::Iso8601Expression("PT15S".to_string()),
         });
         let duration = parse_timeout_duration(&timeout).unwrap();

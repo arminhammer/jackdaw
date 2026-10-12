@@ -1,9 +1,39 @@
 //! Extension trait for ``TaskDefinition`` to provide convenient helper methods
 
+use serde::ser::Error as _;
+use serde_json::Value;
 use serverless_workflow_core::models::input::InputDataModelDefinition;
 use serverless_workflow_core::models::output::OutputDataModelDefinition;
+use serverless_workflow_core::models::task::CallTaskDefinition;
 use serverless_workflow_core::models::task::TaskDefinition;
 use serverless_workflow_core::models::timeout::OneOfTimeoutDefinitionOrReference;
+use std::collections::HashMap;
+
+fn to_map<T: serde::Serialize>(
+    args: &T,
+) -> Result<HashMap<String, serde_json::Value>, serde_json::Error> {
+    let value = serde_json::to_value(args)?;
+    let serde_json::Value::Object(map) = value else {
+        return Err(serde_json::Error::custom(
+            "call 'with' must serialize to an object",
+        ));
+    };
+    Ok(map.into_iter().collect())
+}
+
+pub fn call_parts(
+    t: &CallTaskDefinition,
+) -> Result<(&str, HashMap<String, Value>), serde_json::Error> {
+    match t {
+        CallTaskDefinition::Function(f) => Ok((&f.call, f.with.clone().unwrap_or_default())),
+        CallTaskDefinition::Http(h) => Ok((&h.call, to_map(&h.with)?)),
+        CallTaskDefinition::Grpc(g) => Ok((&g.call, to_map(&g.with)?)),
+        CallTaskDefinition::OpenApi(o) => Ok((&o.call, to_map(&o.with)?)),
+        CallTaskDefinition::AsyncApi(a) => Ok((&a.call, to_map(&a.with)?)),
+        CallTaskDefinition::A2a(a) => Ok((&a.call, to_map(&a.with)?)),
+        CallTaskDefinition::Mcp(m) => Ok((&m.call, to_map(&m.with)?)),
+    }
+}
 
 /// Extension trait providing helper methods for `TaskDefinition`
 pub trait TaskDefinitionExt {
@@ -23,7 +53,7 @@ pub trait TaskDefinitionExt {
 impl TaskDefinitionExt for TaskDefinition {
     fn export(&self) -> Option<&OutputDataModelDefinition> {
         match self {
-            TaskDefinition::Call(t) => t.common.export.as_ref(),
+            TaskDefinition::Call(t) => t.common().export.as_ref(),
             TaskDefinition::Do(t) => t.common.export.as_ref(),
             TaskDefinition::Emit(t) => t.common.export.as_ref(),
             TaskDefinition::For(t) => t.common.export.as_ref(),
@@ -40,7 +70,7 @@ impl TaskDefinitionExt for TaskDefinition {
 
     fn input(&self) -> Option<&InputDataModelDefinition> {
         match self {
-            TaskDefinition::Call(t) => t.common.input.as_ref(),
+            TaskDefinition::Call(t) => t.common().input.as_ref(),
             TaskDefinition::Do(t) => t.common.input.as_ref(),
             TaskDefinition::Emit(t) => t.common.input.as_ref(),
             TaskDefinition::For(t) => t.common.input.as_ref(),
@@ -57,7 +87,7 @@ impl TaskDefinitionExt for TaskDefinition {
 
     fn timeout(&self) -> Option<&OneOfTimeoutDefinitionOrReference> {
         match self {
-            TaskDefinition::Call(t) => t.common.timeout.as_ref(),
+            TaskDefinition::Call(t) => t.common().timeout.as_ref(),
             TaskDefinition::Do(t) => t.common.timeout.as_ref(),
             TaskDefinition::Emit(t) => t.common.timeout.as_ref(),
             TaskDefinition::For(t) => t.common.timeout.as_ref(),
