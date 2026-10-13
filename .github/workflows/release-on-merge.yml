@@ -117,13 +117,14 @@ jobs:
         run: |
           mkdir -p dist
           docker buildx build \
+            -f jackdaw-cli/Dockerfile \
             --platform linux/${{ matrix.arch }} \
             --target builder \
             --output type=local,dest=./dist \
             .
 
-          # The binary will be extracted to dist/build/jackdaw
-          mv dist/build/jackdaw dist/jackdaw-linux-${{ matrix.arch }}
+          # The binary will be extracted to dist/out/jackdaw
+          mv dist/out/jackdaw dist/jackdaw-linux-${{ matrix.arch }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

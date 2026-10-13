@@ -42,7 +42,6 @@ If we save this file as `hello-world.sw.yaml`, we can run it with the command
 jackdaw run hello-world.sw.yaml
 ```
 
-![Hello World](docs/vhs/hello-world.gif)
 
 #### --debug flag
 
@@ -52,7 +51,6 @@ By default, `jackdaw` will hide verbose output. If you would like to see additio
 jackdaw run hello-world.sw.yaml --debug
 ```
 
-![Hello World](docs/vhs/hello-world-debug.gif)
 
 ## Installation
 
@@ -104,23 +102,21 @@ do:
 ```
 
 ```bash
-jackdaw run examples/container/container-env-vars.sw.yaml
+jackdaw run jackdaw-cli/examples/container/container-env-vars.sw.yaml
 ```
-![Run Container](docs/vhs/run-container.gif)
 
 Please make sure that a Docker socket at `/var/run/docker.sock` is available to `jackdaw` and a container runtime like Docker or Podman for this to work. This feature is implemented using the great [bollard](https://docs.rs/bollard/latest/bollard/) library.
 
 #### Python
 
-Python scripts are supported by `jackdaw`. The most straightforward way to use a python script is to embed the script directly in the workflow. See ['examples/python/python-basics.sw.yaml'](./examples/python/python-basics.sw.yaml).
+Python scripts are supported by `jackdaw`. The most straightforward way to use a python script is to embed the script directly in the workflow. See ['jackdaw-cli/examples/python/python-basics.sw.yaml'](./jackdaw-cli/examples/python/python-basics.sw.yaml).
 
 ```bash
-jackdaw run examples/python/python-basics.sw.yaml
+jackdaw run jackdaw-cli/examples/python/python-basics.sw.yaml
 ```
 
-![Run Python](docs/vhs/run-python.gif)
 
-Alternatively, you can also define a python module, with dependencies, and execute a function within that module. An example can be found in `examples/python-module`.
+Alternatively, you can also define a python module, with dependencies, and execute a function within that module. An example can be found in `jackdaw-cli/examples/python-module`.
 
 In order to execute a python script, the `python` binary must be available in the system PATH.
 
@@ -129,10 +125,9 @@ In order to execute a python script, the `python` binary must be available in th
 Serverless Workflow support scripts written in Javascript ES2024. `jackdaw` supports javascript scripts by calling `node`, which must be present in the system PATH. This makes it possible to embed inlined javascript scripts into a workflow task:
 
 ```bash
-jackdaw run examples/javascript/javascript-basics.sw.yaml
+jackdaw run jackdaw-cli/examples/javascript/javascript-basics.sw.yaml
 ```
 
-![Run JavaScript](docs/vhs/run-javascript.gif)
 
 #### Nested workflows
 
@@ -203,7 +198,7 @@ output:
 
 Execution:
 ```bash
-jackdaw run examples/nested-workflows/workflow-a.yaml -i '{"value": 10}'
+jackdaw run jackdaw-cli/examples/nested-workflows/workflow-a.yaml -i '{"value": 10}'
 ```
 
 #### Tasks from a Catalog
@@ -212,7 +207,7 @@ Catalogs are collections of workflows, and act like reusable libraries. It is ea
 
 To define a catalog:
 ```yaml
-# examples/catalog/functions/add-numbers/1.0.0/function.yaml
+# jackdaw-cli/examples/catalog/functions/add-numbers/1.0.0/function.yaml
 document:
   dsl: '1.0.2'
   namespace: examples.functions
@@ -247,7 +242,7 @@ use:
   catalogs:
     local:
       endpoint:
-        uri: file://./examples/catalog/functions
+        uri: file://./jackdaw-cli/examples/catalog/functions
 do:
   - addNumbers:
       call: add-numbers:1.0.0
@@ -265,7 +260,7 @@ do:
 ```
 
 ```bash
-jackdaw run examples/catalog/use-catalog.sw.yaml
+jackdaw run jackdaw-cli/examples/catalog/use-catalog.sw.yaml
 ```
 
 #### Caching
@@ -362,10 +357,9 @@ do:
 ```
 
 ```bash
-jackdaw run examples/cache/cache.sw.yaml -i '{ "userData": "user-data-1" }'
+jackdaw run jackdaw-cli/examples/cache/cache.sw.yaml -i '{ "userData": "user-data-1" }'
 ```
 
-![Cache Debug](docs/vhs/cache-debug.gif)
 
 #### Persistence
 
@@ -465,13 +459,12 @@ do:
 
 ```bash
 # First run (will fail at step 3, but persist state)
-jackdaw run examples/persistence/persistence.sw.yaml --persistence-provider redb --input '{"attempt": 1}'
+jackdaw run jackdaw-cli/examples/persistence/persistence.sw.yaml --persistence-provider redb --input '{"attempt": 1}'
 
 # Second run (will resume from persisted state and complete)
-jackdaw run examples/persistence/persistence.sw.yaml --persistence-provider redb --input '{"attempt": 2}'
+jackdaw run jackdaw-cli/examples/persistence/persistence.sw.yaml --persistence-provider redb --input '{"attempt": 2}'
 ```
 
-![Persistence Demo](docs/vhs/persistence-demo.gif)
 
 #### Listeners
 
@@ -479,10 +472,10 @@ jackdaw run examples/persistence/persistence.sw.yaml --persistence-provider redb
 
 ```bash
 # Python OpenAPI listener example
-jackdaw run examples/python-openapi-listener/calculator-api.sw.yaml
+jackdaw run jackdaw-cli/examples/python-openapi-listener/calculator-api.sw.yaml
 
 # JavaScript OpenAPI listener example
-jackdaw run examples/javascript-openapi-listener/calculator-api.sw.yaml
+jackdaw run jackdaw-cli/examples/javascript-openapi-listener/calculator-api.sw.yaml
 ```
 
 ```bash
@@ -491,19 +484,17 @@ curl -X POST http://localhost:8080/api/v1/add -H "Content-Type: application/json
 curl -X POST http://localhost:8080/api/v1/multiply -H "Content-Type: application/json" -d '{"a": 4, "b": 7}'
 ```
 
-<!-- ![OpenAPI Listener](docs/vhs/listener-openapi.gif) -->
 
 ##### gRPC Listeners
 
 ```bash
 # Python gRPC listener example
-jackdaw run examples/python-grpc-listener/calculator-api.sw.yaml
+jackdaw run jackdaw-cli/examples/python-grpc-listener/calculator-api.sw.yaml
 
 # JavaScript gRPC listener example
-jackdaw run examples/javascript-grpc-listener/calculator-api.sw.yaml
+jackdaw run jackdaw-cli/examples/javascript-grpc-listener/calculator-api.sw.yaml
 ```
 
-<!-- ![gRPC Listener](docs/vhs/listener-grpc.gif) -->
 
 ### `validate`
 
@@ -511,7 +502,6 @@ jackdaw run examples/javascript-grpc-listener/calculator-api.sw.yaml
 jackdaw validate hello-world.sw.yaml
 ```
 
-![Validate Command](docs/vhs/hello-world-validate.gif)
 
 ## Providers
 
@@ -520,25 +510,25 @@ jackdaw validate hello-world.sw.yaml
 #### in-memory
 
 ```bash
-jackdaw run examples/cache/cache.sw.yaml --cache-provider memory -i '{ "userData": "user-data-1"}'
+jackdaw run jackdaw-cli/examples/cache/cache.sw.yaml --cache-provider memory -i '{ "userData": "user-data-1"}'
 ```
 
 #### redb
 
 ```bash
-jackdaw run examples/cache/cache.sw.yaml --cache-provider redb -i '{ "userData": "user-data-1"}'
+jackdaw run jackdaw-cli/examples/cache/cache.sw.yaml --cache-provider redb -i '{ "userData": "user-data-1"}'
 ```
 
 #### sqlite
 
 ```bash
-jackdaw run examples/cache/cache.sw.yaml --cache-provider sqlite --sqlite-db-url=cache.sqlite -i '{ "userData": "user-data-1"}'
+jackdaw run jackdaw-cli/examples/cache/cache.sw.yaml --cache-provider sqlite --sqlite-db-url=cache.sqlite -i '{ "userData": "user-data-1"}'
 ```
 
 #### postgres
 
 ```bash
-jackdaw run examples/cache/cache.sw.yaml --cache-provider postgres --postgres-db-name=default --postgres-user default_user --postgres-password password --postgres-hostname localhost -i '{ "userData": "user-data-1"}'
+jackdaw run jackdaw-cli/examples/cache/cache.sw.yaml --cache-provider postgres --postgres-db-name=default --postgres-user default_user --postgres-password password --postgres-hostname localhost -i '{ "userData": "user-data-1"}'
 ```
 
 ### Persistence Providers
@@ -546,25 +536,25 @@ jackdaw run examples/cache/cache.sw.yaml --cache-provider postgres --postgres-db
 #### in-memory
 
 ```bash
-jackdaw run examples/persistence/persistence.sw.yaml --persistence-provider memory -i '{ "attempt": 1 }'
+jackdaw run jackdaw-cli/examples/persistence/persistence.sw.yaml --persistence-provider memory -i '{ "attempt": 1 }'
 ```
 
 #### redb
 
 ```bash
-jackdaw run examples/persistence/persistence.sw.yaml --persistence-provider redb -i '{ "attempt": 1 }'
+jackdaw run jackdaw-cli/examples/persistence/persistence.sw.yaml --persistence-provider redb -i '{ "attempt": 1 }'
 ```
 
 #### sqlite
 
 ```bash
-jackdaw run examples/persistence/persistence.sw.yaml --persistence-provider sqlite --sqlite-db-url=persistence.sqlite -i '{ "attempt": 1 }'
+jackdaw run jackdaw-cli/examples/persistence/persistence.sw.yaml --persistence-provider sqlite --sqlite-db-url=persistence.sqlite -i '{ "attempt": 1 }'
 ```
 
 #### postgres
 
 ```bash
-jackdaw run examples/persistence/persistence.sw.yaml --persistence-provider postgres --postgres-db-name=default --postgres-user default_user --postgres-password password --postgres-hostname localhost -i '{ "attempt": 1 }'
+jackdaw run jackdaw-cli/examples/persistence/persistence.sw.yaml --persistence-provider postgres --postgres-db-name=default --postgres-user default_user --postgres-password password --postgres-hostname localhost -i '{ "attempt": 1 }'
 ```
 
 <!-- 
@@ -636,10 +626,9 @@ do:
 ```
 
 ```bash
-jackdaw run examples/rest/rest-api.sw.yaml
+jackdaw run jackdaw-cli/examples/rest/rest-api.sw.yaml
 ```
 
-![REST API](docs/vhs/executor-rest.gif)
 
 ## Supported Serverless Features Matrix
 
@@ -691,18 +680,18 @@ jackdaw run examples/rest/rest-api.sw.yaml
 
 | Task Type | Implementation File | Notes |
 |-----------|---------------------|-------|
-| **call** | [tasks/call.rs](src/durableengine/tasks/call.rs) | HTTP, OpenAPI, Functions |
-| **run** | [tasks/run.rs](src/durableengine/tasks/run.rs) | Container, Script, Shell, Workflow |
-| **fork** | [tasks/fork.rs](src/durableengine/tasks/fork.rs) | Compete mode supported |
-| **for** | [tasks/for_loop.rs](src/durableengine/tasks/for_loop.rs) | Item/index variables |
-| **switch** | [tasks/switch.rs](src/durableengine/tasks/switch.rs) | Conditional branching |
-| **try** | [tasks/try_catch.rs](src/durableengine/tasks/try_catch.rs) | Error filtering & catching |
-| **emit** | [tasks/emit.rs](src/durableengine/tasks/emit.rs) | CloudEvents 1.0 |
-| **raise** | [tasks/raise.rs](src/durableengine/tasks/raise.rs) | RFC 7807 errors |
-| **wait** | [tasks/wait.rs](src/durableengine/tasks/wait.rs) | ISO 8601 durations |
-| **set** | [tasks/mod.rs:217-255](src/durableengine/tasks/mod.rs) | Variable setting |
-| **do** | [tasks/mod.rs:257-284](src/durableengine/tasks/mod.rs) | Sequential composition |
-| **listen** | [tasks/mod.rs:286-332](src/durableengine/tasks/mod.rs) | Event consumption |
+| **call** | [tasks/call.rs](jackdaw/src/durableengine/tasks/call.rs) | HTTP, OpenAPI, Functions |
+| **run** | [tasks/run.rs](jackdaw/src/durableengine/tasks/run.rs) | Container, Script, Shell, Workflow |
+| **fork** | [tasks/fork.rs](jackdaw/src/durableengine/tasks/fork.rs) | Compete mode supported |
+| **for** | [tasks/for_loop.rs](jackdaw/src/durableengine/tasks/for_loop.rs) | Item/index variables |
+| **switch** | [tasks/switch.rs](jackdaw/src/durableengine/tasks/switch.rs) | Conditional branching |
+| **try** | [tasks/try_catch.rs](jackdaw/src/durableengine/tasks/try_catch.rs) | Error filtering & catching |
+| **emit** | [tasks/emit.rs](jackdaw/src/durableengine/tasks/emit.rs) | CloudEvents 1.0 |
+| **raise** | [tasks/raise.rs](jackdaw/src/durableengine/tasks/raise.rs) | RFC 7807 errors |
+| **wait** | [tasks/wait.rs](jackdaw/src/durableengine/tasks/wait.rs) | ISO 8601 durations |
+| **set** | [tasks/mod.rs:217-255](jackdaw/src/durableengine/tasks/mod.rs) | Variable setting |
+| **do** | [tasks/mod.rs:257-284](jackdaw/src/durableengine/tasks/mod.rs) | Sequential composition |
+| **listen** | [tasks/mod.rs:286-332](jackdaw/src/durableengine/tasks/mod.rs) | Event consumption |
 
 ---
 
@@ -1091,5 +1080,4 @@ All task types inherit from `taskBase` with these common properties:
 - Workflow execution visualization with D2 and graphviz
 - Import & Export from other workflow specifications, like Argo Workflows and Kubeflow Pipelines
 - Native `jackdaw` bindings for [sdk-typescript](https://github.com/serverlessworkflow/sdk-typescript)
-- Native `jackdaw` bindings for [sdk-python](https://github.com/serverlessworkflow/sdk-python)
 - Complete OpenTelemetry-compatible instrumentation and metrics

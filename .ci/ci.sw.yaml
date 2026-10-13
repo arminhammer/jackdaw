@@ -20,22 +20,28 @@ do:
         categories:
           rust_sources:
             patterns:
-              - 'src/**/*.rs'
+              - 'jackdaw/src/**/*.rs'
+              - 'jackdaw-cli/src/**/*.rs'
               - 'Cargo.toml'
+              - 'jackdaw/Cargo.toml'
+              - 'jackdaw-cli/Cargo.toml'
               - 'Cargo.lock'
           sql_schemas:
             patterns:
-              - 'sql/**/*.sql'
+              - 'jackdaw/src/**/*.sql'
           ci_workflows:
             patterns:
               - '.ci/**/*.yaml'
               - '.ci/**/*.py'
           all_sources:
             patterns:
-              - 'src/**/*.rs'
+              - 'jackdaw/src/**/*.rs'
+              - 'jackdaw-cli/src/**/*.rs'
               - 'Cargo.toml'
+              - 'jackdaw/Cargo.toml'
+              - 'jackdaw-cli/Cargo.toml'
               - 'Cargo.lock'
-              - 'sql/**/*.sql'
+              - 'jackdaw/src/**/*.sql'
         workflow_id: ${ $workflow.id }
       output:
         as:
@@ -49,6 +55,7 @@ do:
           command: cargo
           arguments:
             - fmt
+            - --all
             - --check
 
   - clippyCheck:
@@ -59,9 +66,12 @@ do:
           command: cargo
           arguments:
             - clippy
+            - --workspace
+            - --all-targets
+            - --all-features
             - --
             - -D
-            - warning
+            - warnings
 
   - runTests:
       input:

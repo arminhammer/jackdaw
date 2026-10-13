@@ -3,7 +3,6 @@ init: submodules
     command -v cargo-llvm-cov >/dev/null 2>&1 || cargo install cargo-llvm-cov
     command -v zig >/dev/null 2>&1 || echo "⚠️  Warning: 'zig' not found in PATH. Required for cross-compilation."
     command -v prek >/dev/null 2>&1 || echo "⚠️  Warning: 'prek' not found in PATH. Required for running pre-commit hooks."
-    command -v vhs >/dev/null 2>&1 || echo "⚠️  Warning: 'vhs' not found in PATH. Required for running VHS demos."
     rustup target list --installed | grep -q x86_64-unknown-linux-musl || rustup target add x86_64-unknown-linux-musl
     rustup target list --installed | grep -q aarch64-unknown-linux-musl || rustup target add aarch64-unknown-linux-musl
 
@@ -37,10 +36,10 @@ test-examples:
 test-validate:
     cargo test --test validate_tests
 
-# Run the library BDD feature specs in tests/lib (skips @todo scenarios).
+# Run the library BDD feature specs in jackdaw/tests/lib (skips @todo scenarios).
 # Extra arguments go to cucumber, e.g. `just test-lib --tags '@crash and not @todo'`
 test-lib *ARGS:
-    cargo test --test lib_features -- {{ARGS}}
+    cargo test -p jackdaw --test lib_features -- {{ARGS}}
 
 # Run all tests (unit + integration, including the library BDD specs)
 test-all:
@@ -222,15 +221,15 @@ show-binary-sizes:
 
 # Build Docker image for current platform
 docker-build:
-    docker buildx build --load -t jackdaw:latest .
+    docker buildx build -f jackdaw-cli/Dockerfile --load -t jackdaw:latest .
 
 # Build Docker image for multiple platforms (amd64 and arm64)
 docker-build-multiplatform:
-    docker buildx build --platform linux/amd64,linux/arm64 -t jackdaw:latest .
+    docker buildx build -f jackdaw-cli/Dockerfile --platform linux/amd64,linux/arm64 -t jackdaw:latest .
 
 # Build and push Docker image for multiple platforms
 docker-build-push:
-    docker buildx build --platform linux/amd64,linux/arm64 -t jackdaw:latest --push .
+    docker buildx build -f jackdaw-cli/Dockerfile --platform linux/amd64,linux/arm64 -t jackdaw:latest --push .
 
 # Build Linux x86_64 binary using Docker (extracts from builder stage)
 docker-build-linux-amd64:
@@ -238,6 +237,7 @@ docker-build-linux-amd64:
     set -euo pipefail
     echo "Building Linux x86_64 binary in Docker..."
     docker buildx build \
+        -f jackdaw-cli/Dockerfile \
         --platform linux/amd64 \
         --target builder \
         --load \
@@ -245,7 +245,7 @@ docker-build-linux-amd64:
     echo "Extracting binary..."
     mkdir -p dist
     docker create --name jackdaw-extract jackdaw-builder:linux-amd64
-    docker cp jackdaw-extract:/build/target/release/jackdaw ./dist/jackdaw-linux-amd64
+    docker cp jackdaw-extract:/out/jackdaw ./dist/jackdaw-linux-amd64
     docker rm jackdaw-extract
     echo "Linux x86_64 binary ready: ./dist/jackdaw-linux-amd64"
     ls -lh ./dist/jackdaw-linux-amd64
@@ -257,6 +257,7 @@ docker-build-linux-arm64:
     set -euo pipefail
     echo "Building Linux ARM64 binary in Docker..."
     docker buildx build \
+        -f jackdaw-cli/Dockerfile \
         --platform linux/arm64 \
         --target builder \
         --load \
@@ -264,7 +265,7 @@ docker-build-linux-arm64:
     echo "Extracting binary..."
     mkdir -p dist
     docker create --name jackdaw-extract jackdaw-builder:linux-arm64
-    docker cp jackdaw-extract:/build/target/release/jackdaw ./dist/jackdaw-linux-arm64
+    docker cp jackdaw-extract:/out/jackdaw ./dist/jackdaw-linux-arm64
     docker rm jackdaw-extract
     echo "Linux ARM64 binary ready: ./dist/jackdaw-linux-arm64"
     ls -lh ./dist/jackdaw-linux-arm64
@@ -283,76 +284,14 @@ docker-build-all: docker-build-linux build-macos-universal
     @ls -lh ./dist/jackdaw-*
     @ls -lh ./target/universal-apple-darwin/release/jackdaw
 
-vhs:
-    vhs docs/vhs/hello-world.tape
-    vhs docs/vhs/hello-world-debug.tape
-    vhs docs/vhs/run-container.tape
-    vhs docs/vhs/run-python.tape
-    vhs docs/vhs/run-javascript.tape
-    vhs docs/vhs/cache-debug.tape
-    vhs docs/vhs/persistence-demo.tape
-    # vhs docs/vhs/listener-openapi.tape
-    # vhs docs/vhs/listener-grpc.tape
-    vhs docs/vhs/hello-world-validate.tape
-
-# ============================================================================
-# Python Package Publishing
-# ============================================================================
-
-# Build Python wheels for current platform
-python-build:
-    maturin build --release --features python
-
-# Build Python wheels in development mode (editable install)
-python-develop:
-    maturin develop --features python
-
-# Build Python wheels for all platforms (requires docker/cross)
-python-build-all:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    echo "Building Python wheels for multiple platforms..."
-    # Build for current platform
-    maturin build --release --features python
-    echo "✓ Wheels built in target/wheels/"
-    ls -lh target/wheels/
-
-# Publish Python package to PyPI
-python-publish:
-    maturin upload target/wheels/jackdaw-*.whl
-
-# Publish Python package to TestPyPI (for testing)
-python-publish-test:
-    maturin upload --repository testpypi target/wheels/jackdaw-*.whl
-
-# Run Python examples
-python-examples:
-    python examples/python/simple_workflow.py
-    python examples/python/event_streaming.py
-
 # ============================================================================
 # Release Management
 # ============================================================================
 
-# Publish Rust crate to crates.io
+# Publish the jackdaw library crate to crates.io
 publish-crate:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "Publishing Rust crate to crates.io..."
-    cargo publish
+    echo "Publishing the jackdaw library crate to crates.io..."
+    cargo publish -p jackdaw
     echo "✓ Published to crates.io"
-
-# Publish Python package to PyPI
-publish-python: python-build
-    #!/usr/bin/env bash
-    set -euo pipefail
-    echo "Publishing Python package to PyPI..."
-    maturin upload target/wheels/jackdaw-*.whl
-    echo "✓ Published to PyPI"
-
-# Full release: publish both Rust crate and Python package
-publish-all: publish-crate publish-python
-    @echo ""
-    @echo "✓ All packages published!"
-    @echo "  - Rust crate: https://crates.io/crates/jackdaw"
-    @echo "  - Python package: https://pypi.org/project/jackdaw"

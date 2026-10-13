@@ -1,7 +1,4 @@
 # Cargo configuration for the project
-#
-# This file adds custom library paths needed for pyo3 on systems
-# where libpython3.14.so symlink is not in the default location
 
 [build]
 rustflags = [
@@ -20,7 +17,3 @@ linker = "x86_64-linux-musl-gcc"
 
 [target.aarch64-unknown-linux-musl]
 linker = "aarch64-linux-musl-gcc"
-
-# Allow building pyo3 against Python newer than its max supported version
-[env]
-PYO3_USE_ABI3_FORWARD_COMPATIBILITY = "1"

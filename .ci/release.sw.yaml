@@ -20,22 +20,28 @@ do:
         categories:
           rust_sources:
             patterns:
-              - 'src/**/*.rs'
+              - 'jackdaw/src/**/*.rs'
+              - 'jackdaw-cli/src/**/*.rs'
               - 'Cargo.toml'
+              - 'jackdaw/Cargo.toml'
+              - 'jackdaw-cli/Cargo.toml'
               - 'Cargo.lock'
           sql_schemas:
             patterns:
-              - 'sql/**/*.sql'
+              - 'jackdaw/src/**/*.sql'
           ci_workflows:
             patterns:
               - '.ci/**/*.yaml'
               - '.ci/**/*.py'
           all_sources:
             patterns:
-              - 'src/**/*.rs'
+              - 'jackdaw/src/**/*.rs'
+              - 'jackdaw-cli/src/**/*.rs'
               - 'Cargo.toml'
+              - 'jackdaw/Cargo.toml'
+              - 'jackdaw-cli/Cargo.toml'
               - 'Cargo.lock'
-              - 'sql/**/*.sql'
+              - 'jackdaw/src/**/*.sql'
         workflow_id: ${ $workflow.id }
       output:
         as:
@@ -49,6 +55,7 @@ do:
           command: cargo
           arguments:
             - fmt
+            - --all
             - --check
 
   # - clippyCheck:
@@ -59,9 +66,12 @@ do:
   #         command: cargo
   #         arguments:
   #           - clippy
+  #           - --workspace
+  #           - --all-targets
+  #           - --all-features
   #           - --
   #           - -D
-  #           - warning
+  #           - warnings
 
   - runTests:
       input:
@@ -96,11 +106,11 @@ do:
             - |
               set -euo pipefail
               echo "Building Linux x86_64 binary in Docker..."
-              docker buildx build --platform linux/amd64 --target builder --load -t jackdaw-builder:linux-amd64 .
+              docker buildx build -f jackdaw-cli/Dockerfile --platform linux/amd64 --target builder --load -t jackdaw-builder:linux-amd64 .
               echo "Extracting binary..."
               mkdir -p dist
               docker create --name jackdaw-extract jackdaw-builder:linux-amd64
-              docker cp jackdaw-extract:/build/target/release/jackdaw ./dist/jackdaw-linux-amd64
+              docker cp jackdaw-extract:/out/jackdaw ./dist/jackdaw-linux-amd64
               docker rm jackdaw-extract
               echo "✓ Linux x86_64 binary ready: ./dist/jackdaw-linux-amd64"
               ls -lh ./dist/jackdaw-linux-amd64
@@ -117,11 +127,11 @@ do:
             - |
               set -euo pipefail
               echo "Building Linux aarch64 binary in Docker..."
-              docker buildx build --platform linux/arm64 --target builder --load -t jackdaw-builder:linux-arm64 .
+              docker buildx build -f jackdaw-cli/Dockerfile --platform linux/arm64 --target builder --load -t jackdaw-builder:linux-arm64 .
               echo "Extracting binary..."
               mkdir -p dist
               docker create --name jackdaw-extract jackdaw-builder:linux-arm64
-              docker cp jackdaw-extract:/build/target/release/jackdaw ./dist/jackdaw-linux-arm64
+              docker cp jackdaw-extract:/out/jackdaw ./dist/jackdaw-linux-arm64
               docker rm jackdaw-extract
               echo "✓ Linux aarch64 binary ready: ./dist/jackdaw-linux-arm64"
               ls -lh ./dist/jackdaw-linux-arm64
