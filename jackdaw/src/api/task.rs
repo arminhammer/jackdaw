@@ -1,0 +1,340 @@
+//! Native tasks: typed functions the engine can run, with the retry/timeout options a step can carry.
+use super::error::{TaskError, error_types};
+use futures::FutureExt;
+use serde::Serialize;
+use serde::de::DeserializeOwned;
+use std::future::Future;
+use std::marker::PhantomData;
+use std::panic::AssertUnwindSafe;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::time::Duration;
+
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+/// Where a task's code lives.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TaskTarget {
+    /// A native Rust task registered on the engine, by name.
+    Native(&'static str),
+    /// A catalog entry, `name:version`.
+    Catalog {
+        name: &'static str,
+        version: &'static str,
+    },
+}
+
+/// The typed marker of a task: its name and its input and output types.
+pub trait TaskDef: Send + Sync + 'static {
+    type In: Serialize + DeserializeOwned + Send + 'static;
+    type Out: Serialize + DeserializeOwned + Send + 'static;
+
+    fn task_name(&self) -> &'static str;
+
+    /// Whether results may be cached by input. Native tasks are side effects, so the default is no.
+    fn cacheable(&self) -> bool {
+        false
+    }
+
+    fn target(&self) -> TaskTarget {
+        TaskTarget::Native(self.task_name())
+    }
+}
+
+/// The marker of a method in a `#[tasks]` impl (`Shop::charge`). It carries the types and the name, not the code.
+pub struct TaskRef<S, I, O> {
+    name: &'static str,
+    cached: bool,
+    _types: PhantomData<fn(S, I) -> O>,
+}
+
+impl<S, I, O> TaskRef<S, I, O> {
+    #[must_use]
+    pub const fn new(name: &'static str, cached: bool) -> Self {
+        Self {
+            name,
+            cached,
+            _types: PhantomData,
+        }
+    }
+}
+
+impl<S, I, O> Clone for TaskRef<S, I, O> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<S, I, O> Copy for TaskRef<S, I, O> {}
+
+impl<S, I, O> TaskDef for TaskRef<S, I, O>
+where
+    S: 'static,
+    I: Serialize + DeserializeOwned + Send + 'static,
+    O: Serialize + DeserializeOwned + Send + 'static,
+{
+    type In = I;
+    type Out = O;
+
+    fn task_name(&self) -> &'static str {
+        self.name
+    }
+
+    fn cacheable(&self) -> bool {
+        self.cached
+    }
+}
+
+/// A marker that also carries the code (the unit structs `#[task]` generates for free functions).
+pub trait RegisterTask: TaskDef {
+    fn native(self) -> NativeTask;
+}
+
+/// The tasks of a `#[tasks]` impl, bound to one instance of the type holding their state.
+pub trait TaskSet: Send + Sync + 'static {
+    fn native_tasks(self: Arc<Self>) -> Vec<NativeTask>;
+}
+
+type RunFn = Arc<
+    dyn Fn(
+            TaskContext,
+            serde_json::Value,
+        ) -> BoxFuture<'static, Result<serde_json::Value, TaskError>>
+        + Send
+        + Sync,
+>;
+
+/// A task as the engine runs it: untyped values in and out, with the typing done at the edges.
+#[derive(Clone)]
+pub struct NativeTask {
+    pub(crate) name: &'static str,
+    pub(crate) cached: bool,
+    run: RunFn,
+}
+
+impl std::fmt::Debug for NativeTask {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NativeTask")
+            .field("name", &self.name)
+            .field("cached", &self.cached)
+            .finish()
+    }
+}
+
+fn invalid_input(error: &serde_json::Error) -> TaskError {
+    TaskError::fault(error_types::VALIDATION)
+        .status(400)
+        .detail(format!("the task's input does not match its type: {error}"))
+}
+
+fn unserializable_output(error: &serde_json::Error) -> TaskError {
+    TaskError::non_retryable(format!(
+        "the task's output could not be serialized: {error}"
+    ))
+}
+
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+    payload
+        .downcast_ref::<&str>()
+        .map(|message| (*message).to_string())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "the task panicked".to_string())
+}
+
+impl NativeTask {
+    pub fn new<I, O, F, Fut>(name: &'static str, cached: bool, f: F) -> Self
+    where
+        I: DeserializeOwned + Send + 'static,
+        O: Serialize + Send + 'static,
+        F: Fn(TaskContext, I) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<O, TaskError>> + Send + 'static,
+    {
+        let f = Arc::new(f);
+        Self {
+            name,
+            cached,
+            run: Arc::new(move |ctx, input| {
+                let f = Arc::clone(&f);
+                Box::pin(async move {
+                    let input: I = serde_json::from_value(input).map_err(|e| invalid_input(&e))?;
+                    let output = AssertUnwindSafe(async move { f(ctx, input).await })
+                        .catch_unwind()
+                        .await
+                        .map_err(|payload| {
+                            TaskError::non_retryable(panic_message(payload.as_ref()))
+                        })??;
+                    serde_json::to_value(output).map_err(|e| unserializable_output(&e))
+                })
+            }),
+        }
+    }
+
+    pub fn blocking<I, O, F>(name: &'static str, cached: bool, f: F) -> Self
+    where
+        I: DeserializeOwned + Send + 'static,
+        O: Serialize + Send + 'static,
+        F: Fn(TaskContext, I) -> Result<O, TaskError> + Send + Sync + 'static,
+    {
+        let f = Arc::new(f);
+        Self {
+            name,
+            cached,
+            run: Arc::new(move |ctx, input| {
+                let f = Arc::clone(&f);
+                Box::pin(async move {
+                    let input: I = serde_json::from_value(input).map_err(|e| invalid_input(&e))?;
+                    let output = tokio::task::spawn_blocking(move || f(ctx, input))
+                        .await
+                        .map_err(|error| {
+                            if error.is_panic() {
+                                TaskError::non_retryable(panic_message(error.into_panic().as_ref()))
+                            } else {
+                                TaskError::non_retryable("the blocking task was cancelled")
+                            }
+                        })??;
+                    serde_json::to_value(output).map_err(|e| unserializable_output(&e))
+                })
+            }),
+        }
+    }
+
+    pub(crate) fn invoke(
+        &self,
+        ctx: TaskContext,
+        input: serde_json::Value,
+    ) -> BoxFuture<'static, Result<serde_json::Value, TaskError>> {
+        (self.run)(ctx, input)
+    }
+}
+
+/// What a task can learn about the call it is serving.
+#[derive(Debug, Clone)]
+pub struct TaskContext {
+    instance_id: String,
+    task_name: String,
+    attempt: u32,
+    idempotency_key: String,
+}
+
+impl TaskContext {
+    pub(crate) fn new(
+        instance_id: &str,
+        task_name: &str,
+        attempt: u32,
+        idempotency_key: String,
+    ) -> Self {
+        Self {
+            instance_id: instance_id.to_string(),
+            task_name: task_name.to_string(),
+            attempt,
+            idempotency_key,
+        }
+    }
+
+    /// The workflow instance running this task.
+    #[must_use]
+    pub fn instance_id(&self) -> &str {
+        &self.instance_id
+    }
+
+    #[must_use]
+    pub fn task_name(&self) -> &str {
+        &self.task_name
+    }
+
+    /// The attempt number, starting at 1.
+    #[must_use]
+    pub fn attempt(&self) -> u32 {
+        self.attempt
+    }
+
+    /// Stable across retries and replay of the same step: use it to make external side effects idempotent.
+    #[must_use]
+    pub fn idempotency_key(&self) -> &str {
+        &self.idempotency_key
+    }
+}
+
+/// How a failing step is retried.
+#[derive(Debug, Clone)]
+pub struct Retry {
+    backoff: Backoff,
+    max_attempts: u32,
+}
+
+#[derive(Debug, Clone)]
+enum Backoff {
+    Constant(Duration),
+    Exponential { initial: Duration, cap: Duration },
+}
+
+impl Retry {
+    /// Waits `delay` between attempts. Three attempts unless changed with [`Retry::max_attempts`].
+    #[must_use]
+    pub fn constant(delay: Duration) -> Self {
+        Self {
+            backoff: Backoff::Constant(delay),
+            max_attempts: 3,
+        }
+    }
+
+    /// Doubles the wait after each failure (100ms, 200ms, ...), up to `max_attempts` attempts in total.
+    #[must_use]
+    pub fn exponential(max_attempts: u32) -> Self {
+        Self {
+            backoff: Backoff::Exponential {
+                initial: Duration::from_millis(100),
+                cap: Duration::from_secs(30),
+            },
+            max_attempts,
+        }
+    }
+
+    /// The total number of attempts, including the first.
+    #[must_use]
+    pub fn max_attempts(mut self, attempts: u32) -> Self {
+        self.max_attempts = attempts;
+        self
+    }
+
+    pub(crate) fn attempts(&self) -> u32 {
+        self.max_attempts.max(1)
+    }
+
+    /// The wait after `failed_attempts` consecutive failures.
+    pub(crate) fn delay_after(&self, failed_attempts: u32) -> Duration {
+        match &self.backoff {
+            Backoff::Constant(delay) => *delay,
+            Backoff::Exponential { initial, cap } => {
+                let factor = 2u32.saturating_pow(failed_attempts.saturating_sub(1));
+                initial.saturating_mul(factor).min(*cap)
+            }
+        }
+    }
+}
+
+/// Retry and timeout for a step.
+#[derive(Debug, Clone, Default)]
+pub struct TaskOptions {
+    pub(crate) retry: Option<Retry>,
+    pub(crate) timeout: Option<Duration>,
+}
+
+impl TaskOptions {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    #[must_use]
+    pub fn retry(mut self, retry: Retry) -> Self {
+        self.retry = Some(retry);
+        self
+    }
+
+    #[must_use]
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = Some(timeout);
+        self
+    }
+}

@@ -24,6 +24,12 @@ pub trait Executor: Send + Sync {
         streamer: Option<TaskOutputStreamer>,
     ) -> Result<serde_json::Value>;
 
+    /// Whether a `call` to this executor may be answered from the cache. Built-in protocols are, native tasks are
+    /// side effects and are not (unless they opt in).
+    fn cacheable(&self) -> bool {
+        true
+    }
+
     /// Downcast to concrete type for special handling
     #[allow(dead_code)]
     fn as_any(&self) -> &dyn std::any::Any;

@@ -1,0 +1,5 @@
+error: `tokio::spawn` is not allowed in a workflow's `#[run]`: a spawned task escapes the journal; put the work in a `#[task]` and `ctx.call` it (audited code can opt out with `#[allow_nondeterminism]` on the statement)
+  --> tests/rust/ui/nondeterministic_tokio_spawn.rs:22:9
+   |
+22 |         tokio::spawn(async { 1 + 1 });
+   |         ^^^^^

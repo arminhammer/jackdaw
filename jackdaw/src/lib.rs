@@ -101,6 +101,7 @@
 //!
 //! See [`config::JackdawConfig`] for available options.
 
+pub mod api;
 pub mod builder;
 pub mod cache;
 pub mod container;
@@ -114,9 +115,11 @@ pub mod expressions;
 pub mod listeners;
 pub mod output;
 pub mod persistence;
+pub mod prelude;
 pub mod providers;
 pub mod task_ext;
 pub mod task_output;
+pub mod testing;
 pub mod workflow;
 
 // Re-export commonly used types for convenience

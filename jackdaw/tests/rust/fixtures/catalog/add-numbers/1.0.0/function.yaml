@@ -1,0 +1,32 @@
+document:
+  dsl: '1.0.3'
+  namespace: catalog.tests
+  name: add-numbers
+  version: '1.0.0'
+  description: 'Add two numbers'
+
+input:
+  schema:
+    type: object
+    properties:
+      a:
+        type: integer
+      b:
+        type: integer
+    required:
+      - a
+      - b
+
+output:
+  schema:
+    type: object
+    properties:
+      result:
+        type: integer
+    required:
+      - result
+
+do:
+  - add:
+      set:
+        result: '${ .a + .b }'

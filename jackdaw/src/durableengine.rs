@@ -24,12 +24,15 @@ use crate::{
 use super::cache::CacheProvider;
 
 // Submodules
+mod called;
 mod catalog;
 mod export;
 mod graph;
 mod listeners;
 mod tasks;
 mod timeout;
+
+pub(crate) use called::called_names;
 
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub))]
@@ -221,6 +224,17 @@ impl DurableEngine {
             workflow_registry: Arc::new(RwLock::new(HashMap::new())),
             event_buffer_size,
         })
+    }
+
+    /// Adds executors (the engine's native tasks, for YAML workflows that `call:` them by name).
+    ///
+    /// Only valid before the engine is shared; a name that is already taken keeps its existing executor.
+    pub(crate) fn add_executors(&mut self, extra: HashMap<String, Box<dyn Executor>>) {
+        if let Some(executors) = Arc::get_mut(&mut self.executors) {
+            for (name, executor) in extra {
+                executors.entry(name).or_insert(executor);
+            }
+        }
     }
 
     /// Validate workflow graph structure without executing
