@@ -1,0 +1,5 @@
+error: `std::fs::read_to_string` is not allowed in a workflow's `#[run]`: file I/O can return something different on replay; put it in a `#[task]` (audited code can opt out with `#[allow_nondeterminism]` on the statement)
+  --> tests/rust/ui/nondeterministic_std_fs.rs:22:23
+   |
+22 |         let _config = std::fs::read_to_string("config.toml");
+   |                       ^^^

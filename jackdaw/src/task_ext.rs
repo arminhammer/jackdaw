@@ -35,6 +35,20 @@ pub fn call_parts(
     }
 }
 
+/// The name a call task calls (`http`, `greet`, `add-numbers:1.0.0`, ...), whatever kind of call it is.
+#[must_use]
+pub fn call_name(t: &CallTaskDefinition) -> &str {
+    match t {
+        CallTaskDefinition::Function(f) => &f.call,
+        CallTaskDefinition::Http(h) => &h.call,
+        CallTaskDefinition::Grpc(g) => &g.call,
+        CallTaskDefinition::OpenApi(o) => &o.call,
+        CallTaskDefinition::AsyncApi(a) => &a.call,
+        CallTaskDefinition::A2a(a) => &a.call,
+        CallTaskDefinition::Mcp(m) => &m.call,
+    }
+}
+
 /// Extension trait providing helper methods for `TaskDefinition`
 pub trait TaskDefinitionExt {
     /// Get the export configuration for this task

@@ -33,16 +33,24 @@ pub async fn exec_call_task(
     let params = evaluated_with_params_value.clone();
     let cache_key = compute_cache_key(task_name, &params);
 
-    if let Some(cached) = ctx.services.cache.get(&cache_key).await? {
-        output::format_cache_hit(
-            task_name,
-            &cache_key,
-            Some(&cached.timestamp.format("%Y-%m-%d %H:%M:%S").to_string()),
-        );
-        return Ok(cached.output);
-    }
+    // Native tasks are side effects: they are only cached when they say so.
+    let cacheable = engine
+        .executors
+        .get(function_name)
+        .is_none_or(|executor| executor.cacheable());
 
-    output::format_cache_miss(task_name, &cache_key);
+    if cacheable {
+        if let Some(cached) = ctx.services.cache.get(&cache_key).await? {
+            output::format_cache_hit(
+                task_name,
+                &cache_key,
+                Some(&cached.timestamp.format("%Y-%m-%d %H:%M:%S").to_string()),
+            );
+            return Ok(cached.output);
+        }
+
+        output::format_cache_miss(task_name, &cache_key);
+    }
 
     // Note: TaskStarted event is now emitted centrally in exec_task()
 
@@ -148,7 +156,9 @@ pub async fn exec_call_task(
         output: result.clone(),
         timestamp: Utc::now(),
     };
-    ctx.services.cache.set(cache_entry).await?;
+    if cacheable {
+        ctx.services.cache.set(cache_entry).await?;
+    }
 
     Ok(result)
 }

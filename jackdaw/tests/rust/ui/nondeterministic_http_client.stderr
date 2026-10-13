@@ -1,0 +1,5 @@
+error: `reqwest::get` is not allowed in a workflow's `#[run]`: HTTP calls can return something different on replay; put them in a `#[task]` (audited code can opt out with `#[allow_nondeterminism]` on the statement)
+  --> tests/rust/ui/nondeterministic_http_client.rs:22:21
+   |
+22 |         let _body = reqwest::get("https://example.com").await;
+   |                     ^^^^^^^

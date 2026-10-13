@@ -2,7 +2,8 @@
 resolver = "3"
 members = [
     "jackdaw",
-    "jackdaw-cli"
+    "jackdaw-cli",
+    "jackdaw-macros"
 ]
 
 [workspace.dependencies]

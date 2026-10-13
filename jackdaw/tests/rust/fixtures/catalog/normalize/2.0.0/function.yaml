@@ -1,0 +1,29 @@
+document:
+  dsl: '1.0.3'
+  namespace: catalog.tests
+  name: normalize
+  version: '2.0.0'
+  description: 'Trim and lowercase some text'
+
+input:
+  schema:
+    type: object
+    properties:
+      text:
+        type: string
+    required:
+      - text
+
+output:
+  schema:
+    type: object
+    properties:
+      text:
+        type: string
+    required:
+      - text
+
+do:
+  - normalize:
+      set:
+        text: '${ .text | gsub("^\\s+|\\s+$"; "") | ascii_downcase }'

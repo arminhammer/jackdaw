@@ -1,0 +1,5 @@
+error: `tokio::time::sleep` is not allowed in a workflow's `#[run]`: a real sleep is not durable; use `ctx.sleep(duration)` (audited code can opt out with `#[allow_nondeterminism]` on the statement)
+  --> tests/rust/ui/nondeterministic_tokio_sleep.rs:22:9
+   |
+22 |         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+   |         ^^^^^

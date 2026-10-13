@@ -1,0 +1,9 @@
+error[E0308]: `?` operator has incompatible types
+  --> tests/rust/ui/mismatched_workflow_output.rs:22:12
+   |
+21 |     pub async fn run(ctx: &mut WorkflowContext<Self>, input: Name) -> WorkflowResult<u64> {
+   |                                                                       ------------------- expected `u64` because of return type
+22 |         Ok(ctx.call(Greet, &input).await?)
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `u64`, found `String`
+   |
+   = note: `?` operator cannot convert from `String` to `u64`
