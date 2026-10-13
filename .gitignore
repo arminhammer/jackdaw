@@ -36,6 +36,4 @@ workflow.db
 .python-version
 uv.lock
 
-# Generated documentation
-/docs/book/
 examples/**/node_modules/

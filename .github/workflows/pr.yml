@@ -50,6 +50,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
+          file: jackdaw-cli/Dockerfile
           load: true
           tags: jackdaw:latest
           cache-from: type=gha

@@ -1,0 +1,133 @@
+use clap::Parser;
+use indicatif::MultiProgress;
+use snafu::prelude::*;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+
+mod cmd;
+mod config;
+
+use cmd::{RunArgs, ValidateArgs, VisualizeArgs, handle_run, handle_validate, handle_visualize};
+use config::JackdawConfig;
+
+#[derive(Debug, Snafu)]
+pub enum Error {
+    #[snafu(display("Run error: {source}"))]
+    Run { source: cmd::run::Error },
+
+    #[snafu(display("Validate error: {source}"))]
+    Validate { source: cmd::validate::Error },
+
+    #[snafu(display("Visualization error: {source}"))]
+    Visualize { source: cmd::visualize::Error },
+}
+
+#[derive(Parser, Debug)]
+#[command(name = "jackdaw")]
+#[command(author = "Armin Graf")]
+#[command(version = env!("CARGO_PKG_VERSION"))]
+#[command(about = "A durable, cached, graph-based execution engine for Serverless Workflow", long_about = None)]
+#[command(help_template = "\
+{before-help}{name} {version}
+{about-with-newline}
+{usage-heading} {usage}
+
+{all-args}{after-help}
+")]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[allow(clippy::large_enum_variant)]
+#[derive(Parser, Debug)]
+enum Commands {
+    /// Execute workflow(s)
+    Run(RunArgs),
+    /// Validate workflow(s) without executing
+    Validate(ValidateArgs),
+    /// Visualize workflow structure and execution state
+    Visualize(VisualizeArgs),
+}
+
+/// Initialize tracing/logging with indicatif integration
+fn init_tracing(verbose: bool) {
+    let indicatif_layer = tracing_indicatif::IndicatifLayer::new();
+
+    let filter_layer = if verbose {
+        tracing_subscriber::EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("debug"))
+    } else {
+        tracing_subscriber::EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"))
+    };
+
+    tracing_subscriber::registry()
+        .with(filter_layer)
+        .with(indicatif_layer)
+        .init();
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Error> {
+    let cli = Cli::parse();
+
+    // Load configuration from file, env vars, and defaults
+    let global_config = JackdawConfig::load().unwrap_or_default();
+
+    match cli.command {
+        Commands::Run(args) => {
+            // Extract workflows, input, registry, and debug flag before merging
+            let workflows = args.workflows.clone();
+            let input = args.input.clone();
+            let registry = args.registry.clone();
+            let debug = args.debug;
+            let persistence_provider = args.persistence_provider.clone();
+            let cache_provider = args.cache_provider.clone();
+            let sqlite_db_url = args.sqlite_db_url.clone();
+            let postgres_db_name = args.postgres_db_name.clone();
+            let postgres_user = args.postgres_user.clone();
+            let postgres_password = args.postgres_password.clone();
+            let postgres_hostname = args.postgres_hostname.clone();
+
+            // Merge CLI args with config (CLI takes precedence)
+            let config = args.merge_with_config(global_config);
+
+            // Initialize tracing/logging with indicatif bridge
+            init_tracing(config.verbose);
+
+            // Initialize MultiProgress for coordinating progress bars and logs/traces
+            let multi_progress = MultiProgress::new();
+
+            handle_run(
+                workflows,
+                input,
+                registry,
+                config,
+                multi_progress,
+                debug,
+                persistence_provider,
+                cache_provider,
+                sqlite_db_url,
+                postgres_db_name,
+                postgres_user,
+                postgres_password,
+                postgres_hostname,
+            )
+            .await
+            .context(RunSnafu)
+        }
+        Commands::Validate(args) => {
+            // Initialize tracing/logging with indicatif bridge
+            init_tracing(args.verbose);
+
+            handle_validate(args).await.context(ValidateSnafu)
+        }
+        Commands::Visualize(args) => {
+            // Initialize tracing/logging with indicatif bridge
+            init_tracing(args.verbose);
+
+            handle_visualize(args).await.context(VisualizeSnafu)
+        }
+    }
+}

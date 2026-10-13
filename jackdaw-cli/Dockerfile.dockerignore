@@ -1,0 +1,9 @@
+# Allowlist: the image build only needs the workspace manifests and the two crates' sources.
+# The build context is the repository root (see the header of jackdaw-cli/Dockerfile).
+*
+!Cargo.toml
+!Cargo.lock
+!jackdaw/Cargo.toml
+!jackdaw/src
+!jackdaw-cli/Cargo.toml
+!jackdaw-cli/src
