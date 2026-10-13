@@ -1,4 +1,5 @@
 use chrono::Utc;
+
 use std::collections::HashMap;
 
 use crate::cache::{CacheEntry, compute_cache_key};
@@ -6,6 +7,7 @@ use crate::context::Context;
 use crate::output;
 
 use super::super::{DurableEngine, Result};
+use crate::task_ext::call_parts;
 
 /// Execute a Call task - invokes functions (user-defined, catalog, or built-in protocols)
 pub async fn exec_call_task(
@@ -14,7 +16,7 @@ pub async fn exec_call_task(
     call_task: &serverless_workflow_core::models::task::CallTaskDefinition,
     ctx: &Context,
 ) -> Result<serde_json::Value> {
-    let with_params = call_task.with.clone().unwrap_or_default();
+    let (function_name, with_params) = call_parts(call_task)?;
 
     // Evaluate expressions in with parameters
     let current_data = ctx.state.data.read().await.clone();
@@ -44,76 +46,72 @@ pub async fn exec_call_task(
 
     // Note: TaskStarted event is now emitted centrally in exec_task()
 
-    // Resolve the function definition from workflow.use_.functions
-    // If not found, check catalogs
-    // If still not found, assume it's a built-in protocol (http, grpc, etc.)
-    let function_name = &call_task.call;
-
     // First check user-defined functions
-    let function_result =
-        if let Some(function_def) = ctx
-            .metadata
-            .workflow
-            .use_
-            .as_ref()
-            .and_then(|use_| use_.functions.as_ref())
-            .and_then(|funcs| funcs.get(function_name))
-        {
-            // User-defined function
-            use serverless_workflow_core::models::task::TaskDefinition;
-            let (call_type, func_params) = match function_def {
-                TaskDefinition::Call(call_def) => {
-                    (&call_def.call, call_def.with.clone().unwrap_or_default())
-                }
-                TaskDefinition::Do(_)
-                | TaskDefinition::Fork(_)
-                | TaskDefinition::Emit(_)
-                | TaskDefinition::For(_)
-                | TaskDefinition::Listen(_)
-                | TaskDefinition::Raise(_)
-                | TaskDefinition::Run(_)
-                | TaskDefinition::Set(_)
-                | TaskDefinition::Switch(_)
-                | TaskDefinition::Try(_)
-                | TaskDefinition::Wait(_) => {
-                    return Err(super::super::Error::Configuration {
-                        message: format!("Function {function_name} is not a call task"),
-                    });
-                }
-            };
-            let mut merged_params = func_params;
-            merged_params.extend(evaluated_with_params.clone());
-
-            let executor = engine.executors.get(call_type.as_str()).ok_or(
-                super::super::Error::TaskExecution {
-                    message: format!("No executor for call type: {call_type}"),
-                },
-            )?;
-
-            let final_params = serde_json::to_value(&merged_params)?;
-            executor.exec(task_name, &final_params, ctx, None).await?
-        } else if let Some(catalog_result) = engine
-            .try_load_catalog_function(function_name, &evaluated_with_params, ctx)
-            .await?
-        {
-            // Catalog function - execute as nested workflow
-            catalog_result
-        } else {
-            // Built-in protocol
-            let executor = engine.executors.get(function_name.as_str()).ok_or(
-                super::super::Error::TaskExecution {
-                    message: format!("No executor for call type: {function_name}"),
-                },
-            )?;
-
-            let final_params = serde_json::to_value(&evaluated_with_params)?;
-            executor.exec(task_name, &final_params, ctx, None).await?
+    let function_result = if let Some(function_def) = ctx
+        .metadata
+        .workflow
+        .use_
+        .as_ref()
+        .and_then(|use_| use_.functions.as_ref())
+        .and_then(|funcs| funcs.get(function_name))
+    {
+        // User-defined function
+        use serverless_workflow_core::models::task::TaskDefinition;
+        let (call_type, func_params) = match function_def {
+            TaskDefinition::Call(call_def) => call_parts(call_def)?,
+            TaskDefinition::Do(_)
+            | TaskDefinition::Fork(_)
+            | TaskDefinition::Emit(_)
+            | TaskDefinition::For(_)
+            | TaskDefinition::Listen(_)
+            | TaskDefinition::Raise(_)
+            | TaskDefinition::Run(_)
+            | TaskDefinition::Set(_)
+            | TaskDefinition::Switch(_)
+            | TaskDefinition::Try(_)
+            | TaskDefinition::Wait(_) => {
+                return Err(super::super::Error::Configuration {
+                    message: format!("Function {function_name} is not a call task"),
+                });
+            }
         };
+        let mut merged_params = func_params;
+        merged_params.extend(evaluated_with_params.clone());
+
+        let executor =
+            engine
+                .executors
+                .get(call_type)
+                .ok_or(super::super::Error::TaskExecution {
+                    message: format!("No executor for call type: {call_type}"),
+                })?;
+
+        let final_params = serde_json::to_value(&merged_params)?;
+        executor.exec(task_name, &final_params, ctx, None).await?
+    } else if let Some(catalog_result) = engine
+        .try_load_catalog_function(function_name, &evaluated_with_params, ctx)
+        .await?
+    {
+        // Catalog function - execute as nested workflow
+        catalog_result
+    } else {
+        // Built-in protocol
+        let executor =
+            engine
+                .executors
+                .get(function_name)
+                .ok_or(super::super::Error::TaskExecution {
+                    message: format!("No executor for call type: {function_name}"),
+                })?;
+
+        let final_params = serde_json::to_value(&evaluated_with_params)?;
+        executor.exec(task_name, &final_params, ctx, None).await?
+    };
 
     let mut result = function_result;
 
     // Apply output filtering if specified
-    if let Some(output_config) = &call_task.common.output
+    if let Some(output_config) = &call_task.common().output
         && let Some(as_value) = &output_config.as_
     {
         let task_input = ctx.state.task_input.read().await.clone();

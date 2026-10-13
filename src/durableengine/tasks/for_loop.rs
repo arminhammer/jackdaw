@@ -13,8 +13,16 @@ pub async fn exec_for_task(
     let current_data = ctx.state.data.read().await.clone();
 
     // Evaluate the 'in' expression to get the collection to iterate over
-    let collection_expr = &for_task.for_.in_;
-    let collection = crate::expressions::evaluate_jq(collection_expr, &current_data)?;
+    let in_value = &for_task.for_.in_;
+    let collection = if let Some(expr) = in_value.as_str() {
+        crate::expressions::evaluate_jq(expr, &current_data)?
+    } else if in_value.is_array() {
+        in_value.clone()
+    } else {
+        return Err(Error::TaskExecution {
+            message: format!("For loop 'in' must be an expression or an array, got: {in_value}"),
+        });
+    };
 
     // Get the collection as an array
     let items = collection.as_array().ok_or(Error::TaskExecution {

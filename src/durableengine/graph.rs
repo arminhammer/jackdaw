@@ -74,7 +74,7 @@ pub(super) fn build_graph(
 pub(super) fn get_task_transitions(task: &TaskDefinition) -> Vec<String> {
     match task {
         TaskDefinition::Call(t) => t
-            .common
+            .common()
             .then
             .as_ref()
             .map(|s| vec![s.clone()])
