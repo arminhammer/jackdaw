@@ -158,10 +158,10 @@ pub struct DurableEngine {
     persistence: Arc<dyn PersistenceProvider>,
     cache: Arc<dyn CacheProvider>,
     /// Registry of active gRPC listeners, keyed by bind address
-    /// Using Arc<GrpcListener> to allow adding methods progressively
+    /// Using `Arc<GrpcListener>` to allow adding methods progressively
     grpc_listeners: Arc<RwLock<HashMap<String, Arc<GrpcListener>>>>,
     /// Registry of active HTTP listeners, keyed by bind address
-    /// Using Arc<HttpListener> to allow adding routes progressively
+    /// Using `Arc<HttpListener>` to allow adding routes progressively
     http_listeners: Arc<RwLock<HashMap<String, Arc<crate::listeners::HttpListener>>>>,
     /// Registry of workflows for nested execution, keyed by "namespace/name/version"
     workflow_registry: Arc<RwLock<HashMap<String, WorkflowDefinition>>>,

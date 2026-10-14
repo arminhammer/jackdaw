@@ -633,6 +633,7 @@ impl Shared {
                 Err(Error::Cancelled) => JournalStatus::Cancelled,
                 Err(_) => JournalStatus::Faulted,
             });
+            for_task.log.close();
             let _ = sender.send(result);
         });
         self.remember(&core, handle);
@@ -840,10 +841,9 @@ impl InstanceCore {
         lock(&self.journal).status
     }
 
-    /// Records the end of the instance and closes its event stream.
+    /// Records the end of the instance. The event stream is closed separately, after the terminal event is in it.
     pub(crate) fn finish(&self, status: JournalStatus) {
         lock(&self.journal).status = status;
-        self.log.close();
     }
 
     // ---- creating steps (synchronous: this is what fixes a step's identity) ----

@@ -2,6 +2,8 @@
 //!
 //! Most code only needs [`crate::prelude`]. The macros (`#[task]`, `#[workflow]`, ...) generate code that refers to the
 //! items re-exported here, which is why they are public.
+#![warn(missing_docs)]
+
 mod catalog;
 mod context;
 mod duration;

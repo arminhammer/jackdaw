@@ -1,4 +1,21 @@
 //! `Engine`, its builder, and the handle to a running workflow.
+//!
+//! ```
+//! use jackdaw::prelude::*;
+//!
+//! #[task]
+//! async fn shout(text: String) -> Result<String, TaskError> {
+//!     Ok(text.to_uppercase())
+//! }
+//!
+//! # #[tokio::main]
+//! # async fn main() -> Result<(), Error> {
+//! let engine = Engine::builder().task(Shout).build()?;
+//! let out = engine.run_task(Shout, "hi".to_string(), TaskOptions::new()).await?;
+//! assert_eq!(out, "HI");
+//! # Ok(())
+//! # }
+//! ```
 use super::catalog::CatalogDef;
 use super::error::{Divergence, Error};
 use super::event::{Event, EventStream};
@@ -32,9 +49,13 @@ use tokio::sync::oneshot;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Status {
+    /// Still executing, or waiting on a timer, signal or event.
     Running,
+    /// Finished with a result.
     Completed,
+    /// Ended with an error.
     Faulted,
+    /// Stopped by [`ExecutionHandle::cancel`].
     Cancelled,
 }
 
@@ -51,8 +72,10 @@ impl From<JournalStatus> for Status {
 
 /// Makes `EngineBuilder::tasks` accept either a value or an `Arc` of it.
 pub trait IntoTaskSet {
+    /// The task set type.
     type Set: TaskSet;
 
+    /// The shared set.
     fn into_task_set(self) -> Arc<Self::Set>;
 }
 
@@ -104,7 +127,22 @@ impl Executor for NativeExecutor {
     }
 }
 
-/// Builds an [`Engine`].
+/// Builds an [`Engine`]. Without [`store`](Self::store) everything lives in memory and is lost when the process ends.
+///
+/// `build` checks the registrations: every task and child workflow a `#[run]` body refers to must be registered, and
+/// catalog entries must exist.
+///
+/// ```no_run
+/// use jackdaw::prelude::*;
+///
+/// # fn main() -> Result<(), Error> {
+/// let engine = Engine::builder()
+///     .store(Redb::open("jackdaw.redb")?)
+///     .build()?;
+/// # let _ = engine;
+/// # Ok(())
+/// # }
+/// ```
 pub struct EngineBuilder {
     persistence: Option<Arc<dyn PersistenceProvider>>,
     cache: Option<Arc<dyn CacheProvider>>,
@@ -121,6 +159,7 @@ impl Default for EngineBuilder {
 }
 
 impl EngineBuilder {
+    /// An empty builder.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -141,12 +180,14 @@ impl EngineBuilder {
         self
     }
 
+    /// Uses a custom persistence provider for workflow state.
     #[must_use]
     pub fn persistence(mut self, persistence: Arc<dyn PersistenceProvider>) -> Self {
         self.persistence = Some(persistence);
         self
     }
 
+    /// Uses a custom cache provider for cached task results.
     #[must_use]
     pub fn cache(mut self, cache: Arc<dyn CacheProvider>) -> Self {
         self.cache = Some(cache);
@@ -195,6 +236,8 @@ impl EngineBuilder {
         self
     }
 
+    /// Checks the registrations and creates the engine.
+    ///
     /// # Errors
     /// `Error::Invalid` if registrations conflict or refer to something that does not exist.
     pub fn build(self) -> Result<Engine, Error> {
@@ -256,6 +299,7 @@ impl fmt::Debug for Engine {
 }
 
 impl Engine {
+    /// Starts configuring an engine.
     #[must_use]
     pub fn builder() -> EngineBuilder {
         EngineBuilder::new()
@@ -360,6 +404,8 @@ impl Engine {
         })
     }
 
+    /// Where the instance is in its life.
+    ///
     /// # Errors
     /// If the instance is unknown to this engine and its store.
     pub async fn status(&self, id: &str) -> Result<Status, Error> {
@@ -431,6 +477,7 @@ impl<Out> fmt::Debug for ExecutionHandle<Out> {
 }
 
 impl<Out> ExecutionHandle<Out> {
+    /// The instance id, for [`Engine::status`], [`Engine::history`] and [`Engine::resume`].
     #[must_use]
     pub fn id(&self) -> &str {
         &self.core.id

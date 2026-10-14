@@ -1,4 +1,4 @@
-//! Builder for configuring and creating a [`DurableEngine`](crate::durableengine::DurableEngine)
+//! Builder for configuring and creating a [`DurableEngine`]
 //!
 //! The [`DurableEngineBuilder`] provides a fluent API for configuring engine components.
 
@@ -10,7 +10,7 @@ use crate::{
 };
 use std::sync::Arc;
 
-/// Builder for creating a [`DurableEngine`](crate::durableengine::DurableEngine)
+/// Builder for creating a [`DurableEngine`]
 ///
 /// This builder provides a fluent API for configuring the engine with custom
 /// persistence and cache providers. If not specified, the builder defaults to
@@ -150,7 +150,7 @@ impl DurableEngineBuilder {
 
     /// Build the engine
     ///
-    /// This creates the [`DurableEngine`](crate::durableengine::DurableEngine) with
+    /// This creates the [`DurableEngine`] with
     /// the configured settings. If persistence or cache providers were not specified,
     /// in-memory defaults will be used.
     ///

@@ -44,6 +44,7 @@ impl<W: Send + 'static> WorkflowContext<W> {
         Self { core, state }
     }
 
+    /// The id of the running instance.
     #[must_use]
     pub fn instance_id(&self) -> &str {
         &self.core.id
@@ -199,17 +200,18 @@ impl<W: Send + 'static> WorkflowContext<W> {
     #[track_caller]
     #[must_use]
     pub fn random(&self) -> f64 {
+        // The journal keeps the bit pattern, not the float: JSON text does not always give back the same f64, and a
+        // replayed value that differs in the last digit would change the hash of whatever step it is passed to.
         let value = self.core.recorded_value("random", Location::caller(), || {
             // 53 random bits make an exactly representable fraction in [0, 1).
             let bits = u64::try_from(uuid::Uuid::new_v4().as_u128() >> 75).unwrap_or(0);
-            json!(
-                f64::from(u32::try_from(bits >> 21).unwrap_or(0)) / 4_294_967_296.0
-                    + f64::from(u32::try_from(bits & 0x1f_ffff).unwrap_or(0))
-                        / 4_294_967_296.0
-                        / 2_097_152.0
-            )
+            let fraction = f64::from(u32::try_from(bits >> 21).unwrap_or(0)) / 4_294_967_296.0
+                + f64::from(u32::try_from(bits & 0x1f_ffff).unwrap_or(0))
+                    / 4_294_967_296.0
+                    / 2_097_152.0;
+            json!(fraction.to_bits())
         });
-        value.as_f64().unwrap_or(0.0)
+        value.as_u64().map_or(0.0, f64::from_bits)
     }
 
     /// A random UUID, recorded.
@@ -404,7 +406,9 @@ impl<Out: DeserializeOwned> Future for ForEach<Out> {
 
 /// The winner of a race.
 pub enum Either<A, B> {
+    /// The first step finished first.
     Left(A),
+    /// The second step finished first.
     Right(B),
 }
 

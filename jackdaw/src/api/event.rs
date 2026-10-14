@@ -12,54 +12,95 @@ use tokio::sync::Notify;
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum Event {
+    /// A new workflow instance began.
     WorkflowStarted {
+        /// The instance.
         instance_id: String,
+        /// The workflow's identity, `namespace/name version`.
         workflow: String,
+        /// The input the workflow was started with.
         input: serde_json::Value,
+        /// When it happened.
         timestamp: DateTime<Utc>,
     },
+    /// A stopped instance was picked up again with [`Engine::resume`](crate::api::Engine::resume).
     WorkflowResumed {
+        /// The instance.
         instance_id: String,
+        /// When it happened.
         timestamp: DateTime<Utc>,
     },
+    /// A task or child workflow started.
     TaskStarted {
+        /// The instance.
         instance_id: String,
+        /// The task's name (a child workflow's name for `ctx.run`).
         task_name: String,
+        /// `true` if this is recorded history being replayed, not new work.
         replayed: bool,
+        /// When it happened.
         timestamp: DateTime<Utc>,
     },
+    /// A task or child workflow finished successfully.
     TaskCompleted {
+        /// The instance.
         instance_id: String,
+        /// The task's name.
         task_name: String,
+        /// What it returned, as JSON.
         result: serde_json::Value,
+        /// `true` if this is recorded history being replayed, not new work.
         replayed: bool,
+        /// When it happened.
         timestamp: DateTime<Utc>,
     },
+    /// A task or child workflow failed (after any retries).
     TaskFaulted {
+        /// The instance.
         instance_id: String,
+        /// The task's name.
         task_name: String,
+        /// A description of the failure.
         error: String,
+        /// `true` if this is recorded history being replayed, not new work.
         replayed: bool,
+        /// When it happened.
         timestamp: DateTime<Utc>,
     },
+    /// A task failed and its retry policy is trying it again.
     TaskRetried {
+        /// The instance.
         instance_id: String,
+        /// The task's name.
         task_name: String,
+        /// The attempt that just failed, starting at 1.
         attempt: u32,
+        /// When it happened.
         timestamp: DateTime<Utc>,
     },
+    /// The workflow finished successfully. The last event of a successful run.
     WorkflowCompleted {
+        /// The instance.
         instance_id: String,
+        /// The workflow's output, as JSON.
         output: serde_json::Value,
+        /// When it happened.
         timestamp: DateTime<Utc>,
     },
+    /// The workflow failed. The last event of a failed run.
     WorkflowFailed {
+        /// The instance.
         instance_id: String,
+        /// A description of the failure.
         error: String,
+        /// When it happened.
         timestamp: DateTime<Utc>,
     },
+    /// The workflow was cancelled. The last event of a cancelled run.
     WorkflowCancelled {
+        /// The instance.
         instance_id: String,
+        /// When it happened.
         timestamp: DateTime<Utc>,
     },
     /// An event of the YAML engine that has no dedicated variant.
@@ -101,6 +142,7 @@ impl Event {
         }
     }
 
+    /// The instance the event belongs to.
     #[must_use]
     pub fn instance_id(&self) -> &str {
         match self {
@@ -387,8 +429,25 @@ impl EventLog {
     }
 }
 
-/// The events of one run, from its first event to its terminal one. Every call to `ExecutionHandle::events` returns an
-/// independent stream that starts from the beginning.
+/// The events of one run, from its first event to its terminal one.
+///
+/// Every call to [`ExecutionHandle::events`](crate::api::ExecutionHandle::events) returns an independent stream that
+/// starts from the beginning, so you can watch a run while also awaiting its result. The stream ends after the
+/// terminal event ([`Event::WorkflowCompleted`], [`Event::WorkflowFailed`] or [`Event::WorkflowCancelled`]).
+///
+/// ```
+/// use jackdaw::prelude::*;
+///
+/// // Print each event name until the run is over.
+/// async fn watch(mut events: EventStream) {
+///     while let Some(event) = events.next().await {
+///         println!("{} {}", event.instance_id(), event.name());
+///     }
+/// }
+/// # let _ = watch;
+/// ```
+///
+/// See [observing a run](crate::guide::events) for a complete example.
 #[derive(Debug)]
 pub struct EventStream {
     log: Arc<EventLog>,

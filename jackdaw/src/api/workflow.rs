@@ -1,4 +1,7 @@
 //! Workflows: the traits the `#[workflow]` macros implement, the typed markers, and `Workflow<In, Out>` for YAML.
+//!
+//! Write workflows with the `workflow` and `workflow_methods` attributes; see the
+//! [workflows chapter](crate::guide::workflows). Workflows defined in YAML are loaded with [`Workflow`].
 use super::catalog::CatalogWorkflowRef;
 use super::context::WorkflowContext;
 use super::error::{Error, WorkflowResult};
@@ -15,12 +18,16 @@ use std::sync::Arc;
 /// `namespace`, `name` and `version`: the identity of a workflow.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct WorkflowId {
+    /// Groups related workflows.
     pub namespace: String,
+    /// The workflow's name within its namespace.
     pub name: String,
+    /// The workflow's version.
     pub version: String,
 }
 
 impl WorkflowId {
+    /// The identity declared by `#[workflow(..)]` on `W`.
     #[must_use]
     pub fn of<W: WorkflowMeta>() -> Self {
         Self {
@@ -42,6 +49,9 @@ impl fmt::Display for WorkflowId {
 }
 
 /// How strictly a restarted instance is matched against its history.
+///
+/// Chosen per workflow with `#[workflow(replay = "lenient")]`. [The durability chapter](crate::guide::durability)
+/// explains when to loosen it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReplayMode {
     /// Steps are matched by position, kind, name and input. Any difference is `Error::NonDeterminism`. The default.
@@ -52,26 +62,36 @@ pub enum ReplayMode {
 
 /// Implemented by `#[workflow]`.
 pub trait WorkflowMeta {
+    /// The namespace from `#[workflow(namespace = ..)]`.
     const NAMESPACE: &'static str;
+    /// The name from `#[workflow(name = ..)]`.
     const NAME: &'static str;
+    /// The version from `#[workflow(version = ..)]`.
     const VERSION: &'static str;
+    /// The replay mode; strict unless the attribute says otherwise.
     const REPLAY: ReplayMode;
 }
 
 /// Implemented by `#[workflow_methods]`.
 pub trait WorkflowDef: WorkflowMeta + Sized + Send + Sync + 'static {
+    /// The `#[run]` method's input.
     type In: Serialize + DeserializeOwned + Send + 'static;
+    /// The `#[run]` method's output.
     type Out: Serialize + DeserializeOwned + Send + 'static;
 
+    /// Builds the instance's state (the `#[init]` method, or `Default`).
     fn init(ctx: &WorkflowContextView) -> Self;
 
+    /// The `#[run]` method.
     fn run<'a>(
         ctx: &'a mut WorkflowContext<Self>,
         input: Self::In,
     ) -> BoxFuture<'a, WorkflowResult<Self::Out>>;
 
+    /// The `#[signal]` methods.
     fn signals() -> Vec<SignalHandler<Self>>;
 
+    /// The `#[query]` methods.
     fn queries() -> Vec<QueryHandler<Self>>;
 
     /// The tasks and workflows `#[run]` refers to, found by the macro. Checked when the engine is built.
@@ -84,6 +104,7 @@ pub struct WorkflowRef<W, I, O> {
 }
 
 impl<W, I, O> WorkflowRef<W, I, O> {
+    /// The marker for workflow `W`.
     #[must_use]
     pub const fn new() -> Self {
         Self {
@@ -113,6 +134,7 @@ pub struct SignalRef<W, A> {
 }
 
 impl<W, A> SignalRef<W, A> {
+    /// The marker for the signal `name`.
     #[must_use]
     pub const fn new(name: &'static str) -> Self {
         Self {
@@ -137,6 +159,7 @@ pub struct QueryRef<W, R> {
 }
 
 impl<W, R> QueryRef<W, R> {
+    /// The marker for the query `name`.
     #[must_use]
     pub const fn new(name: &'static str) -> Self {
         Self {
@@ -169,6 +192,7 @@ pub struct SignalHandler<W> {
 }
 
 impl<W> SignalHandler<W> {
+    /// Wraps `handler`, decoding the signal's JSON payload into `A`.
     pub fn new<A, F>(name: &'static str, handler: F) -> Self
     where
         A: DeserializeOwned + 'static,
@@ -193,6 +217,7 @@ pub struct QueryHandler<W> {
 }
 
 impl<W> QueryHandler<W> {
+    /// Wraps `handler`, encoding its result as JSON.
     pub fn new<R, F>(name: &'static str, handler: F) -> Self
     where
         R: Serialize + 'static,
@@ -221,6 +246,7 @@ impl WorkflowContextView {
         }
     }
 
+    /// The id of the running instance.
     #[must_use]
     pub fn instance_id(&self) -> &str {
         &self.instance_id
@@ -242,6 +268,7 @@ impl<W> SyncWorkflowContext<W> {
         }
     }
 
+    /// The id of the running instance.
     #[must_use]
     pub fn instance_id(&self) -> &str {
         &self.instance_id
@@ -250,10 +277,15 @@ impl<W> SyncWorkflowContext<W> {
 
 /// What a workflow needs from the engine, found by scanning its `#[run]` body.
 pub enum Dependency {
+    /// A task, native or from a catalog.
     Task(TaskTarget),
+    /// A native child workflow.
     Workflow(WorkflowInfo),
+    /// A child workflow from a catalog.
     CatalogWorkflow {
+        /// The entry's name in the catalog.
         name: &'static str,
+        /// The entry's version in the catalog.
         version: &'static str,
     },
 }
@@ -261,11 +293,15 @@ pub enum Dependency {
 /// A native workflow, with the function that registers it (and, through its own dependencies, its children).
 #[derive(Clone)]
 pub struct WorkflowInfo {
+    /// The workflow's identity.
     pub id: WorkflowId,
+    /// Adds the workflow and its dependencies to a registry.
     pub register: fn(&mut Registry),
 }
 
+/// Anything `ctx.call` or `ctx.run` accepts, as seen by the dependency scan.
 pub trait AsDependency {
+    /// What the engine needs to have registered for this to run.
     fn dependency(&self) -> Dependency;
 }
 
@@ -298,19 +334,27 @@ impl<I, O> AsDependency for CatalogWorkflowRef<I, O> {
 
 /// Where a run request points.
 pub enum RunTarget {
+    /// A native workflow.
     Native(WorkflowInfo),
+    /// A workflow loaded from YAML or JSON.
     Definition(Arc<WorkflowDefinition>),
+    /// A workflow from a catalog.
     Catalog {
+        /// The entry's name in the catalog.
         name: &'static str,
+        /// The entry's version in the catalog.
         version: &'static str,
     },
 }
 
 /// Anything `Engine::execute` and `ctx.run` accept: a workflow's run marker, a YAML workflow, or a catalog workflow.
 pub trait Runnable {
+    /// What the workflow takes.
     type In: Serialize + Send + 'static;
+    /// What the workflow returns.
     type Out: DeserializeOwned + Send + 'static;
 
+    /// Where the workflow comes from.
     fn target(self) -> RunTarget;
 }
 
@@ -364,6 +408,32 @@ where
 ///
 /// There is no untyped form and no default for `In` and `Out`. Code that cannot know the shape writes
 /// `Workflow::<serde_json::Value, serde_json::Value>`.
+///
+/// ```
+/// use jackdaw::prelude::*;
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Serialize, Deserialize)]
+/// struct Greeting {
+///     name: String,
+/// }
+///
+/// let workflow = Workflow::<Greeting, serde_json::Value>::from_yaml(
+///     r#"
+/// document:
+///   dsl: '1.0.0'
+///   namespace: examples
+///   name: greet
+///   version: '0.1.0'
+/// do:
+///   - say:
+///       set:
+///         message: hello
+/// "#,
+/// )?;
+/// assert_eq!(workflow.name(), "greet");
+/// # Ok::<(), Error>(())
+/// ```
 pub struct Workflow<In, Out> {
     definition: Arc<WorkflowDefinition>,
     _types: PhantomData<fn(In) -> Out>,
@@ -389,6 +459,8 @@ impl<In, Out> fmt::Debug for Workflow<In, Out> {
 }
 
 impl<In, Out> Workflow<In, Out> {
+    /// Parses a YAML workflow definition.
+    ///
     /// # Errors
     /// `Error::Invalid` if the text is not a valid workflow definition.
     pub fn from_yaml(yaml: &str) -> Result<Self, Error> {
@@ -397,6 +469,8 @@ impl<In, Out> Workflow<In, Out> {
             .map_err(|e| Error::invalid(format!("not a valid workflow definition: {e}")))
     }
 
+    /// Parses a JSON workflow definition.
+    ///
     /// # Errors
     /// `Error::Invalid` if the text is not a valid workflow definition.
     pub fn from_json(json: &str) -> Result<Self, Error> {
@@ -423,6 +497,7 @@ impl<In, Out> Workflow<In, Out> {
         }
     }
 
+    /// Wraps an already parsed definition.
     #[must_use]
     pub fn from_definition(definition: WorkflowDefinition) -> Self {
         Self {
@@ -431,21 +506,25 @@ impl<In, Out> Workflow<In, Out> {
         }
     }
 
+    /// The parsed definition.
     #[must_use]
     pub fn definition(&self) -> &WorkflowDefinition {
         &self.definition
     }
 
+    /// The document's namespace.
     #[must_use]
     pub fn namespace(&self) -> &str {
         &self.definition.document.namespace
     }
 
+    /// The document's name.
     #[must_use]
     pub fn name(&self) -> &str {
         &self.definition.document.name
     }
 
+    /// The document's version.
     #[must_use]
     pub fn version(&self) -> &str {
         &self.definition.document.version

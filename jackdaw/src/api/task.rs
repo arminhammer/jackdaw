@@ -1,4 +1,7 @@
 //! Native tasks: typed functions the engine can run, with the retry/timeout options a step can carry.
+//!
+//! Write tasks with the `task` and `tasks` attributes (see the [tasks chapter](crate::guide::tasks)); the types here
+//! are what those attributes generate and what a workflow passes to `ctx.call`.
 use super::error::{TaskError, error_types};
 use futures::FutureExt;
 use serde::Serialize;
@@ -10,6 +13,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
+/// A boxed, sendable future. Used where the macros need to name a future type.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// Where a task's code lives.
@@ -19,16 +23,24 @@ pub enum TaskTarget {
     Native(&'static str),
     /// A catalog entry, `name:version`.
     Catalog {
+        /// The entry's name in the catalog.
         name: &'static str,
+        /// The entry's version in the catalog.
         version: &'static str,
     },
 }
 
 /// The typed marker of a task: its name and its input and output types.
+///
+/// `ctx.call(marker, input)` takes any `TaskDef`, so the compiler checks the input and gives back the output type.
+/// The `task` attribute, a `tasks` impl and a `catalog` trait each produce markers.
 pub trait TaskDef: Send + Sync + 'static {
+    /// What the task takes.
     type In: Serialize + DeserializeOwned + Send + 'static;
+    /// What the task returns.
     type Out: Serialize + DeserializeOwned + Send + 'static;
 
+    /// The name the task is registered and journaled under.
     fn task_name(&self) -> &'static str;
 
     /// Whether results may be cached by input. Native tasks are side effects, so the default is no.
@@ -36,6 +48,7 @@ pub trait TaskDef: Send + Sync + 'static {
         false
     }
 
+    /// Where the code lives. Native by default.
     fn target(&self) -> TaskTarget {
         TaskTarget::Native(self.task_name())
     }
@@ -49,6 +62,7 @@ pub struct TaskRef<S, I, O> {
 }
 
 impl<S, I, O> TaskRef<S, I, O> {
+    /// A marker for the task `name`; `cached` allows results to be reused for equal input.
     #[must_use]
     pub const fn new(name: &'static str, cached: bool) -> Self {
         Self {
@@ -87,11 +101,13 @@ where
 
 /// A marker that also carries the code (the unit structs `#[task]` generates for free functions).
 pub trait RegisterTask: TaskDef {
+    /// The runnable form of the task.
     fn native(self) -> NativeTask;
 }
 
 /// The tasks of a `#[tasks]` impl, bound to one instance of the type holding their state.
 pub trait TaskSet: Send + Sync + 'static {
+    /// One runnable task per method, each sharing `self`.
     fn native_tasks(self: Arc<Self>) -> Vec<NativeTask>;
 }
 
@@ -142,6 +158,7 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
 }
 
 impl NativeTask {
+    /// An async task. Input is decoded from JSON and output encoded to JSON; a panic becomes a non-retryable failure.
     pub fn new<I, O, F, Fut>(name: &'static str, cached: bool, f: F) -> Self
     where
         I: DeserializeOwned + Send + 'static,
@@ -169,6 +186,7 @@ impl NativeTask {
         }
     }
 
+    /// A synchronous task, run on tokio's blocking pool so it cannot stall the runtime.
     pub fn blocking<I, O, F>(name: &'static str, cached: bool, f: F) -> Self
     where
         I: DeserializeOwned + Send + 'static,
@@ -237,6 +255,7 @@ impl TaskContext {
         &self.instance_id
     }
 
+    /// The name the task was registered under.
     #[must_use]
     pub fn task_name(&self) -> &str {
         &self.task_name
@@ -256,6 +275,17 @@ impl TaskContext {
 }
 
 /// How a failing step is retried.
+///
+/// Only failures marked retryable are retried; see [`TaskError`].
+///
+/// ```
+/// use jackdaw::prelude::*;
+///
+/// let options = TaskOptions::new()
+///     .retry(Retry::exponential(5))
+///     .timeout(10.secs());
+/// # let _ = options;
+/// ```
 #[derive(Debug, Clone)]
 pub struct Retry {
     backoff: Backoff,
@@ -321,17 +351,20 @@ pub struct TaskOptions {
 }
 
 impl TaskOptions {
+    /// No retry and no timeout.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Retry failed attempts as `retry` says.
     #[must_use]
     pub fn retry(mut self, retry: Retry) -> Self {
         self.retry = Some(retry);
         self
     }
 
+    /// Give up on an attempt that takes longer than `timeout`.
     #[must_use]
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);

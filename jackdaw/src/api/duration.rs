@@ -1,10 +1,28 @@
 //! `10.millis()`, `30.secs()`, `24.hours()`: readable durations on integer literals.
 use std::time::Duration;
 
+/// Readable [`Duration`]s: `500.millis()`, `30.secs()`, `5.minutes()`, `24.hours()`.
+///
+/// It is implemented for the integer types and in the [`prelude`](crate::prelude). A negative number gives a zero
+/// duration.
+///
+/// ```
+/// use jackdaw::prelude::*;
+/// use std::time::Duration;
+///
+/// assert_eq!(500.millis(), Duration::from_millis(500));
+/// assert_eq!(30.secs(), Duration::from_secs(30));
+/// assert_eq!(5.minutes(), Duration::from_secs(300));
+/// assert_eq!(24.hours(), Duration::from_secs(86_400));
+/// ```
 pub trait DurationExt {
+    /// This many milliseconds.
     fn millis(self) -> Duration;
+    /// This many seconds.
     fn secs(self) -> Duration;
+    /// This many minutes.
     fn minutes(self) -> Duration;
+    /// This many hours.
     fn hours(self) -> Duration;
 }
 
