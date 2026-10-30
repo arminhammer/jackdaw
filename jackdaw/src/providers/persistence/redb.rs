@@ -3,7 +3,9 @@ use chrono::Utc;
 use snafu::prelude::*;
 use std::sync::Arc;
 
-use crate::persistence::{Error, JournalRecord, PersistenceProvider, Result, SerializationSnafu};
+use crate::persistence::{
+    Error, JournalRecord, Lease, PersistenceProvider, Result, SerializationSnafu,
+};
 use crate::workflow::{WorkflowCheckpoint, WorkflowEvent};
 use redb::ReadableTable as _;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -18,6 +20,12 @@ pub const CHECKPOINTS_TABLE: redb::TableDefinition<&str, &[u8]> =
     redb::TableDefinition::new("checkpoints");
 /// Journal logs, keyed `"{instance}\u{1f}{position:020}"` so one instance's records are one ordered range.
 pub const JOURNAL_TABLE: redb::TableDefinition<&str, &[u8]> = redb::TableDefinition::new("journal");
+
+/// Instance leases: instance id to a JSON `Lease`.
+pub const LEASES_TABLE: redb::TableDefinition<&str, &[u8]> = redb::TableDefinition::new("leases");
+/// Messages for instances, keyed `"{time:020}{counter:020}\u{1f}{instance}"` so they come out oldest first.
+pub const MESSAGES_TABLE: redb::TableDefinition<&str, &[u8]> =
+    redb::TableDefinition::new("messages");
 
 /// Makes event keys unique within a process even when two events share a timestamp.
 static EVENT_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -390,10 +398,179 @@ impl PersistenceProvider for RedbPersistence {
                 journal
                     .retain_in::<&str, _>(start.as_str()..end.as_str(), |_, _| false)
                     .map_err(|e| db_error("Failed to delete the journal", e))?;
+                let mut leases = write_txn
+                    .open_table(LEASES_TABLE)
+                    .map_err(|e| db_error("Failed to open leases table", e))?;
+                leases
+                    .remove(instance_id.as_str())
+                    .map_err(|e| db_error("Failed to delete the lease", e))?;
             }
             write_txn
                 .commit()
                 .map_err(|e| db_error("Failed to commit transaction", e))
+        })
+        .await
+        .map_err(|e| db_error("Task join error", e))?
+    }
+
+    fn supports_leases(&self) -> bool {
+        true
+    }
+
+    async fn acquire_lease(
+        &self,
+        instance_id: &str,
+        owner: &str,
+        now: chrono::DateTime<Utc>,
+        until: chrono::DateTime<Utc>,
+    ) -> Result<Lease> {
+        let db = self.db.clone();
+        let (instance_id, owner) = (instance_id.to_string(), owner.to_string());
+        tokio::task::spawn_blocking(move || -> Result<Lease> {
+            let write_txn = db
+                .begin_write()
+                .map_err(|e| db_error("Failed to begin write transaction", e))?;
+            let lease = {
+                let mut table = write_txn
+                    .open_table(LEASES_TABLE)
+                    .map_err(|e| db_error("Failed to open leases table", e))?;
+                let current: Option<Lease> = table
+                    .get(instance_id.as_str())
+                    .map_err(|e| db_error("Failed to read a lease", e))?
+                    .map(|value| serde_json::from_slice(value.value()))
+                    .transpose()
+                    .context(SerializationSnafu)?;
+                match current {
+                    Some(lease) if lease.owner != owner && lease.expires_at > now => lease,
+                    _ => {
+                        let lease = Lease {
+                            owner,
+                            expires_at: until,
+                        };
+                        let value = serde_json::to_vec(&lease).context(SerializationSnafu)?;
+                        table
+                            .insert(instance_id.as_str(), value.as_slice())
+                            .map_err(|e| db_error("Failed to write a lease", e))?;
+                        lease
+                    }
+                }
+            };
+            write_txn
+                .commit()
+                .map_err(|e| db_error("Failed to commit transaction", e))?;
+            Ok(lease)
+        })
+        .await
+        .map_err(|e| db_error("Task join error", e))?
+    }
+
+    async fn release_lease(&self, instance_id: &str, owner: &str) -> Result<()> {
+        let db = self.db.clone();
+        let (instance_id, owner) = (instance_id.to_string(), owner.to_string());
+        tokio::task::spawn_blocking(move || -> Result<()> {
+            let write_txn = db
+                .begin_write()
+                .map_err(|e| db_error("Failed to begin write transaction", e))?;
+            {
+                let mut table = write_txn
+                    .open_table(LEASES_TABLE)
+                    .map_err(|e| db_error("Failed to open leases table", e))?;
+                let mine = table
+                    .get(instance_id.as_str())
+                    .map_err(|e| db_error("Failed to read a lease", e))?
+                    .and_then(|value| serde_json::from_slice::<Lease>(value.value()).ok())
+                    .is_some_and(|lease| lease.owner == owner);
+                if mine {
+                    table
+                        .remove(instance_id.as_str())
+                        .map_err(|e| db_error("Failed to release a lease", e))?;
+                }
+            }
+            write_txn
+                .commit()
+                .map_err(|e| db_error("Failed to commit transaction", e))
+        })
+        .await
+        .map_err(|e| db_error("Task join error", e))?
+    }
+
+    async fn post_message(&self, instance_id: &str, message: serde_json::Value) -> Result<()> {
+        let db = self.db.clone();
+        let key = format!(
+            "{:020}{:020}\u{1f}{instance_id}",
+            Utc::now().timestamp_nanos_opt().unwrap_or_default(),
+            EVENT_COUNTER.fetch_add(1, Ordering::SeqCst)
+        );
+        let value = serde_json::to_vec(&message).context(SerializationSnafu)?;
+        tokio::task::spawn_blocking(move || -> Result<()> {
+            let write_txn = db
+                .begin_write()
+                .map_err(|e| db_error("Failed to begin write transaction", e))?;
+            {
+                let mut table = write_txn
+                    .open_table(MESSAGES_TABLE)
+                    .map_err(|e| db_error("Failed to open messages table", e))?;
+                table
+                    .insert(key.as_str(), value.as_slice())
+                    .map_err(|e| db_error("Failed to write a message", e))?;
+            }
+            write_txn
+                .commit()
+                .map_err(|e| db_error("Failed to commit transaction", e))
+        })
+        .await
+        .map_err(|e| db_error("Task join error", e))?
+    }
+
+    async fn take_messages(&self, owner: &str) -> Result<Vec<(String, serde_json::Value)>> {
+        let db = self.db.clone();
+        let owner = owner.to_string();
+        tokio::task::spawn_blocking(move || -> Result<Vec<(String, serde_json::Value)>> {
+            let write_txn = db
+                .begin_write()
+                .map_err(|e| db_error("Failed to begin write transaction", e))?;
+            let taken = {
+                let leases = write_txn
+                    .open_table(LEASES_TABLE)
+                    .map_err(|e| db_error("Failed to open leases table", e))?;
+                let mut messages = write_txn
+                    .open_table(MESSAGES_TABLE)
+                    .map_err(|e| db_error("Failed to open messages table", e))?;
+                let mut taken = Vec::new();
+                let mut keys = Vec::new();
+                for entry in messages
+                    .iter()
+                    .map_err(|e| db_error("Failed to read messages", e))?
+                {
+                    let (key, value) =
+                        entry.map_err(|e| db_error("Failed to read a message", e))?;
+                    let key = key.value().to_string();
+                    let Some((_, instance_id)) = key.split_once('\u{1f}') else {
+                        continue;
+                    };
+                    let mine = leases
+                        .get(instance_id)
+                        .map_err(|e| db_error("Failed to read a lease", e))?
+                        .and_then(|lease| serde_json::from_slice::<Lease>(lease.value()).ok())
+                        .is_some_and(|lease| lease.owner == owner);
+                    if mine {
+                        let message =
+                            serde_json::from_slice(value.value()).context(SerializationSnafu)?;
+                        taken.push((instance_id.to_string(), message));
+                        keys.push(key);
+                    }
+                }
+                for key in keys {
+                    messages
+                        .remove(key.as_str())
+                        .map_err(|e| db_error("Failed to remove a message", e))?;
+                }
+                taken
+            };
+            write_txn
+                .commit()
+                .map_err(|e| db_error("Failed to commit transaction", e))?;
+            Ok(taken)
         })
         .await
         .map_err(|e| db_error("Task join error", e))?

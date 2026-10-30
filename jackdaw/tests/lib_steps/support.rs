@@ -252,6 +252,8 @@ pub struct Script {
     pub thread_sleep: Option<Duration>,
     /// Waits for `Probe::release` before finishing.
     pub block: bool,
+    /// Waits (in real time, up to 10 s) until a call of this task has started: proves two calls run concurrently.
+    pub wait_for: Option<String>,
     /// Like `block`, but only for invocations with this input.
     pub block_on: Option<Value>,
     /// Returned in order, one per invocation; then `output`.
@@ -548,6 +550,12 @@ impl Probe {
         }
         if let Some(sleep) = script.thread_sleep {
             std::thread::sleep(sleep);
+        }
+        if let Some(other) = &script.wait_for {
+            let started = std::time::Instant::now();
+            while self.count(other) == 0 && started.elapsed() < Duration::from_secs(10) {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
         }
         if script.block || script.block_on.as_ref() == Some(&input) {
             let mut gate = self.gate(&key);

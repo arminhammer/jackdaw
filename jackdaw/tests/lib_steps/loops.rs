@@ -470,6 +470,16 @@ async fn dropped_after_items(world: &mut LibWorld, n: usize) {
     world
         .until("enough items finished", || probe.completed("task") >= n)
         .await;
+    // The other items keep finishing around the blocked one until the loop can go no further. Drop the engine only
+    // then, once every finished item's result is in the store (not merely returned by its task).
+    loop {
+        let returned = world.probe.completed("task");
+        super::durability::completions_durable(world, "loops.task", returned).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        if world.probe.completed("task") == returned {
+            break;
+        }
+    }
     world.crash().await;
     world.probe.release("task");
 }
@@ -502,7 +512,9 @@ async fn processes_pages(world: &mut LibWorld, total: u32) {
         .start("it", json!({ "cursor": 0, "total": total }))
         .await;
     let last = world.last();
-    assert_eq!(world.outcome(last).await.value(), &json!(total));
+    // One step per page: on a network store that is a few thousand round trips.
+    let outcome = world.outcome_within(last, Duration::from_secs(300)).await;
+    assert_eq!(outcome.value(), &json!(total));
 }
 
 #[then(regex = r"^no single run's journal holds more than (\d+) iterations$")]

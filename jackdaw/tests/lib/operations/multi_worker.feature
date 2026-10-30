@@ -4,18 +4,19 @@ Feature: Several engine processes share one store safely
   I want to run more than one process against a shared database
   So that I can scale out and survive the loss of a machine
 
+  # The store is the suite's (JACKDAW_TEST_STORE): Redb by default, Postgres or SQLite in their CI jobs.
   Background:
-    Given a Postgres store shared by engine processes "worker-1" and "worker-2"
+    Given a store shared by engine processes "worker-1" and "worker-2"
     And both processes register the same workflows
 
-  @todo
+  @implemented
   Scenario: An instance is owned by one engine at a time
     Given "worker-1" is running instance "o-1"
     When "worker-2" calls "Engine::recover()"
     Then "worker-2" does not resume "o-1"
     And every task of "o-1" runs once
 
-  @todo
+  @implemented
   Scenario: Ownership moves when the owner dies
     Given "worker-1" owns "o-1" with a lease of 30 seconds
     When "worker-1" stops heartbeating
@@ -25,7 +26,7 @@ Feature: Several engine processes share one store safely
     And "o-1" completes
     And completed tasks of "o-1" are not run again
 
-  @todo
+  @implemented
   Scenario: An engine that lost its lease stops writing
     Given "worker-1" owned "o-1" and was paused longer than its lease
     And "worker-2" has taken over "o-1"
@@ -33,13 +34,13 @@ Feature: Several engine processes share one store safely
     Then the write is rejected because the lease is held by "worker-2"
     And "worker-1" stops running "o-1"
 
-  @todo
+  @implemented
   Scenario: A signal reaches the instance whichever engine receives it
     Given "worker-1" owns "o-1"
     When a signal for "o-1" is sent through "worker-2"
     Then "o-1" receives the signal
 
-  @todo
+  @implemented
   Scenario: Without leases, one store must have one engine
     Given a store backend that does not support leases
     When a second engine is built on it while the first is running

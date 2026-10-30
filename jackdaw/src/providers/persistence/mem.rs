@@ -1,4 +1,4 @@
-use crate::persistence::{JournalRecord, PersistenceProvider, Result};
+use crate::persistence::{JournalRecord, Lease, PersistenceProvider, Result};
 use crate::workflow::{WorkflowCheckpoint, WorkflowEvent};
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -9,6 +9,8 @@ pub struct InMemoryPersistence {
     events: Arc<Mutex<HashMap<String, Vec<WorkflowEvent>>>>,
     checkpoints: Arc<Mutex<HashMap<String, WorkflowCheckpoint>>>,
     journals: Arc<Mutex<HashMap<String, Vec<JournalRecord>>>>,
+    leases: Arc<Mutex<HashMap<String, Lease>>>,
+    messages: Arc<Mutex<Vec<(String, serde_json::Value)>>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -23,6 +25,8 @@ impl Default for InMemoryPersistence {
             events: Arc::new(Mutex::new(HashMap::new())),
             checkpoints: Arc::new(Mutex::new(HashMap::new())),
             journals: Arc::new(Mutex::new(HashMap::new())),
+            leases: Arc::new(Mutex::new(HashMap::new())),
+            messages: Arc::new(Mutex::new(Vec::new())),
         }
     }
 }
@@ -117,6 +121,60 @@ impl PersistenceProvider for InMemoryPersistence {
         lock(&self.checkpoints).remove(instance_id);
         lock(&self.events).remove(instance_id);
         lock(&self.journals).remove(instance_id);
+        lock(&self.leases).remove(instance_id);
         Ok(())
+    }
+
+    fn supports_leases(&self) -> bool {
+        true
+    }
+
+    async fn acquire_lease(
+        &self,
+        instance_id: &str,
+        owner: &str,
+        now: chrono::DateTime<chrono::Utc>,
+        until: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Lease> {
+        let mut leases = lock(&self.leases);
+        let lease = leases
+            .entry(instance_id.to_string())
+            .or_insert_with(|| Lease {
+                owner: owner.to_string(),
+                expires_at: until,
+            });
+        if lease.owner == owner || lease.expires_at <= now {
+            *lease = Lease {
+                owner: owner.to_string(),
+                expires_at: until,
+            };
+        }
+        Ok(lease.clone())
+    }
+
+    async fn release_lease(&self, instance_id: &str, owner: &str) -> Result<()> {
+        let mut leases = lock(&self.leases);
+        if leases
+            .get(instance_id)
+            .is_some_and(|lease| lease.owner == owner)
+        {
+            leases.remove(instance_id);
+        }
+        Ok(())
+    }
+
+    async fn post_message(&self, instance_id: &str, message: serde_json::Value) -> Result<()> {
+        lock(&self.messages).push((instance_id.to_string(), message));
+        Ok(())
+    }
+
+    async fn take_messages(&self, owner: &str) -> Result<Vec<(String, serde_json::Value)>> {
+        let leases = lock(&self.leases);
+        let mut messages = lock(&self.messages);
+        let (mine, others): (Vec<_>, Vec<_>) = messages
+            .drain(..)
+            .partition(|(id, _)| leases.get(id).is_some_and(|lease| lease.owner == owner));
+        *messages = others;
+        Ok(mine)
     }
 }

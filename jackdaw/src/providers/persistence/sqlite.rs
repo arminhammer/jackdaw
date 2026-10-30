@@ -1,4 +1,6 @@
-use crate::persistence::{Error, JournalRecord, PersistenceProvider, Result, SerializationSnafu};
+use crate::persistence::{
+    Error, JournalRecord, Lease, PersistenceProvider, Result, SerializationSnafu,
+};
 use crate::workflow::{WorkflowCheckpoint, WorkflowEvent};
 use async_trait::async_trait;
 use snafu::prelude::*;
@@ -277,6 +279,7 @@ impl PersistenceProvider for SqlitePersistence {
             "workflow_checkpoints",
             "workflow_events",
             "workflow_journal",
+            "workflow_leases",
         ] {
             sqlx::query(&format!("DELETE FROM {table} WHERE instance_id = ?"))
                 .bind(instance_id)
@@ -289,6 +292,102 @@ impl PersistenceProvider for SqlitePersistence {
         transaction.commit().await.map_err(|e| Error::Database {
             message: format!("Failed to commit the deletion: {e}"),
         })
+    }
+
+    fn supports_leases(&self) -> bool {
+        true
+    }
+
+    async fn acquire_lease(
+        &self,
+        instance_id: &str,
+        owner: &str,
+        now: chrono::DateTime<chrono::Utc>,
+        until: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Lease> {
+        // One statement: insert, or take over a lease that is ours or has expired. Then read what is there.
+        sqlx::query(
+            "INSERT INTO workflow_leases (instance_id, owner, expires_at) VALUES (?, ?, ?) \
+             ON CONFLICT (instance_id) DO UPDATE SET owner = excluded.owner, expires_at = excluded.expires_at \
+             WHERE workflow_leases.owner = excluded.owner OR workflow_leases.expires_at <= ?",
+        )
+        .bind(instance_id)
+        .bind(owner)
+        .bind(until.timestamp_millis())
+        .bind(now.timestamp_millis())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| Error::Database {
+            message: format!("Failed to take a lease: {e}"),
+        })?;
+        let (owner, expires_at): (String, i64) =
+            sqlx::query_as("SELECT owner, expires_at FROM workflow_leases WHERE instance_id = ?")
+                .bind(instance_id)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(|e| Error::Database {
+                    message: format!("Failed to read a lease: {e}"),
+                })?;
+        Ok(Lease {
+            owner,
+            expires_at: chrono::DateTime::from_timestamp_millis(expires_at).unwrap_or_default(),
+        })
+    }
+
+    async fn release_lease(&self, instance_id: &str, owner: &str) -> Result<()> {
+        sqlx::query("DELETE FROM workflow_leases WHERE instance_id = ? AND owner = ?")
+            .bind(instance_id)
+            .bind(owner)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| Error::Database {
+                message: format!("Failed to release a lease: {e}"),
+            })?;
+        Ok(())
+    }
+
+    async fn post_message(&self, instance_id: &str, message: serde_json::Value) -> Result<()> {
+        sqlx::query("INSERT INTO workflow_messages (instance_id, body) VALUES (?, ?)")
+            .bind(instance_id)
+            .bind(serde_json::to_string(&message).context(SerializationSnafu)?)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| Error::Database {
+                message: format!("Failed to post a message: {e}"),
+            })?;
+        Ok(())
+    }
+
+    async fn take_messages(&self, owner: &str) -> Result<Vec<(String, serde_json::Value)>> {
+        let mut transaction = self.pool.begin().await.map_err(|e| Error::Database {
+            message: format!("Failed to begin a transaction: {e}"),
+        })?;
+        let rows: Vec<(i64, String, String)> = sqlx::query_as(
+            "SELECT id, instance_id, body FROM workflow_messages WHERE instance_id IN \
+             (SELECT instance_id FROM workflow_leases WHERE owner = ?) ORDER BY id",
+        )
+        .bind(owner)
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(|e| Error::Database {
+            message: format!("Failed to read messages: {e}"),
+        })?;
+        let mut taken = Vec::with_capacity(rows.len());
+        for (id, instance_id, body) in rows {
+            sqlx::query("DELETE FROM workflow_messages WHERE id = ?")
+                .bind(id)
+                .execute(&mut *transaction)
+                .await
+                .map_err(|e| Error::Database {
+                    message: format!("Failed to remove a message: {e}"),
+                })?;
+            let body = serde_json::from_str(&body).context(SerializationSnafu)?;
+            taken.push((instance_id, body));
+        }
+        transaction.commit().await.map_err(|e| Error::Database {
+            message: format!("Failed to commit taking messages: {e}"),
+        })?;
+        Ok(taken)
     }
 }
 

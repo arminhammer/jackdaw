@@ -278,6 +278,10 @@ async fn two_engines(world: &mut LibWorld, time: String) {
         world,
         Schedule::cron(name.clone(), "0 2 * * *", ReportWorkflow::run, name).expect("cron"),
     );
+    // Engines share a store with leases on.
+    world.extras.push(Arc::new(|builder: EngineBuilder| {
+        builder.lease(Duration::from_secs(30))
+    }));
     let second = world.builder().build().expect("a second engine");
     start_engine(world).await;
     world

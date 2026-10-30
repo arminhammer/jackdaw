@@ -34,3 +34,17 @@ CREATE TABLE IF NOT EXISTS workflow_journal (
     body JSONB NOT NULL,
     PRIMARY KEY (instance_id, position)
 );
+
+-- Leases: which engine runs an instance, and until when (milliseconds since the epoch)
+CREATE TABLE IF NOT EXISTS workflow_leases (
+    instance_id TEXT PRIMARY KEY NOT NULL,
+    owner TEXT NOT NULL,
+    expires_at BIGINT NOT NULL
+);
+
+-- Messages (signals, updates) for instances that another engine runs
+CREATE TABLE IF NOT EXISTS workflow_messages (
+    id BIGSERIAL PRIMARY KEY,
+    instance_id TEXT NOT NULL,
+    body JSONB NOT NULL
+);

@@ -154,6 +154,8 @@ pub struct LibWorld {
     pub traces: Option<Arc<super::observability::Traces>>,
     /// The mock HTTP server of the `ctx.http` scenarios.
     pub mock: Option<wiremock::MockServer>,
+    /// Engines other than `engine`, by name (the multi-worker scenarios).
+    pub workers: HashMap<String, Engine>,
 }
 
 /// Which durable store the scenarios run on: `JACKDAW_TEST_STORE=redb|sqlite|postgres` (default redb). Postgres needs
@@ -207,6 +209,7 @@ impl LibWorld {
             test_store: None,
             traces: None,
             mock: None,
+            workers: HashMap::new(),
         }
     }
 
@@ -341,6 +344,16 @@ impl LibWorld {
             .expect("the run has a live handle (it was not lost in a crash)")
     }
 
+    /// How many quiet polls (of 10-15 ms) mean "nothing is happening": a network store takes longer per step than an
+    /// embedded one, and the clock must not move while a step is still being written.
+    pub fn idle_polls(&self) -> usize {
+        if self.durable && self.store_kind() == "postgres" {
+            15
+        } else {
+            3
+        }
+    }
+
     /// Waits for run `index` to end, moving the clock to the next deadline whenever nothing else is happening.
     pub async fn outcome(&mut self, index: usize) -> Outcome {
         self.outcome_within(index, Duration::from_secs(30)).await
@@ -357,6 +370,7 @@ impl LibWorld {
         // Move the clock only once nothing has happened for a few polls: a busy machine must not make the clock jump
         // past work that is merely slow.
         let (mut last_calls, mut idle) = (usize::MAX, 0);
+        let idle_polls = self.idle_polls();
         let outcome = loop {
             tokio::select! {
                 result = &mut waiting => break Outcome::of(result),
@@ -368,7 +382,7 @@ impl LibWorld {
                         idle = 0;
                         last_calls = calls;
                     }
-                    if idle >= 3 {
+                    if idle >= idle_polls {
                         self.clock.advance_next(None);
                         idle = 0;
                     }
@@ -380,6 +394,24 @@ impl LibWorld {
                 self.runs[index].label
             );
         };
+        self.runs[index].outcome = Some(outcome.clone());
+        self.runs[index].finished_at = Some(Instant::now());
+        outcome
+    }
+
+    /// Waits for run `index` to end without ever moving the clock (for runs that have no timers of their own, in
+    /// scenarios where other runs do).
+    pub async fn outcome_frozen(&mut self, index: usize) -> Outcome {
+        if let Some(outcome) = &self.runs[index].outcome {
+            return outcome.clone();
+        }
+        let handle = self.handle(index);
+        let result = tokio::time::timeout(Duration::from_secs(30), handle)
+            .await
+            .unwrap_or_else(|_| {
+                panic!("run `{}` did not finish within 30s", self.runs[index].label)
+            });
+        let outcome = Outcome::of(result);
         self.runs[index].outcome = Some(outcome.clone());
         self.runs[index].finished_at = Some(Instant::now());
         outcome
@@ -486,7 +518,8 @@ impl LibWorld {
     pub async fn quiesce_until(&self, ceiling: chrono::DateTime<chrono::Utc>) {
         let mut last = usize::MAX;
         let mut stable = 0;
-        while stable < 4 {
+        let needed = self.idle_polls() + 1;
+        while stable < needed {
             tokio::time::sleep(Duration::from_millis(10)).await;
             if let Some(next) = self.clock.next_deadline()
                 && next > self.clock.now()

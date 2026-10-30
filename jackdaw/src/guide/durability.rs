@@ -213,3 +213,38 @@
 //! Tasks run **at least once**. A task that was running when the process died runs again on resume, so side effects
 //! should be idempotent; [`TaskContext::idempotency_key`](crate::api::TaskContext::idempotency_key) is stable across
 //! retries and replay of the same step. Native tasks are not cached unless they opt in with `#[task(cached)]`.
+//!
+//! ## Several engines on one store
+//!
+//! An engine assumes it is alone on its store unless it is built with
+//! [`lease`](crate::api::EngineBuilder::lease). Then each instance is leased to the engine running it: the lease is
+//! renewed while the engine works on the instance, and every journal write checks it first. Run as many processes as
+//! you like against one Postgres (or SQLite) database:
+//!
+//! ```no_run
+//! # use jackdaw::prelude::*;
+//! # use std::time::Duration;
+//! # #[tokio::main]
+//! # async fn main() -> Result<(), Error> {
+//! let engine = Engine::builder()
+//!     .store(jackdaw::api::Postgres::connect("postgres://jackdaw@db/jackdaw").await?)
+//!     .lease(Duration::from_secs(30))
+//!     .engine_id(std::env::var("HOSTNAME").unwrap_or_default())
+//!     // .task(..).workflow::<..>() as everywhere else
+//!     .build()?;
+//!
+//! // Picks up instances whose engine died (their lease ran out); leaves the others alone.
+//! engine.recover().await?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! - An instance runs on one engine at a time. [`recover`](crate::api::Engine::recover) skips instances whose lease
+//!   another engine holds, and takes over those whose lease expired.
+//! - An engine that stalls for longer than the lease (a long GC pause, a frozen VM) finds out on its next write: the
+//!   write is refused, and the engine stops the instance without recording anything more.
+//! - A handle obtained on an engine that does not run the instance still works: signals and cancellation travel through
+//!   the store, and awaiting the handle returns the result once the instance ends. Queries and updates need the engine
+//!   that runs the instance.
+//! - Without `lease`, building a second engine on a store another engine in the process uses fails, so a store cannot
+//!   be shared by accident.

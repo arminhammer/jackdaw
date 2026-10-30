@@ -291,6 +291,13 @@ async fn fails_with_chunk(world: &mut LibWorld, chunk: u32) {
 
 #[when(regex = r#"^I execute "Import" with (\d+) chunks and parallelism (\d+) on a Redb store$"#)]
 async fn execute_large(world: &mut LibWorld, chunks: u32, parallelism: usize) {
+    // The scenario measures the embedded store, whatever store the rest of the suite runs on.
+    assert!(
+        world.engine.is_none(),
+        "the engine is built after the store is chosen"
+    );
+    world.store = Some("redb".into());
+    world.durable = true;
     let started = Instant::now();
     world
         .start_fixture(

@@ -520,7 +520,7 @@ async fn old_instance(world: &mut LibWorld) {
         .start_fixture("old", super::fixture("api.double"), json!(1))
         .await;
     let old = world.run_index("old");
-    world.outcome(old).await.value();
+    world.outcome_frozen(old).await.value();
     world.pass(Duration::from_secs(7 * 86_400)).await;
 }
 
@@ -530,7 +530,7 @@ async fn recent_instance(world: &mut LibWorld) {
         .start_fixture("recent", super::fixture("api.double"), json!(2))
         .await;
     let recent = world.run_index("recent");
-    world.outcome(recent).await.value();
+    world.outcome_frozen(recent).await.value();
     world.pass(Duration::from_secs(86_400)).await;
 }
 
@@ -667,7 +667,11 @@ async fn shutdown(world: &mut LibWorld, grace: Duration) -> Duration {
     let shutting = tokio::spawn(async move { engine.shutdown(grace).await });
     while !shutting.is_finished() {
         tokio::time::sleep(Duration::from_millis(10)).await;
-        world.clock.advance_next(None);
+        // Time moves only for the task in flight: once it has returned, its result is being written, and moving the
+        // clock to the grace deadline then would end the shutdown early.
+        if world.probe.completed("slow") == 0 {
+            world.clock.advance_next(None);
+        }
     }
     shutting.await.expect("shutdown");
     (world.clock.now() - started).to_std().unwrap_or_default()

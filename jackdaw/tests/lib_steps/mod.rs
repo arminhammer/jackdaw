@@ -31,6 +31,7 @@ pub mod subscription;
 pub mod support;
 pub mod testing_engine;
 pub mod timers;
+pub mod workers;
 pub mod world;
 
 use jackdaw::prelude::*;
@@ -64,6 +65,7 @@ pub fn harnesses(probe: &Arc<Probe>) -> Harnesses {
     schedules::defaults(probe);
     observability::defaults(probe);
     interop::defaults(probe);
+    workers::defaults(probe);
     let inventory = Arc::new(calling_tasks::Inventory::default());
     let mut sets: Vec<TaskSet> = Vec::new();
     let p = Arc::clone(probe);
@@ -126,6 +128,8 @@ pub fn harnesses(probe: &Arc<Probe>) -> Harnesses {
     sets.push(Box::new(move |b| {
         b.tasks(observability::Observed(Arc::clone(&p)))
     }));
+    let p = Arc::clone(probe);
+    sets.push(Box::new(move |b| b.tasks(workers::Work(Arc::clone(&p)))));
     Harnesses {
         probe: Arc::clone(probe),
         sets,
@@ -159,6 +163,7 @@ pub fn catalog() -> Vec<Fixture> {
     all.extend(observability::fixtures());
     all.extend(interop::fixtures());
     all.extend(helpers::fixtures());
+    all.extend(workers::fixtures());
     all
 }
 

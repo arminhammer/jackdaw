@@ -215,11 +215,13 @@ async fn ack(world: &mut LibWorld, who: &str) {
 #[when(regex = r#"^I execute "Incident"(?: for a "(\w+)" alert)?$"#)]
 async fn execute_incident(world: &mut LibWorld, severity: String) {
     if severity.is_empty() {
+        // The owner lookup finishes only once diagnostics has started, which can only happen if they run in parallel.
         world
             .probe
             .script("diagnose", |s| s.delay = Some(Duration::from_millis(100)));
         world.probe.script("lookup_owner", |s| {
-            s.delay = Some(Duration::from_millis(100))
+            s.delay = Some(Duration::from_millis(100));
+            s.wait_for = Some("diagnose".into());
         });
     }
     let severity = if severity.is_empty() {

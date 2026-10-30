@@ -31,8 +31,8 @@ Feature: Building an engine
       | Redb::open(path)                        |
       | Sqlite::open(path)                      |
 
-  # Needs a Postgres server: run with DATABASE_URL set and `--tags @postgres`.
-  @todo @postgres
+  # Needs a Postgres server: runs when DATABASE_URL is set.
+  @implemented @postgres
   Scenario Outline: The Postgres store keeps instances across engines
     Given an engine built with "<store>"
     When I execute a workflow to completion

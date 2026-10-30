@@ -413,6 +413,45 @@ impl PersistenceProvider for TestStore {
         self.inner.create_checkpoint(checkpoint).await
     }
 
+    fn supports_leases(&self) -> bool {
+        self.inner.supports_leases()
+    }
+
+    async fn acquire_lease(
+        &self,
+        instance_id: &str,
+        owner: &str,
+        now: chrono::DateTime<chrono::Utc>,
+        until: chrono::DateTime<chrono::Utc>,
+    ) -> jackdaw::persistence::Result<jackdaw::persistence::Lease> {
+        self.inner
+            .acquire_lease(instance_id, owner, now, until)
+            .await
+    }
+
+    async fn release_lease(
+        &self,
+        instance_id: &str,
+        owner: &str,
+    ) -> jackdaw::persistence::Result<()> {
+        self.inner.release_lease(instance_id, owner).await
+    }
+
+    async fn post_message(
+        &self,
+        instance_id: &str,
+        message: Value,
+    ) -> jackdaw::persistence::Result<()> {
+        self.inner.post_message(instance_id, message).await
+    }
+
+    async fn take_messages(
+        &self,
+        owner: &str,
+    ) -> jackdaw::persistence::Result<Vec<(String, Value)>> {
+        self.inner.take_messages(owner).await
+    }
+
     async fn get_checkpoint(
         &self,
         instance_id: &str,
@@ -945,10 +984,39 @@ async fn dropped_in_second(world: &mut LibWorld) {
                     probe.completed("dur_first") >= 1
                 })
                 .await;
+            first_step_durable(world).await;
         }
     }
     world.crash().await;
     world.probe.release_all();
+}
+
+/// Waits until the first step's result is in the store: its completion event is written after its journal record.
+async fn first_step_durable(world: &mut LibWorld) {
+    completions_durable(world, "first", 1).await;
+}
+
+/// Waits until `n` completions of tasks whose name contains `task` are in the last run's stored history. A step's
+/// completion event is written after its journal record, so those steps are durable.
+pub async fn completions_durable(world: &mut LibWorld, task: &str, n: usize) {
+    let engine = world.engine();
+    let id = world.runs[world.last()].id.clone();
+    let started = Instant::now();
+    loop {
+        let history = engine.history(&id).await.expect("history");
+        let durable = history
+            .iter()
+            .filter(|event| matches!(event, Event::TaskCompleted { task_name, .. } if task_name.contains(task)))
+            .count();
+        if durable >= n {
+            return;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "{task} was not recorded {n} times: {history:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
 }
 
 #[when("a new engine recovers the instance")]

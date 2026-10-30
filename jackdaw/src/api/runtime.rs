@@ -754,6 +754,102 @@ pub(crate) struct Shared {
     pub crash_after: Mutex<Option<usize>>,
     /// Wakes the schedules when one is paused, resumed or removed.
     pub schedules_changed: Arc<Notify>,
+    /// Several engines share the store: instances are leased (see `EngineBuilder::lease`).
+    pub leasing: Option<Leasing>,
+}
+
+/// Engines on a store without leases must be alone on it. Within a process that is checked: each engine records
+/// the store it uses here.
+static ENGINES_BY_STORE: Mutex<Vec<(usize, Weak<Shared>)>> = Mutex::new(Vec::new());
+
+fn store_address(shared: &Shared) -> usize {
+    Arc::as_ptr(&shared.persistence).cast::<()>() as usize
+}
+
+/// Records which store `shared` uses, failing if that store is in use by an engine it may not share it with: two
+/// engines can share a store only if both hold leases. A dropped engine can take a moment to let go of its store
+/// (its instance tasks are stopping), so a conflict is re-checked for up to half a second.
+pub(crate) fn register_on_store(shared: &Arc<Shared>) -> Result<(), Error> {
+    let address = store_address(shared);
+    let started = std::time::Instant::now();
+    loop {
+        let conflict = {
+            let mut engines = lock(&ENGINES_BY_STORE);
+            engines.retain(|(_, engine)| engine.strong_count() > 0);
+            let conflict = engines.iter().any(|(other, engine)| {
+                *other == address
+                    && engine
+                        .upgrade()
+                        .is_some_and(|other| other.leasing.is_none() || shared.leasing.is_none())
+            });
+            if !conflict {
+                engines.push((address, Arc::downgrade(shared)));
+            }
+            conflict
+        };
+        if !conflict {
+            return Ok(());
+        }
+        if started.elapsed() > Duration::from_millis(500) {
+            return Err(Error::invalid(
+                "the store is already in use by another engine: engines can share a store only with `lease` on \
+                 (and a store that supports leases)",
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// Delivers messages from other engines and renews this engine's leases, until the engine is dropped.
+pub(crate) async fn tend_leases(shared: Weak<Shared>) {
+    let mut renewed = std::time::Instant::now();
+    loop {
+        let (poll, ttl, owner) = {
+            let Some(shared) = shared.upgrade() else {
+                return;
+            };
+            let Some(leasing) = &shared.leasing else {
+                return;
+            };
+            (leasing.poll, leasing.ttl, leasing.owner.clone())
+        };
+        tokio::time::sleep(poll).await;
+        let Some(shared) = shared.upgrade() else {
+            return;
+        };
+        match shared.persistence.take_messages(&owner).await {
+            Ok(messages) => {
+                for (id, message) in messages {
+                    shared.deliver_message(&id, message).await;
+                }
+            }
+            Err(error) => tracing::warn!(%error, "messages from other engines could not be read"),
+        }
+        if renewed.elapsed() >= ttl / 3 {
+            shared.renew_leases().await;
+            renewed = std::time::Instant::now();
+        }
+    }
+}
+
+/// How an engine that shares its store with others holds its instances.
+#[derive(Debug, Clone)]
+pub(crate) struct Leasing {
+    /// This engine's id, the owner of its leases.
+    pub owner: String,
+    /// How long a lease lasts unless renewed.
+    pub ttl: Duration,
+    /// How often the engine looks for messages (signals sent through other engines) and renews its leases.
+    pub poll: Duration,
+}
+
+/// A message for an instance, left in the store by an engine that does not run it.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Message {
+    Signal { name: String, argument: Value },
+    Event { name: String, payload: Value },
+    Cancel,
 }
 
 /// Counts running task steps and wakes shutdown when the count drops.
@@ -841,6 +937,7 @@ impl Shared {
             retention: None,
             schedules_changed: Arc::new(Notify::new()),
             crash_after: Mutex::new(None),
+            leasing: None,
         }
     }
 
@@ -864,8 +961,80 @@ impl Shared {
         running.push(handle);
     }
 
-    fn forget(&self, id: &str) {
+    pub(crate) fn forget(&self, id: &str) {
         lock(&self.instances).remove(id);
+    }
+
+    /// Takes or renews the lease on `id` for this engine. `Ok(None)` when this engine holds it (or leases are off),
+    /// `Ok(Some(owner))` when another engine does.
+    pub(crate) async fn take_lease(
+        &self,
+        id: &str,
+    ) -> Result<Option<(String, DateTime<Utc>)>, Error> {
+        let Some(leasing) = &self.leasing else {
+            return Ok(None);
+        };
+        let now = self.clock.now();
+        let until = super::clock::after(now, leasing.ttl);
+        let lease = self
+            .persistence
+            .acquire_lease(id, &leasing.owner, now, until)
+            .await?;
+        if lease.owner == leasing.owner {
+            if let Some(core) = self.instance(id) {
+                *lock(&core.lease_until) = Some(lease.expires_at);
+            }
+            Ok(None)
+        } else {
+            Ok(Some((lease.owner, lease.expires_at)))
+        }
+    }
+
+    /// Delivers a message another engine left for one of this engine's instances.
+    pub(crate) async fn deliver_message(&self, id: &str, message: Value) {
+        let Some(core) = self.instance(id) else {
+            // Not running here (yet): leave it for whoever runs the instance.
+            if let Err(error) = self.persistence.post_message(id, message).await {
+                tracing::warn!(instance.id = %id, %error, "a message could not be put back");
+            }
+            return;
+        };
+        match serde_json::from_value::<Message>(message) {
+            Ok(Message::Signal { name, argument }) => {
+                if let Err(error) = core.deliver_signal(&name, argument).await {
+                    tracing::warn!(instance.id = %id, signal = %name, %error, "a signal from another engine failed");
+                }
+            }
+            Ok(Message::Event { name, payload }) => {
+                if let Err(error) = core.deliver_event(&name, payload).await {
+                    tracing::warn!(instance.id = %id, event = %name, %error, "an event from another engine failed");
+                }
+            }
+            Ok(Message::Cancel) => {
+                core.request_cancel();
+                self.cancel(id);
+            }
+            Err(error) => {
+                tracing::warn!(instance.id = %id, %error, "an unreadable message was dropped")
+            }
+        }
+    }
+
+    /// Renews the leases of this engine's running instances; an instance whose lease another engine took is stopped.
+    pub(crate) async fn renew_leases(&self) {
+        let cores: Vec<Arc<InstanceCore>> = lock(&self.instances).values().cloned().collect();
+        for core in cores {
+            if core.ephemeral || core.remote.get().is_some() || core.has_ended() {
+                continue;
+            }
+            match self.take_lease(&core.id).await {
+                Ok(None) => {}
+                Ok(Some((holder, _))) => core.lose_lease(&holder),
+                Err(error) => {
+                    tracing::warn!(instance.id = %core.id, %error, "a lease could not be renewed")
+                }
+            }
+        }
     }
 
     /// Test hook: abandons every instance once `steps` more live steps are recorded.
@@ -1043,6 +1212,11 @@ impl Shared {
             return Ok(Launched { core });
         }
         let now = self.clock.now();
+        if let Some((holder, _)) = self.take_lease(&id).await? {
+            return Err(Error::invalid(format!(
+                "instance `{id}` is run by engine `{holder}`"
+            )));
+        }
         journal.created_at.get_or_insert(now);
         journal.updated_at = Some(now);
         let fresh = journal.fresh;
@@ -1099,10 +1273,22 @@ impl Shared {
                     && publish.0.ended_durably.load(Ordering::SeqCst)
                 {
                     shared.forget(&publish.0.id);
+                    if let Some(leasing) = &shared.leasing
+                        && let Err(error) = shared
+                            .persistence
+                            .release_lease(&publish.0.id, &leasing.owner)
+                            .await
+                    {
+                        tracing::warn!(instance.id = %publish.0.id, %error, "a lease could not be released");
+                    }
                 }
             }
             .instrument(span),
         );
+        if let Some(leasing) = &self.leasing {
+            *lock(&core.lease_until) = Some(super::clock::after(now, leasing.ttl));
+        }
+        let _ = core.abort.set(handle.abort_handle());
         self.remember(&core, handle);
         Ok(Launched { core })
     }
@@ -1436,6 +1622,14 @@ pub(crate) struct InstanceCore {
     /// Whether the instance's end was written to the store. An instance whose end could not be written stays in the
     /// engine's memory, so its status is not misreported from the stale store.
     ended_durably: std::sync::atomic::AtomicBool,
+    /// Until when this engine's lease on the instance lasts (with leases on).
+    pub lease_until: Mutex<Option<DateTime<Utc>>>,
+    /// Set when another engine took the instance over: nothing more is written.
+    pub lost: std::sync::atomic::AtomicBool,
+    /// Stops the instance's task.
+    pub abort: OnceLock<tokio::task::AbortHandle>,
+    /// For a handle to an instance another engine runs: that engine's id.
+    pub remote: OnceLock<String>,
 }
 
 /// A step, ready to run.
@@ -1521,6 +1715,10 @@ impl InstanceCore {
             result,
             tail: Mutex::new(tail),
             ended_durably: std::sync::atomic::AtomicBool::new(false),
+            lease_until: Mutex::new(None),
+            lost: std::sync::atomic::AtomicBool::new(false),
+            abort: OnceLock::new(),
+            remote: OnceLock::new(),
         })
     }
 
@@ -1784,6 +1982,7 @@ impl InstanceCore {
     pub(crate) async fn emit(&self, event: Event) -> Result<(), Error> {
         if !self.ephemeral
             && self.replay_only.is_none()
+            && !self.lost.load(Ordering::SeqCst)
             && let Some(stored) = event.to_stored()
         {
             let (persistence, codec) = {
@@ -1812,6 +2011,7 @@ impl InstanceCore {
         };
         let codec = codec.as_deref();
         let _guard = self.persist_lock.lock().await;
+        self.ensure_lease().await?;
         let (snapshot, records) = {
             let mut journal = lock(&self.journal);
             journal.updated_at = Some(self.clock.now());
@@ -1833,6 +2033,58 @@ impl InstanceCore {
         let checkpoint = self.checkpoint_of(&snapshot, codec)?;
         persistence.save_checkpoint(checkpoint).await?;
         Ok(())
+    }
+
+    /// With leases on, makes sure this engine still holds the instance before writing: a lease that is less than half
+    /// left is renewed, and one another engine took stops the instance.
+    async fn ensure_lease(&self) -> Result<(), Error> {
+        let leasing = match self.shared() {
+            Ok(shared) => shared.leasing.clone(),
+            Err(_) => None,
+        };
+        let Some(leasing) = leasing else {
+            return Ok(());
+        };
+        if self.lost.load(Ordering::SeqCst) {
+            return Err(self.lost_error());
+        }
+        let now = self.clock.now();
+        let fresh_enough = lock(&self.lease_until)
+            .is_some_and(|until| until > super::clock::after(now, leasing.ttl / 2));
+        if fresh_enough {
+            return Ok(());
+        }
+        let taken = self.shared()?.take_lease(&self.id).await?;
+        match taken {
+            None => Ok(()),
+            Some((holder, _)) => {
+                self.lose_lease(&holder);
+                Err(self.lost_error())
+            }
+        }
+    }
+
+    fn lost_error(&self) -> Error {
+        Error::Engine(format!(
+            "instance `{}` is now run by another engine: this engine lost its lease and stopped it",
+            self.id
+        ))
+    }
+
+    /// Another engine took the instance over: stop it here without writing anything more.
+    pub(crate) fn lose_lease(&self, holder: &str) {
+        if self.lost.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        tracing::warn!(instance.id = %self.id, holder, "the instance's lease was taken by another engine; stopping it");
+        self.publish(Err(self.lost_error()));
+        self.log.close();
+        if let Ok(shared) = self.shared() {
+            shared.forget(&self.id);
+        }
+        if let Some(abort) = self.abort.get() {
+            abort.abort();
+        }
     }
 
     /// Claims the instance's id in the store: writes its first checkpoint only if no instance has the id yet.
@@ -1901,6 +2153,19 @@ impl InstanceCore {
     }
 
     pub(crate) async fn deliver_signal(&self, name: &str, argument: Value) -> Result<(), Error> {
+        if self.remote.get().is_some() {
+            // Another engine runs the instance: leave the signal in the store for it.
+            if self.has_ended() {
+                return Err(self.not_running());
+            }
+            let message = serde_json::to_value(Message::Signal {
+                name: name.to_string(),
+                argument,
+            })
+            .map_err(|e| Error::invalid(format!("the signal could not be serialized: {e}")))?;
+            let persistence = Arc::clone(&self.shared()?.persistence);
+            return Ok(persistence.post_message(&self.id, message).await?);
+        }
         if self.status() != JournalStatus::Running || self.has_ended() {
             return Err(self.not_running());
         }
@@ -2148,6 +2413,13 @@ impl InstanceCore {
         if !spec.shielded && self.cancel_requested() {
             return Err(StepError::Cancelled);
         }
+        // A task step counts as in flight until its result is recorded, so shutdown waits for the record too.
+        let _active = match (&spec.exec, self.shared()) {
+            (StepExec::Task { .. }, Ok(shared)) => {
+                Some(ActiveTask::start(Arc::clone(&shared.active_tasks)))
+            }
+            _ => None,
+        };
         let started = std::time::Instant::now();
         let live = self
             .run_live(&spec, &key)
@@ -2451,7 +2723,7 @@ impl InstanceCore {
         name: &str,
         options: &TaskOptions,
     ) -> Result<Outcome, Error> {
-        let (task, cache, active) = {
+        let (task, cache) = {
             let shared = self.shared()?;
             let task = shared
                 .registry
@@ -2459,13 +2731,8 @@ impl InstanceCore {
                 .get(name)
                 .ok_or_else(|| Error::invalid(format!("no task named `{name}` is registered")))?
                 .clone();
-            (
-                task,
-                Arc::clone(&shared.cache),
-                Arc::clone(&shared.active_tasks),
-            )
+            (task, Arc::clone(&shared.cache))
         };
-        let _active = ActiveTask::start(active);
         let cache_key = compute_cache_key(name, &spec.input);
         let cached = options.cache.unwrap_or(task.cached);
         if cached && let Some(hit) = cache.get(&cache_key).await? {

@@ -188,6 +188,9 @@ pub struct EngineBuilder {
     codec: Option<Arc<dyn PayloadCodec>>,
     retention: Option<std::time::Duration>,
     schedules: Vec<super::schedule::Schedule>,
+    lease: Option<std::time::Duration>,
+    engine_id: Option<String>,
+    poll: std::time::Duration,
 }
 
 impl Default for EngineBuilder {
@@ -211,6 +214,9 @@ impl EngineBuilder {
             codec: None,
             retention: None,
             schedules: Vec::new(),
+            lease: None,
+            engine_id: None,
+            poll: std::time::Duration::from_secs(1),
         }
     }
 
@@ -234,6 +240,35 @@ impl EngineBuilder {
     #[must_use]
     pub fn cache(mut self, cache: Arc<dyn CacheProvider>) -> Self {
         self.cache = Some(cache);
+        self
+    }
+
+    /// Shares the store with other engines (other processes, usually): each instance is run by the engine that holds
+    /// its lease, which lasts `ttl` and is renewed while the engine runs the instance. An engine that stops (or stalls
+    /// longer than `ttl`) loses its leases, and another engine's [`Engine::recover`] takes the instances over;
+    /// the stalled engine's writes are then rejected. Signals sent through an engine that does not run the instance
+    /// reach it through the store.
+    ///
+    /// The store must support leases (all built-in stores do). Without this setting an engine assumes it is the only
+    /// one on its store.
+    #[must_use]
+    pub fn lease(mut self, ttl: std::time::Duration) -> Self {
+        self.lease = Some(ttl);
+        self
+    }
+
+    /// This engine's id among the engines sharing a store (a random one by default). Leases are held under it.
+    #[must_use]
+    pub fn engine_id(mut self, id: impl Into<String>) -> Self {
+        self.engine_id = Some(id.into());
+        self
+    }
+
+    /// How often an engine with [`lease`](Self::lease) on looks for signals sent through other engines and renews
+    /// its leases (default 1 second).
+    #[must_use]
+    pub fn poll_interval(mut self, interval: std::time::Duration) -> Self {
+        self.poll = interval;
         self
     }
 
@@ -387,10 +422,28 @@ impl EngineBuilder {
             self.codec,
         );
         shared.retention = self.retention;
+        if let Some(ttl) = self.lease {
+            if !shared.persistence.supports_leases() {
+                return Err(Error::invalid(
+                    "`lease` needs a store that supports leases (all built-in stores do)",
+                ));
+            }
+            shared.leasing = Some(super::runtime::Leasing {
+                owner: self
+                    .engine_id
+                    .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+                ttl,
+                poll: self.poll,
+            });
+        }
         let shared = Arc::new(shared);
+        super::runtime::register_on_store(&shared)?;
         if tokio::runtime::Handle::try_current().is_ok() {
             for schedule in self.schedules {
                 shared.spawn_background(super::schedule::drive(schedule, Arc::downgrade(&shared)));
+            }
+            if shared.leasing.is_some() {
+                shared.spawn_background(super::runtime::tend_leases(Arc::downgrade(&shared)));
             }
         }
         Ok(Engine { shared })
@@ -489,6 +542,11 @@ impl Engine {
             core.publish(ended);
             return Ok(self.wrap(Launched { core }));
         }
+        if let Some((holder, _)) = self.shared.take_lease(id).await? {
+            return Ok(self.wrap(Launched {
+                core: self.remote(id, journal, holder),
+            }));
+        }
         let entry = self.shared.find_workflow(&journal.workflow)?;
         let input = journal.input.clone();
         let launched = self
@@ -496,6 +554,51 @@ impl Engine {
             .launch(id.to_string(), entry, input, journal)
             .await?;
         Ok(self.wrap(launched))
+    }
+
+    /// A handle's view of an instance another engine runs: signals and cancellation go through the store, and the
+    /// result is read from the store once the instance ends.
+    fn remote(&self, id: &str, journal: Journal, holder: String) -> Arc<InstanceCore> {
+        let core = InstanceCore::new(
+            id.to_string(),
+            journal.workflow.clone(),
+            super::workflow::ReplayMode::Strict,
+            Arc::downgrade(&self.shared),
+            journal,
+            None,
+            true,
+        );
+        let _ = core.remote.set(holder);
+        let watched = Arc::clone(&core);
+        let shared = Arc::downgrade(&self.shared);
+        self.shared.spawn_background(async move {
+            loop {
+                let poll = {
+                    let Some(shared) = shared.upgrade() else {
+                        return;
+                    };
+                    shared
+                        .leasing
+                        .as_ref()
+                        .map_or(std::time::Duration::from_secs(1), |l| l.poll)
+                };
+                tokio::time::sleep(poll).await;
+                if watched.has_ended() {
+                    return;
+                }
+                let Some(shared) = shared.upgrade() else {
+                    return;
+                };
+                if let Ok(Some(journal)) = shared.load_journal(&watched.id).await
+                    && let Some(ended) = journal.ended()
+                {
+                    watched.log.close();
+                    watched.publish(ended);
+                    return;
+                }
+            }
+        });
+        core
     }
 
     /// Starts a workflow with [`ExecuteOptions`]: an id of your choosing (see [`execute_with_id`](Self::execute_with_id))
@@ -599,6 +702,10 @@ impl Engine {
                 || journal.parent.is_some()
                 || self.shared.instance(&summary.id).is_some()
             {
+                continue;
+            }
+            if self.shared.take_lease(&summary.id).await?.is_some() {
+                // Another engine holds the instance's lease: it is running there.
                 continue;
             }
             match self.shared.find_workflow(&journal.workflow) {
@@ -785,8 +892,7 @@ impl Engine {
                 () = &mut out_of_time => break,
             }
         }
-        // Let the step that just finished write its record before its instance is stopped.
-        tokio::task::yield_now().await;
+        // Task steps count as in flight until their result is recorded, so nothing finished is lost here.
         self.shared.abandon_all();
     }
 
@@ -942,6 +1048,17 @@ impl<Out> ExecutionHandle<Out> {
         }
     }
 
+    /// Fails for a handle to an instance another engine runs (see [`EngineBuilder::lease`]): `what` needs that engine.
+    fn local(&self, what: &str) -> Result<(), Error> {
+        match self.core.remote.get() {
+            Some(owner) => Err(Error::invalid(format!(
+                "instance `{}` runs on engine `{owner}`; {what} need the engine that runs it",
+                self.core.id
+            ))),
+            None => Ok(()),
+        }
+    }
+
     /// A stream of this run's events from the beginning. Call it as often as you like.
     #[must_use]
     pub fn events(&self) -> EventStream {
@@ -953,6 +1070,15 @@ impl<Out> ExecutionHandle<Out> {
     /// # Errors
     /// Never, currently; reserved for engines that cancel remotely.
     pub async fn cancel(&self) -> Result<(), Error> {
+        if self.core.remote.get().is_some() {
+            let message = serde_json::to_value(super::runtime::Message::Cancel)
+                .map_err(|e| Error::Engine(e.to_string()))?;
+            return Ok(self
+                .shared
+                .persistence
+                .post_message(&self.core.id, message)
+                .await?);
+        }
         self.core.request_cancel();
         self.shared.cancel(&self.core.id);
         Ok(())
@@ -1007,6 +1133,7 @@ impl<Out> ExecutionHandle<Out> {
         argument: A,
         id: Option<String>,
     ) -> Result<R, Error> {
+        self.local("updates")?;
         let value = serde_json::to_value(argument).map_err(|e| {
             Error::invalid(format!("the update argument could not be serialized: {e}"))
         })?;
@@ -1020,6 +1147,7 @@ impl<Out> ExecutionHandle<Out> {
     /// # Errors
     /// If the workflow has no such query.
     pub async fn query<W, R: DeserializeOwned>(&self, query: QueryRef<W, R>) -> Result<R, Error> {
+        self.local("queries")?;
         let value = self.core.query(query.name).await?;
         serde_json::from_value(value)
             .map_err(|e| Error::Engine(format!("the query result does not match its type: {e}")))
@@ -1035,6 +1163,18 @@ impl<Out> ExecutionHandle<Out> {
     pub async fn send_event(&self, name: &str, payload: impl Serialize) -> Result<(), Error> {
         let value = serde_json::to_value(payload)
             .map_err(|e| Error::invalid(format!("the event could not be serialized: {e}")))?;
+        if self.core.remote.get().is_some() {
+            let message = serde_json::to_value(super::runtime::Message::Event {
+                name: name.to_string(),
+                payload: value,
+            })
+            .map_err(|e| Error::Engine(e.to_string()))?;
+            return Ok(self
+                .shared
+                .persistence
+                .post_message(&self.core.id, message)
+                .await?);
+        }
         self.core.deliver_event(name, value).await
     }
 }

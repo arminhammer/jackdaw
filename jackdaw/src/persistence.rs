@@ -24,6 +24,21 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// Which engine owns an instance, and until when (see [`PersistenceProvider::acquire_lease`]).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Lease {
+    /// The owning engine's id.
+    pub owner: String,
+    /// When the lease runs out unless it is renewed.
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+fn leases_unsupported() -> Error {
+    Error::Persistence {
+        message: "this store does not support leases".to_string(),
+    }
+}
+
 /// One entry of an instance's append-only journal log: its position and its JSON body.
 pub type JournalRecord = (u64, serde_json::Value);
 
@@ -112,5 +127,43 @@ pub trait PersistenceProvider: Send + Sync + std::fmt::Debug {
                 "this store cannot delete instances (asked to delete `{instance_id}`)"
             ),
         })
+    }
+
+    /// Whether this store keeps leases. With leases, several engines (in one process or many) can share the store:
+    /// each instance is run by the engine that holds its lease. A store without them can have one engine at a time.
+    fn supports_leases(&self) -> bool {
+        false
+    }
+
+    /// Takes the lease on `instance_id` for `owner` until `until`, or renews it, unless another owner holds a lease
+    /// that has not expired at `now`. Returns the lease as it stands afterwards: its owner is `owner` if the call took
+    /// it. Must be atomic.
+    async fn acquire_lease(
+        &self,
+        instance_id: &str,
+        owner: &str,
+        now: chrono::DateTime<chrono::Utc>,
+        until: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Lease> {
+        let _ = (instance_id, owner, now, until);
+        Err(leases_unsupported())
+    }
+
+    /// Gives up `owner`'s lease on `instance_id`. Does nothing if another owner holds it.
+    async fn release_lease(&self, instance_id: &str, owner: &str) -> Result<()> {
+        let _ = (instance_id, owner);
+        Ok(())
+    }
+
+    /// Leaves a message (a signal, an update) for an instance that another engine runs.
+    async fn post_message(&self, instance_id: &str, message: serde_json::Value) -> Result<()> {
+        let _ = (instance_id, message);
+        Err(leases_unsupported())
+    }
+
+    /// Removes and returns, oldest first, the messages for instances whose lease `owner` holds.
+    async fn take_messages(&self, owner: &str) -> Result<Vec<(String, serde_json::Value)>> {
+        let _ = owner;
+        Ok(Vec::new())
     }
 }

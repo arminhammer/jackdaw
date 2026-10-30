@@ -362,6 +362,7 @@ async fn three_two_done(world: &mut LibWorld) {
     world
         .until("two tasks finished", || probe.completed("counted") >= 2)
         .await;
+    super::durability::completions_durable(world, "counted", 2).await;
 }
 
 #[then("the first two tasks ran once in total")]
