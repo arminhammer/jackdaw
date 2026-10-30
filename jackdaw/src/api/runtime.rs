@@ -101,6 +101,13 @@ pub struct Registry {
 }
 
 impl Registry {
+    /// Adds the helper tasks (`jackdaw.shell`, ...) that are not registered already.
+    pub(crate) fn add_builtins(&mut self) {
+        for task in super::helpers::builtin_tasks() {
+            self.tasks.entry(task.name).or_insert(task);
+        }
+    }
+
     /// Puts the fakes in place of the tasks they replace.
     pub(crate) fn apply_fakes(&mut self) {
         for fake in self.fakes.drain(..) {
@@ -1287,6 +1294,15 @@ pub(crate) fn map_payloads(
             input: f(input)?,
             timestamp,
         },
+        Stored::EventEmitted {
+            instance_id,
+            event,
+            timestamp,
+        } => Stored::EventEmitted {
+            instance_id,
+            event: f(event)?,
+            timestamp,
+        },
         other @ (Stored::TaskEntered { .. }
         | Stored::TaskCreated { .. }
         | Stored::TaskStarted { .. }
@@ -1429,6 +1445,8 @@ pub(crate) enum StepExec {
     Start(RunTarget),
     Sleep(Duration),
     Event,
+    /// Publishes a `CloudEvent` (the step's input) on the instance's event stream and history.
+    Emit,
 }
 
 impl InstanceCore {
@@ -2362,6 +2380,25 @@ impl InstanceCore {
                         Ok(Outcome::Ok(Value::String(launched.core.id.clone())))
                     }
                 }
+            }
+            StepExec::Emit => {
+                let mut event: super::event::CloudEvent =
+                    serde_json::from_value(spec.input.clone())
+                        .map_err(|e| Error::invalid(format!("the event could not be read: {e}")))?;
+                if event.id.is_empty() {
+                    // Stable across replays and restarts, so a consumer can drop duplicates.
+                    event.id = format!("{}/{key}", self.id);
+                }
+                if event.source.is_empty() {
+                    event.source = format!("jackdaw:{}", self.workflow);
+                }
+                self.emit(Event::Emitted {
+                    instance_id: self.id.clone(),
+                    event,
+                    timestamp: self.clock.now(),
+                })
+                .await?;
+                Ok(Outcome::Ok(Value::Null))
             }
             StepExec::Sleep(duration) => {
                 let deadline = self.deadline(format!("sleep:{key}"), *duration).await?;

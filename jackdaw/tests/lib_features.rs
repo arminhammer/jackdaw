@@ -1,7 +1,7 @@
 //! BDD runner for the library feature specs in `tests/lib`.
 //!
 //! Scenarios tagged `@todo` describe behavior that is not built yet, and `@external` ones are covered by another
-//! suite (named next to the scenario); both are skipped. Every other scenario runs, and a step without a definition
+//! suite (named next to the scenario); both are skipped, as are `@docker` scenarios when Docker does not answer. Every other scenario runs, and a step without a definition
 //! fails the run.
 //!
 //! Pass cucumber options after `--`, for example a tag expression that replaces the default filter:
@@ -34,7 +34,20 @@ fn has_tag(tags: &[String], tag: &str) -> bool {
 }
 
 fn skipped(tags: &[String]) -> bool {
-    has_tag(tags, "todo") || has_tag(tags, "external")
+    has_tag(tags, "todo") || has_tag(tags, "external") || (has_tag(tags, "docker") && !docker())
+}
+
+/// Whether Docker answers; `@docker` scenarios are skipped without it.
+fn docker() -> bool {
+    static AVAILABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *AVAILABLE.get_or_init(|| {
+        std::process::Command::new("docker")
+            .arg("info")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    })
 }
 
 #[tokio::main]

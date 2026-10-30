@@ -16,6 +16,7 @@ pub mod conditionals;
 pub mod durability;
 pub mod errors;
 pub mod events;
+pub mod helpers;
 pub mod incident;
 pub mod interop;
 pub mod loops;
@@ -157,6 +158,7 @@ pub fn catalog() -> Vec<Fixture> {
     all.extend(schedules::fixtures());
     all.extend(observability::fixtures());
     all.extend(interop::fixtures());
+    all.extend(helpers::fixtures());
     all
 }
 

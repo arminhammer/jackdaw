@@ -1,6 +1,7 @@
 //! The events of a run, and the stream that delivers them.
 use crate::workflow::WorkflowEvent;
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
@@ -114,8 +115,81 @@ pub enum Event {
         /// When it happened.
         timestamp: DateTime<Utc>,
     },
+    /// The workflow published an event with [`ctx.emit`](crate::api::WorkflowContext::emit).
+    Emitted {
+        /// The instance.
+        instance_id: String,
+        /// The event.
+        event: CloudEvent,
+        /// When it happened.
+        timestamp: DateTime<Utc>,
+    },
     /// An event of the YAML engine that has no dedicated variant.
     Other(WorkflowEvent),
+}
+
+/// An event a workflow publishes with [`ctx.emit`](crate::api::WorkflowContext::emit), shaped like a
+/// [CloudEvent](https://cloudevents.io).
+///
+/// ```
+/// use jackdaw::api::CloudEvent;
+///
+/// let shipped = CloudEvent::new("order.shipped", serde_json::json!({ "order": "o-1" })).subject("o-1");
+/// assert_eq!(shipped.event_type, "order.shipped");
+/// ```
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct CloudEvent {
+    /// A unique id. Left empty, the engine fills in one that is stable across replays.
+    #[serde(default)]
+    pub id: String,
+    /// What happened, e.g. `order.shipped`.
+    #[serde(rename = "type")]
+    pub event_type: String,
+    /// Who it came from. Left empty, the engine fills in the workflow's identity.
+    #[serde(default)]
+    pub source: String,
+    /// What it is about, e.g. an order id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject: Option<String>,
+    /// The payload.
+    #[serde(default)]
+    pub data: serde_json::Value,
+}
+
+impl CloudEvent {
+    /// An event of type `event_type` carrying `data` (anything that serializes to JSON; `null` if it does not).
+    #[must_use]
+    pub fn new(event_type: impl Into<String>, data: impl Serialize) -> Self {
+        Self {
+            id: String::new(),
+            event_type: event_type.into(),
+            source: String::new(),
+            subject: None,
+            data: serde_json::to_value(data).unwrap_or_default(),
+        }
+    }
+
+    /// Sets the id.
+    #[must_use]
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.id = id.into();
+        self
+    }
+
+    /// Sets the source.
+    #[must_use]
+    pub fn source(mut self, source: impl Into<String>) -> Self {
+        self.source = source.into();
+        self
+    }
+
+    /// Sets the subject.
+    #[must_use]
+    pub fn subject(mut self, subject: impl Into<String>) -> Self {
+        self.subject = Some(subject.into());
+        self
+    }
 }
 
 impl Event {
@@ -133,6 +207,7 @@ impl Event {
             Self::WorkflowFailed { .. } => "WorkflowFailed",
             Self::WorkflowCancelled { .. } => "WorkflowCancelled",
             Self::ContinuedAsNew { .. } => "ContinuedAsNew",
+            Self::Emitted { .. } => "Emitted",
             Self::Other(event) => other_name(event),
         }
     }
@@ -151,6 +226,7 @@ impl Event {
             | Self::WorkflowFailed { .. }
             | Self::WorkflowCancelled { .. }
             | Self::ContinuedAsNew { .. }
+            | Self::Emitted { .. }
             | Self::Other(_) => false,
         }
     }
@@ -168,7 +244,8 @@ impl Event {
             | Self::WorkflowCompleted { instance_id, .. }
             | Self::WorkflowFailed { instance_id, .. }
             | Self::WorkflowCancelled { instance_id, .. }
-            | Self::ContinuedAsNew { instance_id, .. } => instance_id,
+            | Self::ContinuedAsNew { instance_id, .. }
+            | Self::Emitted { instance_id, .. } => instance_id,
             Self::Other(event) => event.instance_id(),
         }
     }
@@ -289,6 +366,15 @@ impl Event {
                 input: input.clone(),
                 timestamp: *timestamp,
             },
+            Self::Emitted {
+                instance_id,
+                event,
+                timestamp,
+            } => WorkflowEvent::EventEmitted {
+                instance_id: instance_id.clone(),
+                event: serde_json::to_value(event).unwrap_or_default(),
+                timestamp: *timestamp,
+            },
             Self::TaskStarted { replayed: true, .. }
             | Self::TaskCompleted { replayed: true, .. }
             | Self::TaskFaulted { replayed: true, .. }
@@ -328,6 +414,22 @@ impl Event {
                 run,
                 input,
                 timestamp,
+            },
+            WorkflowEvent::EventEmitted {
+                instance_id,
+                event,
+                timestamp,
+            } => match serde_json::from_value(event.clone()) {
+                Ok(event) => Self::Emitted {
+                    instance_id,
+                    event,
+                    timestamp,
+                },
+                Err(_) => Self::Other(WorkflowEvent::EventEmitted {
+                    instance_id,
+                    event,
+                    timestamp,
+                }),
             },
             WorkflowEvent::TaskStarted {
                 instance_id,
@@ -434,6 +536,7 @@ fn other_name(event: &WorkflowEvent) -> &'static str {
         WorkflowEvent::TaskResumed { .. } => "TaskResumed",
         WorkflowEvent::TaskFaulted { .. } => "TaskFaulted",
         WorkflowEvent::WorkflowContinuedAsNew { .. } => "WorkflowContinuedAsNew",
+        WorkflowEvent::EventEmitted { .. } => "EventEmitted",
     }
 }
 

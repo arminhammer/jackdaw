@@ -152,6 +152,8 @@ pub struct LibWorld {
     pub test_store: Option<Arc<super::durability::TestStore>>,
     /// The recording tracing subscriber of the observability scenarios.
     pub traces: Option<Arc<super::observability::Traces>>,
+    /// The mock HTTP server of the `ctx.http` scenarios.
+    pub mock: Option<wiremock::MockServer>,
 }
 
 /// Which durable store the scenarios run on: `JACKDAW_TEST_STORE=redb|sqlite|postgres` (default redb). Postgres needs
@@ -204,6 +206,7 @@ impl LibWorld {
             store: None,
             test_store: None,
             traces: None,
+            mock: None,
         }
     }
 

@@ -126,6 +126,12 @@ pub enum WorkflowEvent {
         input: serde_json::Value,
         timestamp: DateTime<Utc>,
     },
+    /// A Rust workflow published an event with `ctx.emit` (the event as a CloudEvent JSON object).
+    EventEmitted {
+        instance_id: String,
+        event: serde_json::Value,
+        timestamp: DateTime<Utc>,
+    },
 }
 
 impl WorkflowEvent {
@@ -149,7 +155,8 @@ impl WorkflowEvent {
             | WorkflowEvent::TaskSuspended { instance_id, .. }
             | WorkflowEvent::TaskResumed { instance_id, .. }
             | WorkflowEvent::TaskFaulted { instance_id, .. }
-            | WorkflowEvent::WorkflowContinuedAsNew { instance_id, .. } => instance_id,
+            | WorkflowEvent::WorkflowContinuedAsNew { instance_id, .. }
+            | WorkflowEvent::EventEmitted { instance_id, .. } => instance_id,
         }
     }
 }

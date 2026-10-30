@@ -93,6 +93,7 @@ impl PostgresPersistence {
             WorkflowEvent::TaskResumed { .. } => "TaskResumed",
             WorkflowEvent::TaskFaulted { .. } => "TaskFaulted",
             WorkflowEvent::WorkflowContinuedAsNew { .. } => "WorkflowContinuedAsNew",
+            WorkflowEvent::EventEmitted { .. } => "EventEmitted",
         }
     }
 }

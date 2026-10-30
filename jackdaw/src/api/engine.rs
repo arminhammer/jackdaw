@@ -294,6 +294,7 @@ impl EngineBuilder {
     /// `Error::Invalid` if registrations conflict or refer to something that does not exist.
     pub fn build(self) -> Result<Engine, Error> {
         let mut registry = self.registry;
+        registry.add_builtins();
         registry.apply_fakes();
         registry.validate(&self.catalogs)?;
         self.catalogs.validate()?;

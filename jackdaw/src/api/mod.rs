@@ -12,6 +12,7 @@ mod duration;
 mod engine;
 mod error;
 mod event;
+mod helpers;
 mod observe;
 mod runtime;
 mod schedule;
@@ -34,7 +35,8 @@ pub use error::{
     Divergence, Error, Fault, StepError, TaskError, UpdateError, WorkflowError, WorkflowResult,
     error_types,
 };
-pub use event::{Event, EventStream};
+pub use event::{CloudEvent, Event, EventStream};
+pub use helpers::{Container, ProcessOutput, Request, Response, Script, Shell};
 pub use runtime::{Registry, register_workflow};
 pub use schedule::{CatchUp, Cron, Overlap, Schedule};
 pub use store::{Postgres, Redb, Sqlite, Store};

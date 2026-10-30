@@ -273,7 +273,8 @@ impl ExecutionHandle {
                 | WorkflowEvent::TaskSuspended { .. }
                 | WorkflowEvent::TaskResumed { .. }
                 | WorkflowEvent::TaskFaulted { .. }
-                | WorkflowEvent::WorkflowContinuedAsNew { .. } => {}
+                | WorkflowEvent::WorkflowContinuedAsNew { .. }
+                | WorkflowEvent::EventEmitted { .. } => {}
             }
 
             if start.elapsed() > timeout {

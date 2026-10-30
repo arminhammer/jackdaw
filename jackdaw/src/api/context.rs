@@ -206,6 +206,54 @@ impl<W: Send + 'static> WorkflowContext<W> {
         Step::new(Arc::clone(&self.core), spec)
     }
 
+    /// Runs a command on the engine's machine and returns what it printed. A non-zero exit fails the step with a
+    /// fault titled `exit code N`. See [`Shell`](super::Shell).
+    #[track_caller]
+    #[must_use]
+    pub fn run_shell(&self, shell: super::Shell) -> Step<super::ProcessOutput> {
+        self.call(super::helpers::ShellTask, shell)
+    }
+
+    /// Runs a Python or JavaScript script with its interpreter. See [`Script`](super::Script).
+    #[track_caller]
+    #[must_use]
+    pub fn run_script(&self, script: super::Script) -> Step<super::ProcessOutput> {
+        self.call(super::helpers::ScriptTask, script)
+    }
+
+    /// Runs a container with Docker and returns what it printed. See [`Container`](super::Container).
+    #[track_caller]
+    #[must_use]
+    pub fn run_container(&self, container: super::Container) -> Step<super::ProcessOutput> {
+        self.call(super::helpers::ContainerTask, container)
+    }
+
+    /// Sends an HTTP request. Statuses 408, 429 and 5xx are retryable faults, so `.retry(..)` on the step retries
+    /// them. See [`Request`](super::Request).
+    #[track_caller]
+    #[must_use]
+    pub fn http(&self, request: super::Request) -> Step<super::Response> {
+        self.call(super::helpers::HttpTask, request)
+    }
+
+    /// Publishes `event` on this run's event stream and in its history. It is a step: a replay does not publish it
+    /// again. If the engine stops between publishing and recording the step, the event is published again on resume
+    /// with the same id, so consumers can drop the duplicate.
+    #[track_caller]
+    #[must_use]
+    pub fn emit(&self, event: super::event::CloudEvent) -> Step<()> {
+        let location = Location::caller();
+        match serde_json::to_value(&event) {
+            Ok(value) => {
+                let spec =
+                    self.core
+                        .spec("emit", event.event_type, value, location, StepExec::Emit);
+                Step::new(Arc::clone(&self.core), spec)
+            }
+            Err(error) => Step::failed(Arc::clone(&self.core), invalid_input(&error)),
+        }
+    }
+
     /// Waits for an event sent with `ExecutionHandle::send_event`.
     #[track_caller]
     #[must_use]
