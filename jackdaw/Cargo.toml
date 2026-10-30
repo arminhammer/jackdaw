@@ -85,6 +85,10 @@ harness = false
 name = "validate_tests"
 
 [[test]]
+name = "lib_features"
+harness = false
+
+[[test]]
 name = "example_tests"
 harness = false
 
