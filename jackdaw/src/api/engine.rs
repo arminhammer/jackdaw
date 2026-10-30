@@ -156,6 +156,7 @@ pub struct EngineBuilder {
     self_replay: bool,
     clock: Option<SharedClock>,
     codec: Option<Arc<dyn PayloadCodec>>,
+    retention: Option<std::time::Duration>,
 }
 
 impl Default for EngineBuilder {
@@ -177,6 +178,7 @@ impl EngineBuilder {
             self_replay: false,
             clock: None,
             codec: None,
+            retention: None,
         }
     }
 
@@ -245,6 +247,13 @@ impl EngineBuilder {
         self
     }
 
+    /// Keeps finished instances for `period` after their last change; [`Engine::sweep`] purges older ones.
+    #[must_use]
+    pub fn retention(mut self, period: std::time::Duration) -> Self {
+        self.retention = Some(period);
+        self
+    }
+
     /// Passes everything the engine stores (journals and history payloads) through `codec`, for example to encrypt
     /// it. An engine reading those records needs the same codec.
     #[must_use]
@@ -297,17 +306,19 @@ impl EngineBuilder {
             .collect();
         legacy.add_executors(natives);
 
+        let mut shared = Shared::new(
+            persistence,
+            cache,
+            self.registry,
+            self.catalogs,
+            legacy,
+            self.self_replay,
+            self.clock.unwrap_or_else(|| Arc::new(SystemClock)),
+            self.codec,
+        );
+        shared.retention = self.retention;
         Ok(Engine {
-            shared: Arc::new(Shared::new(
-                persistence,
-                cache,
-                self.registry,
-                self.catalogs,
-                legacy,
-                self.self_replay,
-                self.clock.unwrap_or_else(|| Arc::new(SystemClock)),
-                self.codec,
-            )),
+            shared: Arc::new(shared),
         })
     }
 }
@@ -343,6 +354,7 @@ impl Engine {
         runnable: R,
         input: R::In,
     ) -> Result<ExecutionHandle<R::Out>, Error> {
+        self.shared.check_accepting()?;
         let value = serde_json::to_value(&input)
             .map_err(|e| Error::invalid(format!("the input could not be serialized: {e}")))?;
         let launched = match runnable.target() {
@@ -370,7 +382,7 @@ impl Engine {
     pub async fn resume<W: WorkflowDef>(&self, id: &str) -> Result<ExecutionHandle<W::Out>, Error> {
         let journal = self.shared.load_journal(id).await?.ok_or_else(|| {
             Error::Engine(format!(
-                "no workflow instance `{id}` was found in the store"
+                "workflow instance `{id}` was not found in the store"
             ))
         })?;
         let wanted = WorkflowId::of::<W>();
@@ -430,6 +442,7 @@ impl Engine {
         };
         let value = serde_json::to_value(&input)
             .map_err(|e| Error::invalid(format!("the input could not be serialized: {e}")))?;
+        self.shared.check_accepting()?;
         let _starting = self.shared.starts.lock().await;
         let id = options
             .id
@@ -482,7 +495,7 @@ impl Engine {
             .shared
             .load_journal(id)
             .await?
-            .ok_or_else(|| Error::Engine(format!("no workflow instance `{id}` was found")))?;
+            .ok_or_else(|| Error::Engine(format!("workflow instance `{id}` was not found")))?;
         let wanted = WorkflowId::of::<W>();
         if journal.workflow != wanted {
             return Err(Error::invalid(format!(
@@ -575,7 +588,7 @@ impl Engine {
             .shared
             .load_journal(id)
             .await?
-            .ok_or_else(|| Error::Engine(format!("no workflow instance `{id}` was found")))?;
+            .ok_or_else(|| Error::Engine(format!("workflow instance `{id}` was not found")))?;
         Ok(InstanceDetails {
             id: id.to_string(),
             status: journal.status.into(),
@@ -599,6 +612,72 @@ impl Engine {
             parent: journal.parent.clone(),
             workflow: journal.workflow,
         })
+    }
+
+    /// Removes a finished instance (its journal, history and checkpoint) from the store.
+    ///
+    /// # Errors
+    /// If the instance is still running, does not exist, or the store cannot delete it.
+    pub async fn purge(&self, id: &str) -> Result<(), Error> {
+        let journal = self
+            .shared
+            .load_journal(id)
+            .await?
+            .ok_or_else(|| Error::Engine(format!("workflow instance `{id}` was not found")))?;
+        if journal.status == JournalStatus::Running || self.shared.instance(id).is_some() {
+            return Err(Error::invalid(format!(
+                "instance `{id}` is still running; cancel it or let it finish before purging it"
+            )));
+        }
+        self.shared.persistence.delete_instance(id).await?;
+        Ok(())
+    }
+
+    /// Purges every finished instance whose last change is older than the engine's
+    /// [`retention`](EngineBuilder::retention) period, and returns their ids. Running instances are never purged.
+    /// Call it periodically (for example from a timer in your service).
+    ///
+    /// # Errors
+    /// If the store cannot be read or written.
+    pub async fn sweep(&self) -> Result<Vec<String>, Error> {
+        let Some(retention) = self.shared.retention else {
+            return Ok(Vec::new());
+        };
+        let now = self.shared.clock.now();
+        let mut purged = Vec::new();
+        for summary in self.shared.summaries().await? {
+            let journal = &summary.journal;
+            let old_enough = journal
+                .updated_at
+                .is_some_and(|at| super::clock::after(at, retention) <= now);
+            if journal.status != JournalStatus::Running && old_enough {
+                self.shared.persistence.delete_instance(&summary.id).await?;
+                purged.push(summary.id);
+            }
+        }
+        Ok(purged)
+    }
+
+    /// Stops the engine: new work is refused, task steps that are running get up to `grace` (on the engine's clock) to
+    /// finish and record their result, and then every instance is stopped *without* ending it, so the next process
+    /// over the same store resumes it with [`recover`](Self::recover). Sleeps and waits are not waited for.
+    pub async fn shutdown(&self, grace: std::time::Duration) {
+        self.shared
+            .shutting_down
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        let active = Arc::clone(&self.shared.active_tasks);
+        let deadline = super::clock::after(self.shared.clock.now(), grace);
+        let out_of_time = self.shared.clock.sleep_until(deadline);
+        tokio::pin!(out_of_time);
+        while active.count() > 0 {
+            tokio::select! {
+                () = active.changed() => {}
+                () = &mut out_of_time => break,
+            }
+        }
+        // Let the step that just finished write its record before its instance is stopped.
+        tokio::task::yield_now().await;
+        self.shared.abandon_all();
     }
 
     /// Cancels an instance running in this engine, and its child workflows.
@@ -663,7 +742,7 @@ impl Engine {
         match self.shared.load_journal(id).await? {
             Some(journal) => Ok(journal.status.into()),
             None => Err(Error::Engine(format!(
-                "no workflow instance `{id}` was found"
+                "workflow instance `{id}` was not found"
             ))),
         }
     }

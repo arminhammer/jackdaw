@@ -462,6 +462,11 @@ pub fn record_writes(world: &mut LibWorld) {
     use_store(world, TestStore::default());
 }
 
+/// Every write to the scenario's recording store so far: (kind, bytes).
+pub fn store_writes(world: &LibWorld) -> Vec<(&'static str, usize)> {
+    lock(&store_of(world).writes).clone()
+}
+
 /// Whether anything written to the scenario's recording store contains `needle`.
 pub fn store_contains(world: &LibWorld, needle: &str) -> bool {
     store_of(world).contains(needle)

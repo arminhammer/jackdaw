@@ -575,6 +575,12 @@ fn blocking_async(world: &mut LibWorld) {
 
 #[then(regex = r#"^it fails with "([^"]+)"$"#)]
 fn it_fails_with(world: &mut LibWorld, message: String) {
+    if let Some(variant) = message.strip_prefix("Error::") {
+        // A runtime error the scenario recorded, by its variant.
+        let error = world.notes["error"].as_str().expect("an error").to_string();
+        assert!(error.starts_with(&format!("{variant}(")), "{error}");
+        return;
+    }
     let stderr = stderr(world);
     assert!(stderr.contains(&message), "{stderr}");
 }

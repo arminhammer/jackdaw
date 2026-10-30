@@ -704,6 +704,46 @@ pub(crate) struct Shared {
     index: tokio::sync::Mutex<()>,
     /// Serializes starts by id, so two concurrent `execute_with_id` calls create one instance.
     pub starts: tokio::sync::Mutex<()>,
+    /// Task steps running right now (shutdown waits for them).
+    pub active_tasks: Arc<ActiveTasks>,
+    /// Set by `Engine::shutdown`: no new work is accepted.
+    pub shutting_down: std::sync::atomic::AtomicBool,
+    /// How long finished instances are kept (see `Engine::sweep`).
+    pub retention: Option<Duration>,
+}
+
+/// Counts running task steps and wakes shutdown when the count drops.
+#[derive(Debug, Default)]
+pub(crate) struct ActiveTasks {
+    count: AtomicUsize,
+    changed: Notify,
+}
+
+impl ActiveTasks {
+    pub(crate) fn count(&self) -> usize {
+        self.count.load(Ordering::SeqCst)
+    }
+
+    pub(crate) async fn changed(&self) {
+        self.changed.notified().await;
+    }
+}
+
+/// Holds one running task step in the count (without holding the engine).
+struct ActiveTask(Arc<ActiveTasks>);
+
+impl ActiveTask {
+    fn start(tasks: Arc<ActiveTasks>) -> Self {
+        tasks.count.fetch_add(1, Ordering::SeqCst);
+        Self(tasks)
+    }
+}
+
+impl Drop for ActiveTask {
+    fn drop(&mut self) {
+        self.0.count.fetch_sub(1, Ordering::SeqCst);
+        self.0.changed.notify_waiters();
+    }
 }
 
 impl Drop for Shared {
@@ -752,6 +792,9 @@ impl Shared {
             running: Mutex::new(Vec::new()),
             index: tokio::sync::Mutex::new(()),
             starts: tokio::sync::Mutex::new(()),
+            active_tasks: Arc::new(ActiveTasks::default()),
+            shutting_down: std::sync::atomic::AtomicBool::new(false),
+            retention: None,
         }
     }
 
@@ -777,6 +820,22 @@ impl Shared {
 
     fn forget(&self, id: &str) {
         lock(&self.instances).remove(id);
+    }
+
+    /// Stops every instance task without ending the instances (their journals stay "running").
+    pub(crate) fn abandon_all(&self) {
+        for handle in lock(&self.running).drain(..) {
+            handle.abort();
+        }
+        lock(&self.instances).clear();
+    }
+
+    pub(crate) fn check_accepting(&self) -> Result<(), Error> {
+        if self.shutting_down.load(Ordering::SeqCst) {
+            Err(Error::Engine("the engine is shutting down".to_string()))
+        } else {
+            Ok(())
+        }
     }
 
     /// Cancels an instance that runs in this engine, and its children.
@@ -2218,7 +2277,7 @@ impl InstanceCore {
         name: &str,
         options: &TaskOptions,
     ) -> Result<Outcome, Error> {
-        let (task, cache) = {
+        let (task, cache, active) = {
             let shared = self.shared()?;
             let task = shared
                 .registry
@@ -2226,8 +2285,13 @@ impl InstanceCore {
                 .get(name)
                 .ok_or_else(|| Error::invalid(format!("no task named `{name}` is registered")))?
                 .clone();
-            (task, Arc::clone(&shared.cache))
+            (
+                task,
+                Arc::clone(&shared.cache),
+                Arc::clone(&shared.active_tasks),
+            )
         };
+        let _active = ActiveTask::start(active);
         let cache_key = compute_cache_key(name, &spec.input);
         let cached = options.cache.unwrap_or(task.cached);
         if cached && let Some(hit) = cache.get(&cache_key).await? {

@@ -18,6 +18,7 @@ pub mod errors;
 pub mod events;
 pub mod incident;
 pub mod loops;
+pub mod ops;
 pub mod parallel;
 pub mod recorded;
 pub mod saga;
@@ -107,6 +108,8 @@ pub fn harnesses(probe: &Arc<Probe>) -> Harnesses {
         b.tasks(subscription::Billing(Arc::clone(&p)))
     }));
     sets.extend(api::task_sets(probe));
+    let p = Arc::clone(probe);
+    sets.push(Box::new(move |b| b.tasks(ops::Lifecycle(Arc::clone(&p)))));
     Harnesses {
         probe: Arc::clone(probe),
         sets,
@@ -135,6 +138,7 @@ pub fn catalog() -> Vec<Fixture> {
     all.extend(incident::fixtures());
     all.extend(subscription::fixtures());
     all.extend(api::fixtures());
+    all.extend(ops::fixtures());
     all
 }
 
@@ -145,6 +149,7 @@ pub fn variants() -> Vec<Fixture> {
     all.extend(durability::variants());
     all.extend(subscription::variants());
     all.extend(api::variants());
+    all.extend(ops::variants());
     all
 }
 

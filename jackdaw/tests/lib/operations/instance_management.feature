@@ -7,13 +7,13 @@ Feature: Finding and managing workflow instances
   Background:
     Given an engine with a Redb store
 
-  @todo
+  @implemented
   Scenario: An instance can be started with a caller-chosen id
     When I call "Engine::execute_with_id(\"order-42\", OrderWorkflow::run, order)"
     Then the handle's id is "order-42"
     And "Engine::status(\"order-42\")" is "Running" or "Completed"
 
-  @todo
+  @implemented
   Scenario: Starting the same id twice returns the same instance
     Given I started "order-42" with "execute_with_id"
     When I call "execute_with_id(\"order-42\", ..)" again with the same input
@@ -21,31 +21,31 @@ Feature: Finding and managing workflow instances
     And the returned handle refers to the existing "order-42"
     And the workflow's tasks ran once
 
-  @todo
+  @implemented
   Scenario: Starting the same id with a different workflow is an error
     Given I started "order-42" as "OrderWorkflow"
     When I call "execute_with_id(\"order-42\", RefundWorkflow::run, ..)"
     Then it fails with "Error::Invalid" naming the existing workflow
 
-  @todo
+  @implemented
   Scenario: Concurrent starts with the same id create one instance
     When 10 tasks call "execute_with_id(\"order-42\", ..)" at the same time
     Then exactly one instance "order-42" exists
     And all 10 handles resolve to the same result
 
-  @todo
+  @implemented
   Scenario: A handle can be obtained by id
     Given a running "Approval" instance started by another part of the program
     When I call "Engine::handle::<Approval>(id)"
     Then I can signal, query, cancel and await it through that handle
 
-  @todo
+  @implemented
   Scenario: A handle by id from a fresh engine attaches to a stored instance
     Given a completed instance in the store
     When a new engine calls "Engine::handle::<W>(id)" and awaits it
     Then it returns the stored result without running anything
 
-  @todo
+  @implemented
   Scenario: Asking for a handle with the wrong workflow type fails
     When I call "Engine::handle::<RefundWorkflow>(id)" for an "OrderWorkflow" instance
     Then it fails with "Error::Invalid"
@@ -55,7 +55,7 @@ Feature: Finding and managing workflow instances
     When I call "Engine::status(\"does-not-exist\")"
     Then it fails with an error that says the instance was not found
 
-  @todo
+  @implemented
   Scenario: Instances can be listed and filtered
     Given these instances in the store:
       | id  | workflow           | status    | started              |
@@ -69,14 +69,14 @@ Feature: Finding and managing workflow instances
     When I call "Engine::list" with started after "2026-01-02T00:00:00Z"
     Then I get "o-2" and "r-1"
 
-  @todo
+  @implemented
   Scenario: Listing is paginated
     Given 250 instances in the store
     When I list them with a page size of 100
     Then I get 3 pages with 100, 100 and 50 instances
     And no instance appears twice
 
-  @todo
+  @implemented
   Scenario: Starting an instance does not rewrite an index of all instances
     Given 10000 instances in the store
     When I start one more
@@ -90,20 +90,20 @@ Feature: Finding and managing workflow instances
     And its status is "Cancelled"
     And the "WorkflowCancelled" event was emitted
 
-  @todo
+  @implemented
   Scenario: Cancellation survives a restart
     Given a running instance that was cancelled
     When a new engine recovers the store
     Then the instance is not resumed
     And its status is "Cancelled"
 
-  @todo
+  @implemented
   Scenario: Cancelling a parent cancels its children
     Given a parent waiting on a running child
     When the parent is cancelled
     Then the child's status becomes "Cancelled"
 
-  @todo
+  @implemented
   Scenario: Finished instances are purged after the retention period
     Given an engine built with "retention(7.days())"
     And a completed instance that finished 8 days ago
@@ -113,13 +113,13 @@ Feature: Finding and managing workflow instances
     Then the 8-day-old instance and its history are removed from the store
     And the other two instances remain
 
-  @todo
+  @implemented
   Scenario: An instance can be purged on demand
     Given a completed instance
     When I call "Engine::purge(id)"
     Then "Engine::status(id)" reports the instance as not found
 
-  @todo
+  @implemented
   Scenario: A running instance cannot be purged
     Given a running instance
     When I call "Engine::purge(id)"

@@ -4,7 +4,7 @@ Feature: Graceful shutdown
   I want to stop a process without corrupting or losing work
   So that deploys and scale-downs are safe
 
-  @todo
+  @implemented
   Scenario: Shutdown waits for in-flight steps
     Given an engine with a Redb store running a task that takes 2 seconds
     When I call "Engine::shutdown()" with a grace period of 10 seconds
@@ -12,20 +12,20 @@ Feature: Graceful shutdown
     And "shutdown" returns after the task completes
     And the instance is left "Running" for the next process to recover
 
-  @todo
+  @implemented
   Scenario: Shutdown stops accepting work
     Given an engine that is shutting down
     When I call "execute"
     Then it fails with an error that says the engine is shutting down
 
-  @todo
+  @implemented
   Scenario: Shutdown does not wait for long sleeps
     Given an instance sleeping for 1 hour
     When I call "Engine::shutdown()"
     Then it returns promptly
     And the instance resumes with the remaining sleep in the next process
 
-  @todo
+  @implemented
   Scenario: Steps still running after the grace period are abandoned safely
     Given a task that takes 1 minute
     When I call "Engine::shutdown()" with a grace period of 1 second
@@ -33,7 +33,7 @@ Feature: Graceful shutdown
     And the step is not recorded as completed
     And the next process runs the task again with the same idempotency key
 
-  @todo
+  @implemented
   Scenario: Dropping the engine flushes the store
     Given an engine with a Redb store
     When a step completes and the engine is dropped immediately

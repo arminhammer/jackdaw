@@ -348,11 +348,24 @@ impl LibWorld {
         let handle = self.handle(index);
         let mut waiting = Box::pin(handle.into_future());
         let started = Instant::now();
+        // Move the clock only once nothing has happened for a few polls: a busy machine must not make the clock jump
+        // past work that is merely slow.
+        let (mut last_calls, mut idle) = (usize::MAX, 0);
         let outcome = loop {
             tokio::select! {
                 result = &mut waiting => break Outcome::of(result),
                 () = tokio::time::sleep(Duration::from_millis(15)) => {
-                    self.clock.advance_next(None);
+                    let calls = self.probe.calls().len();
+                    if calls == last_calls {
+                        idle += 1;
+                    } else {
+                        idle = 0;
+                        last_calls = calls;
+                    }
+                    if idle >= 3 {
+                        self.clock.advance_next(None);
+                        idle = 0;
+                    }
                 }
             }
             assert!(
