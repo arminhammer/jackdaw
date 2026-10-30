@@ -95,7 +95,7 @@ Feature: Handling errors in Rust workflows
     Then the task does not run
     And no divergence is reported
 
-  @todo
+  @implemented
   Scenario: Compensation runs even when the workflow is cancelled
     Given a workflow that registers compensations for each step it completes
     When it is cancelled after two steps

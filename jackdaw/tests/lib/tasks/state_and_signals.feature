@@ -54,7 +54,7 @@ Feature: Workflow state driven by signals
     When I compile it
     Then it fails because "SyncWorkflowContext" has no "call"
 
-  @todo
+  @implemented
   Scenario: An update validates and answers the caller
     Given a "#[update] add_item(&mut self, ctx, sku: String) -> Result<usize, UpdateError>" that rejects unknown skus
     When I send the update with a known sku

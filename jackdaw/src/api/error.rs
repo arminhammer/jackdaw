@@ -188,6 +188,8 @@ pub enum Error {
     Cache(crate::cache::Error),
     /// The engine could not do what was asked (unknown instance, internal failure, ...).
     Engine(String),
+    /// An `#[update]` handler rejected its argument (see [`UpdateError`]).
+    Rejected(String),
 }
 
 impl Error {
@@ -209,6 +211,7 @@ impl fmt::Display for Error {
             Self::Persistence(source) => write!(f, "{source}"),
             Self::Cache(source) => write!(f, "{source}"),
             Self::Engine(message) => write!(f, "{message}"),
+            Self::Rejected(message) => write!(f, "rejected: {message}"),
         }
     }
 }
@@ -223,7 +226,8 @@ impl std::error::Error for Error {
             | Self::Timeout { .. }
             | Self::Invalid(_)
             | Self::NonDeterminism(_)
-            | Self::Engine(_) => None,
+            | Self::Engine(_)
+            | Self::Rejected(_) => None,
         }
     }
 }
@@ -401,9 +405,43 @@ pub enum StepError {
         /// Which timeout, and how long it was.
         detail: String,
     },
-    /// An engine-level error (cancellation, divergence, persistence, ...). Returning it ends the workflow.
+    /// The instance was cancelled while the step was pending (or before it started). Steps marked
+    /// [`shielded`](crate::api::Step::shielded) still run after cancellation, for clean-up.
+    Cancelled,
+    /// An engine-level error (divergence, persistence, ...). Returning it ends the workflow.
     Engine(Error),
 }
+
+/// Why an `#[update]` handler refused its argument. The caller gets it back as [`Error::Rejected`]; the update is not
+/// recorded, so a handler that returns it should leave the workflow's state as it was.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateError {
+    message: String,
+}
+
+impl UpdateError {
+    /// A rejection with this message.
+    #[must_use]
+    pub fn new(message: impl fmt::Display) -> Self {
+        Self {
+            message: message.to_string(),
+        }
+    }
+
+    /// The rejection's message.
+    #[must_use]
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+}
+
+impl fmt::Display for UpdateError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for UpdateError {}
 
 /// The error type of a workflow's `#[run]` method. The same type as [`StepError`], so `?` on a step just works.
 pub type WorkflowError = StepError;
@@ -416,6 +454,7 @@ impl fmt::Display for StepError {
         match self {
             Self::Fault(fault) => write!(f, "{fault}"),
             Self::Timeout { detail } => write!(f, "timed out: {detail}"),
+            Self::Cancelled => write!(f, "the workflow was cancelled"),
             Self::Engine(error) => write!(f, "{error}"),
         }
     }
@@ -429,17 +468,25 @@ impl From<Fault> for StepError {
     }
 }
 
+/// A workflow can fail with the same error a task would: `Err(TaskError::fault(..).status(400).into())`.
+impl From<TaskError> for StepError {
+    fn from(error: TaskError) -> Self {
+        Self::Fault(*error.fault)
+    }
+}
+
 impl From<Error> for StepError {
     fn from(error: Error) -> Self {
         match error {
             Error::Faulted(fault) => Self::Fault(fault),
             Error::Timeout { detail } => Self::Timeout { detail },
-            Error::Cancelled
-            | Error::Invalid(_)
+            Error::Cancelled => Self::Cancelled,
+            Error::Invalid(_)
             | Error::NonDeterminism(_)
             | Error::Persistence(_)
             | Error::Cache(_)
-            | Error::Engine(_) => Self::Engine(error),
+            | Error::Engine(_)
+            | Error::Rejected(_) => Self::Engine(error),
         }
     }
 }
@@ -449,6 +496,7 @@ impl From<StepError> for Error {
         match error {
             StepError::Fault(fault) => Self::Faulted(fault),
             StepError::Timeout { detail } => Self::Timeout { detail },
+            StepError::Cancelled => Self::Cancelled,
             StepError::Engine(error) => error,
         }
     }

@@ -29,7 +29,7 @@ Feature: Sleeping and timeouts in Rust workflows
 
   @implemented
   Scenario: A timeout applies to a child workflow
-    Given a workflow that does "ctx.run(Slow::run, &input).timeout(5.mins()).await"
+    Given a workflow that does "ctx.run(Slow::run, &input).timeout(5.minutes()).await"
     And "Slow" takes 10 minutes
     When I execute it
     Then the step times out after 5 minutes
@@ -40,19 +40,19 @@ Feature: Sleeping and timeouts in Rust workflows
     When I execute it
     Then it completes in under a second of wall-clock time
 
-  @todo @crash
+  @implemented @crash
   Scenario: A sleep resumes with only the remaining time
     Given a workflow sleeping 1 hour that has slept 40 minutes
     When the engine is dropped and a new engine resumes the instance
     Then the workflow wakes 20 minutes later
 
-  @todo @crash
+  @implemented @crash
   Scenario: A step timeout keeps its deadline across a crash
     Given a step with ".timeout(1.hours())" that has been waiting 50 minutes
     When the engine is dropped and a new engine resumes the instance
     Then the step times out 10 minutes later
 
-  @todo
+  @implemented
   Scenario: A whole workflow can have a deadline
     Given a workflow executed with an execution timeout of 1 day
     When it is still running after 1 day

@@ -26,7 +26,7 @@ Feature: Incident response
                   ctx.call(Page, &(owner.escalation[level].clone(), alert.clone())).await?;
                   jackdaw::select! {
                       _ = ctx.wait_condition(|s| s.acked_by.is_some()) => {},
-                      _ = ctx.sleep(15.mins()) => { level = (level + 1).min(owner.escalation.len() - 1); },
+                      _ = ctx.sleep(15.minutes()) => { level = (level + 1).min(owner.escalation.len() - 1); },
                   }
               }
 

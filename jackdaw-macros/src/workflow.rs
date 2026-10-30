@@ -1,6 +1,6 @@
 //! `#[workflow]` on a struct and `#[workflow_methods]` on its `impl`.
 //!
-//! The struct is the workflow's state. In the impl, `#[run]`, `#[signal]` and `#[query]` methods are renamed to hidden
+//! The struct is the workflow's state. In the impl, `#[run]`, `#[signal]`, `#[update]` and `#[query]` methods are renamed to hidden
 //! methods and replaced by typed associated consts of the same name, so `OrderWorkflow::run`, `OrderWorkflow::approve`
 //! and `OrderWorkflow::status` are the markers used at call sites (a struct with fields cannot be a value itself).
 use crate::args::Args;
@@ -82,6 +82,14 @@ struct Signal {
     arg: Type,
 }
 
+struct Update {
+    original: Ident,
+    hidden: Ident,
+    vis: syn::Visibility,
+    arg: Type,
+    output: Type,
+}
+
 struct Query {
     original: Ident,
     hidden: Ident,
@@ -117,6 +125,7 @@ pub fn expand_methods(attr: TokenStream, item: TokenStream) -> syn::Result<Token
     let mut init: Option<Ident> = None;
     let mut signals: Vec<Signal> = Vec::new();
     let mut queries: Vec<Query> = Vec::new();
+    let mut updates: Vec<Update> = Vec::new();
     let mut scan_state = Scan::default();
     let mut errors: Vec<syn::Error> = Vec::new();
 
@@ -199,6 +208,38 @@ pub fn expand_methods(attr: TokenStream, item: TokenStream) -> syn::Result<Token
             method.vis = syn::Visibility::Inherited;
             method.attrs.push(syn::parse_quote!(#[doc(hidden)]));
             rewritten.push(ImplItem::Fn(method));
+        } else if take_attr(&mut method.attrs, "update").is_some() {
+            let params = typed_params(&method.sig);
+            let [_, arg] = params.as_slice() else {
+                errors.push(syn::Error::new_spanned(
+                    &method.sig.inputs,
+                    "`#[update]` takes `(&mut self, ctx: &mut SyncWorkflowContext<Self>, arg: Arg)`",
+                ));
+                continue;
+            };
+            let arg_ty = (*arg.ty).clone();
+            let output = match ok_type(&method.sig.output, &["Result"]) {
+                Ok(output) => output,
+                Err(_) => {
+                    errors.push(syn::Error::new_spanned(
+                        &method.sig.output,
+                        "`#[update]` returns `Result<R, UpdateError>`",
+                    ));
+                    continue;
+                }
+            };
+            let hidden_ident = hidden("update", &method.sig.ident);
+            updates.push(Update {
+                original: method.sig.ident.clone(),
+                hidden: hidden_ident.clone(),
+                vis: method.vis.clone(),
+                arg: arg_ty,
+                output,
+            });
+            method.sig.ident = hidden_ident;
+            method.vis = syn::Visibility::Inherited;
+            method.attrs.push(syn::parse_quote!(#[doc(hidden)]));
+            rewritten.push(ImplItem::Fn(method));
         } else if take_attr(&mut method.attrs, "query").is_some() {
             let ReturnType::Type(_, output) = &method.sig.output else {
                 errors.push(syn::Error::new_spanned(
@@ -254,6 +295,26 @@ pub fn expand_methods(attr: TokenStream, item: TokenStream) -> syn::Result<Token
             #vis const #name: ::jackdaw::api::SignalRef<#self_ty, #arg> = ::jackdaw::api::SignalRef::new(#label);
         }
     });
+    let update_consts = updates.iter().map(|update| {
+        let (name, vis, arg, output) = (&update.original, &update.vis, &update.arg, &update.output);
+        let label = name.to_string();
+        quote! {
+            #[allow(non_upper_case_globals)]
+            #vis const #name: ::jackdaw::api::UpdateRef<#self_ty, #arg, #output> = ::jackdaw::api::UpdateRef::new(#label);
+        }
+    });
+    let update_handlers = updates.iter().map(|update| {
+        let (name, hidden, arg, output) = (&update.original, &update.hidden, &update.arg, &update.output);
+        let label = name.to_string();
+        quote! {
+            ::jackdaw::api::UpdateHandler::new::<#arg, #output, _>(
+                #label,
+                |state: &mut #self_ty, ctx: &mut ::jackdaw::api::SyncWorkflowContext<#self_ty>, arg: #arg| {
+                    state.#hidden(ctx, arg)
+                },
+            )
+        }
+    });
     let query_consts = queries.iter().map(|query| {
         let (name, vis, output) = (&query.original, &query.vis, &query.output);
         let label = name.to_string();
@@ -299,6 +360,7 @@ pub fn expand_methods(attr: TokenStream, item: TokenStream) -> syn::Result<Token
         impl #self_ty {
             #run_const
             #(#signal_consts)*
+            #(#update_consts)*
             #(#query_consts)*
         }
 
@@ -323,6 +385,10 @@ pub fn expand_methods(attr: TokenStream, item: TokenStream) -> syn::Result<Token
 
             fn queries() -> ::std::vec::Vec<::jackdaw::api::QueryHandler<Self>> {
                 ::std::vec![ #(#query_handlers),* ]
+            }
+
+            fn updates() -> ::std::vec::Vec<::jackdaw::api::UpdateHandler<Self>> {
+                ::std::vec![ #(#update_handlers),* ]
             }
 
             fn dependencies() -> ::std::vec::Vec<::jackdaw::api::Dependency> {

@@ -41,10 +41,10 @@ Feature: Child workflows
     Then "Order" completes through the "Refund" path
 
   @implemented
-  Scenario: A missing child is caught when the engine is built
-    Given "Order" runs "Payment" but "Payment" is not registered
+  Scenario: A child workflow is registered with its parent
+    Given "Order" runs "Payment" and only "Order" is registered
     When I build the engine
-    Then "build" fails with "Error::Invalid" naming "Payment"
+    Then the engine builds and runs "Payment" as a child of "Order"
 
   @implemented
   Scenario: A child can be a YAML or catalog workflow
@@ -52,13 +52,13 @@ Feature: Child workflows
     When I execute "Order"
     Then the YAML workflow runs as a child and its output is typed
 
-  @todo
+  @implemented
   Scenario: Child instance ids are deterministic
     Given a completed "Order" instance
     When I replay it
     Then the replay refers to the same child instance ids
 
-  @todo @crash
+  @implemented @crash
   Scenario: A crash during a child resumes both
     Given "Order" is waiting on a running "Payment" whose first step completed
     When the engine is dropped and a new engine recovers
@@ -66,13 +66,13 @@ Feature: Child workflows
     And "Order" receives its output
     And no second "Payment" instance is started
 
-  @todo
+  @implemented
   Scenario: Cancelling the parent cancels its children
     Given "Order" is waiting on a running "Shipping"
     When "Order" is cancelled
     Then "Shipping" ends "Cancelled"
 
-  @todo
+  @implemented
   Scenario: A child can be started without waiting for it
     Given "Order" starts "Shipping" with "ctx.start(Shipping::run, &s)" and finishes
     Then "Order" completes before "Shipping"

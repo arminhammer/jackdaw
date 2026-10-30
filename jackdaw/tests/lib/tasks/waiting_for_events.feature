@@ -31,7 +31,7 @@ Feature: Waiting for external events in Rust workflows
     When "paid" is sent before "shipped"
     Then the workflow receives both in its own order
 
-  @todo
+  @implemented
   Scenario: A payload of the wrong shape fails the step clearly
     Given a workflow that waits for "paid" as "Paid { cents: u64 }"
     When "paid" is sent with '{ "cents": "lots" }'
@@ -43,14 +43,14 @@ Feature: Waiting for external events in Rust workflows
     When I replay it
     Then the replay receives the same payload without the event being sent
 
-  @todo @crash
+  @implemented @crash
   Scenario: An event sent before a crash is not lost
     Given a workflow that sleeps 1 hour and then waits for "paid"
     When "paid" is sent and the engine is dropped during the sleep
     And a new engine resumes the instance
     Then the workflow receives "paid" without it being sent again
 
-  @todo
+  @implemented
   Scenario: Events can be sent to an instance by id
     Given a running instance "order-42" waiting for "paid"
     When another part of the program calls "Engine::handle::<W>(\"order-42\")?.send_event(\"paid\", ..)"

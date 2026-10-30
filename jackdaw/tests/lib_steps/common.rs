@@ -32,6 +32,10 @@ fn workflow_whose_run_does(world: &mut LibWorld, step: &Step) {
 
 #[when("I execute it")]
 async fn execute_it(world: &mut LibWorld) {
+    if world.notes.contains_key("test-engine") {
+        super::timers::run_test_engine(world);
+        return;
+    }
     let input = world.input.clone().unwrap_or_else(|| world.fixture().input);
     world.start("it", input).await;
 }
@@ -131,6 +135,7 @@ fn run_body_uses(world: &mut LibWorld, code: String) {
 
 #[when("I compile it")]
 fn compile_it(world: &mut LibWorld) {
+    // A given step may have chosen the case by name already.
     let case = world.notes["ui"].as_str().expect("a case").to_string();
     let path = format!("{}/tests/rust/ui/{case}.stderr", env!("CARGO_MANIFEST_DIR"));
     let stderr = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
@@ -141,4 +146,40 @@ fn compile_it(world: &mut LibWorld) {
 fn error_suggests(world: &mut LibWorld, advice: String) {
     let stderr = world.notes["stderr"].as_str().expect("compiled");
     assert!(stderr.contains(&advice), "{stderr}");
+}
+
+#[then(regex = r#"^"(\w+)" ran (once|twice)( in total)?$"#)]
+async fn ran_once_twice(world: &mut LibWorld, task: String, times: String) {
+    world.settle().await;
+    let expected = if times == "once" { 1 } else { 2 };
+    assert_eq!(world.probe.count(&task), expected, "invocations of {task}");
+}
+
+#[then(regex = r#"^the workflow fails with "(\w+)"'s fault$"#)]
+async fn fails_with_task_fault(world: &mut LibWorld, task: String) {
+    let last = world.last();
+    let fault = world.outcome(last).await.fault().clone();
+    let scripted = world
+        .probe
+        .scripted_fault(&task)
+        .expect("the task was scripted to fail");
+    assert_eq!(fault.detail, scripted.detail);
+    assert_eq!(fault.status, scripted.status);
+}
+
+#[then(regex = r#"^"Engine::status" is "(\w+)"$"#)]
+async fn engine_status_is(world: &mut LibWorld, status: String) {
+    let last = world.last();
+    world.outcome(last).await;
+    let id = world.runs[last].id.clone();
+    let actual = world.engine().status(&id).await.expect("status");
+    assert_eq!(format!("{actual:?}"), status);
+}
+
+#[when("the engine is dropped and a new engine resumes the instance")]
+async fn drop_and_resume(world: &mut LibWorld) {
+    world.crash().await;
+    world.probe.release_all();
+    let last = world.last();
+    world.resume(last).await;
 }

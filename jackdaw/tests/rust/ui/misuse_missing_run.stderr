@@ -1,0 +1,5 @@
+error: a workflow needs a `#[run]` method
+ --> tests/rust/ui/misuse_missing_run.rs:8:6
+  |
+8 | impl W {
+  |      ^

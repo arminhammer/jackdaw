@@ -1,0 +1,5 @@
+error: `#[task(blocking)]` is for synchronous functions; remove `async` or `blocking`
+ --> tests/rust/ui/misuse_blocking_async.rs:5:1
+  |
+5 | async fn grind(n: u64) -> Result<u64, TaskError> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

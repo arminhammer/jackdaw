@@ -33,10 +33,20 @@ pub struct WorkflowContext<W> {
     state: Arc<Mutex<W>>,
 }
 
-fn invalid_output(error: &serde_json::Error) -> StepError {
+fn invalid_output(step: &str, error: &serde_json::Error) -> StepError {
     StepError::Fault(Fault::validation(format!(
-        "a step's output does not match its type: {error}"
+        "the output of {step} does not match its type: {error}"
     )))
+}
+
+/// How a step is named in errors: "task `charge`", "event `paid`", ...
+fn describe(kind: &str, name: &str) -> String {
+    let noun = match kind {
+        "call" => "task",
+        "run" => "child workflow",
+        other => other,
+    };
+    format!("{noun} `{name}`")
 }
 
 impl<W: Send + 'static> WorkflowContext<W> {
@@ -94,6 +104,29 @@ impl<W: Send + 'static> WorkflowContext<W> {
                 let spec = self
                     .core
                     .spec("run", name, value, location, StepExec::Child(target));
+                Step::new(Arc::clone(&self.core), spec)
+            }
+            Err(error) => Step::failed(Arc::clone(&self.core), invalid_input(&error)),
+        }
+    }
+
+    /// Starts another workflow and returns its instance id without waiting for it to finish. The started workflow is
+    /// independent: it keeps running after this one ends, and [`Engine::handle`](crate::api::Engine::handle) finds it
+    /// by the returned id. Starting is a recorded step, so a replay does not start it again.
+    #[track_caller]
+    pub fn start<R: Runnable>(&self, workflow: R, input: impl Borrow<R::In>) -> Step<String> {
+        let location = Location::caller();
+        match serde_json::to_value(input.borrow()) {
+            Ok(value) => {
+                let target = workflow.target();
+                let name = match &target {
+                    RunTarget::Native(info) => info.id.name.clone(),
+                    RunTarget::Definition(definition) => definition.document.name.clone(),
+                    RunTarget::Catalog { name, .. } => (*name).to_string(),
+                };
+                let spec = self
+                    .core
+                    .spec("start", name, value, location, StepExec::Start(target));
                 Step::new(Arc::clone(&self.core), spec)
             }
             Err(error) => Step::failed(Arc::clone(&self.core), invalid_input(&error)),
@@ -251,6 +284,8 @@ pub struct Step<Out> {
     options: TaskOptions,
     failed: Option<StepError>,
     running: Option<BoxFuture<'static, Result<Value, StepError>>>,
+    label: String,
+    shielded: bool,
     _out: PhantomData<fn() -> Out>,
 }
 
@@ -258,6 +293,8 @@ impl<Out> Step<Out> {
     fn new(core: Arc<InstanceCore>, spec: StepSpec) -> Self {
         Self {
             core,
+            label: describe(spec.kind, &spec.name),
+            shielded: false,
             spec: Some(spec),
             options: TaskOptions::new(),
             failed: None,
@@ -273,6 +310,8 @@ impl<Out> Step<Out> {
             options: TaskOptions::new(),
             failed: Some(error),
             running: None,
+            label: String::new(),
+            shielded: false,
             _out: PhantomData,
         }
     }
@@ -288,6 +327,14 @@ impl<Out> Step<Out> {
     #[must_use]
     pub fn timeout(mut self, limit: Duration) -> Self {
         self.options = self.options.timeout(limit);
+        self
+    }
+
+    /// Runs the step even if the instance is cancelled, for clean-up such as releasing a reservation. Other steps
+    /// fail with [`StepError::Cancelled`] once the instance is cancelled.
+    #[must_use]
+    pub fn shielded(mut self) -> Self {
+        self.shielded = true;
         self
     }
 }
@@ -310,13 +357,15 @@ impl<Out: DeserializeOwned> Future for Step<Out> {
                 *options = this.options.clone();
             }
             spec.timeout = this.options.timeout;
+            spec.shielded = this.shielded;
             let core = Arc::clone(&this.core);
             this.running = Some(Box::pin(async move { core.run_step(spec).await }));
         }
         match this.running.as_mut() {
             Some(running) => running.as_mut().poll(cx).map(|result| {
-                result
-                    .and_then(|value| serde_json::from_value(value).map_err(|e| invalid_output(&e)))
+                result.and_then(|value| {
+                    serde_json::from_value(value).map_err(|e| invalid_output(&this.label, &e))
+                })
             }),
             None => Poll::Pending,
         }
@@ -391,7 +440,10 @@ impl<Out: DeserializeOwned> Future for ForEach<Out> {
                 result.and_then(|values| {
                     values
                         .into_iter()
-                        .map(|value| serde_json::from_value(value).map_err(|e| invalid_output(&e)))
+                        .map(|value| {
+                            serde_json::from_value(value)
+                                .map_err(|e| invalid_output("a for_each item", &e))
+                        })
                         .collect()
                 })
             }),

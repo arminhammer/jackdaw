@@ -232,6 +232,7 @@ pub struct TaskContext {
     task_name: String,
     attempt: u32,
     idempotency_key: String,
+    cancel: Option<tokio::sync::watch::Receiver<bool>>,
 }
 
 impl TaskContext {
@@ -246,6 +247,31 @@ impl TaskContext {
             task_name: task_name.to_string(),
             attempt,
             idempotency_key,
+            cancel: None,
+        }
+    }
+
+    pub(crate) fn with_cancel(mut self, cancel: tokio::sync::watch::Receiver<bool>) -> Self {
+        self.cancel = Some(cancel);
+        self
+    }
+
+    /// Whether the workflow instance running this task has been cancelled.
+    #[must_use]
+    pub fn is_cancelled(&self) -> bool {
+        self.cancel.as_ref().is_some_and(|cancel| *cancel.borrow())
+    }
+
+    /// Resolves when the workflow instance running this task is cancelled. A long-running task can race its work
+    /// against it to stop early; it never resolves for a task run outside a workflow.
+    pub async fn cancelled(&self) {
+        let Some(mut cancel) = self.cancel.clone() else {
+            return std::future::pending().await;
+        };
+        while !*cancel.borrow_and_update() {
+            if cancel.changed().await.is_err() {
+                return std::future::pending().await;
+            }
         }
     }
 

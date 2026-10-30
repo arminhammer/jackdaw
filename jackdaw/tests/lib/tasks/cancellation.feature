@@ -21,20 +21,20 @@ Feature: Cancelling a running workflow
       | ctx.wait_for_event("paid")            |
       | ctx.wait_condition on the state       |
 
-  @todo
+  @implemented
   Scenario: The workflow can observe cancellation and clean up
     Given a workflow that matches "Err(StepError::Cancelled)" on its current step and calls "ReleaseStock" in a non-cancellable scope
     When it is cancelled
     Then "release_stock" runs to completion
     And the instance ends "Cancelled"
 
-  @todo
+  @implemented
   Scenario: A running task sees its cancellation
     Given a task that loops until "TaskContext::cancelled()" resolves
     When its instance is cancelled
     Then the task stops within 1 second
 
-  @todo @crash
+  @implemented @crash
   Scenario: A cancelled instance stays cancelled after a restart
     Given a cancelled instance
     When a new engine recovers the store

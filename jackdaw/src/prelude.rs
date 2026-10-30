@@ -3,8 +3,8 @@
 pub use crate::api::{
     CatalogDef, Condition, Divergence, DurationExt, Either, Engine, EngineBuilder, Error, Event,
     EventStream, ExecutionHandle, Fault, Redb, Retry, Status, StepError, SyncWorkflowContext,
-    TaskContext, TaskDef, TaskError, TaskOptions, Workflow, WorkflowContext, WorkflowContextView,
-    WorkflowDef, WorkflowError, WorkflowResult, error_types, race,
+    TaskContext, TaskDef, TaskError, TaskOptions, UpdateError, Workflow, WorkflowContext,
+    WorkflowContextView, WorkflowDef, WorkflowError, WorkflowResult, error_types, race,
 };
 pub use jackdaw_macros::{catalog, task, tasks, workflow, workflow_methods};
 pub use schemars::JsonSchema;

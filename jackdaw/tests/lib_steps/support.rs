@@ -355,7 +355,11 @@ impl Probe {
 
     /// Sets the output a task returns when no script says otherwise.
     pub fn default_output(&self, name: &str, f: impl Fn(&Value) -> Value + Send + Sync + 'static) {
-        lock(&self.defaults).insert(task_key(name), Arc::new(f));
+        let previous = lock(&self.defaults).insert(task_key(name), Arc::new(f));
+        assert!(
+            previous.is_none(),
+            "two harnesses set a default output for probe task `{name}`"
+        );
     }
 
     fn gate(&self, name: &str) -> watch::Receiver<bool> {
@@ -363,6 +367,27 @@ impl Probe {
             .entry(task_key(name))
             .or_insert_with(|| watch::channel(false).0)
             .subscribe()
+    }
+
+    /// The fault task `name` is scripted to fail with.
+    pub fn scripted_fault(&self, name: &str) -> Option<FaultSpec> {
+        let scripts = lock(&self.scripts);
+        let script = scripts.get(&task_key(name))?;
+        script
+            .fault
+            .clone()
+            .or_else(|| script.fail_on.first().map(|(_, fault, _)| fault.clone()))
+    }
+
+    /// Opens every gate: blocked tasks finish.
+    pub fn release_all(&self) {
+        for gate in lock(&self.gates).values() {
+            gate.send_replace(true);
+        }
+        for script in lock(&self.scripts).values_mut() {
+            script.block = false;
+            script.block_on = None;
+        }
     }
 
     /// Lets blocked invocations of `name` finish (and later ones pass straight through).

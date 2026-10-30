@@ -378,9 +378,19 @@ pub(crate) struct StepRecord {
 pub(crate) struct SignalRecord {
     pub name: String,
     pub argument: Value,
+    /// Set when this was an accepted `#[update]`: its id (for idempotency) and the result the caller got.
+    #[serde(default)]
+    pub update: Option<UpdateRecord>,
     /// 0 for journals written before signals were ordered: those are applied before `#[run]` starts.
     #[serde(default)]
     pub order: u64,
+}
+
+/// The part of a [`SignalRecord`] that only an update has.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct UpdateRecord {
+    pub id: Option<String>,
+    pub result: Value,
 }
 
 /// How an instance ended, when it did not complete.
@@ -402,7 +412,8 @@ impl Failure {
             | Error::NonDeterminism(_)
             | Error::Persistence(_)
             | Error::Cache(_)
-            | Error::Engine(_)) => Self::Engine(other.to_string()),
+            | Error::Engine(_)
+            | Error::Rejected(_)) => Self::Engine(other.to_string()),
         }
     }
 
@@ -526,6 +537,7 @@ pub(crate) fn duplicate(result: &Result<Value, Error>) -> Result<Value, Error> {
                 detail: detail.clone(),
             },
             Error::Invalid(message) => Error::Invalid(message.clone()),
+            Error::Rejected(message) => Error::Rejected(message.clone()),
             Error::NonDeterminism(divergence) => Error::NonDeterminism(divergence.clone()),
             other @ (Error::Persistence(_) | Error::Cache(_) | Error::Engine(_)) => {
                 Error::Engine(other.to_string())
@@ -951,8 +963,13 @@ pub(crate) struct ReplayOnly {
     pub allow_frontier: bool,
 }
 
+type UpdateDispatch = Box<
+    dyn Fn(&str, Value) -> Result<Result<Value, super::error::UpdateError>, Error> + Send + Sync,
+>;
+
 pub(crate) struct Dispatch {
     pub signal: Box<dyn Fn(&str, Value) -> Result<(), Error> + Send + Sync>,
+    pub update: UpdateDispatch,
     pub query: Box<dyn Fn(&str) -> Result<Value, Error> + Send + Sync>,
 }
 
@@ -995,6 +1012,8 @@ pub(crate) struct StepSpec {
     pub exec: StepExec,
     /// Fails the step with a timeout when it runs longer than this. The deadline is durable.
     pub timeout: Option<Duration>,
+    /// Runs even after the instance is cancelled (for clean-up).
+    pub shielded: bool,
 }
 
 pub(crate) enum StepExec {
@@ -1003,6 +1022,8 @@ pub(crate) enum StepExec {
         options: TaskOptions,
     },
     Child(RunTarget),
+    /// Starts a workflow and returns its instance id without waiting for it.
+    Start(RunTarget),
     Sleep(Duration),
     Event,
 }
@@ -1141,6 +1162,7 @@ impl InstanceCore {
             location,
             exec,
             timeout: None,
+            shielded: false,
         }
     }
 
@@ -1249,10 +1271,15 @@ impl InstanceCore {
     // ---- signals in replay ----
 
     fn apply_signal(&self, signal: &SignalRecord) {
-        if let Some(dispatch) = self.dispatch.get()
-            && let Err(error) = (dispatch.signal)(&signal.name, signal.argument.clone())
-        {
-            tracing::warn!(%error, signal = %signal.name, "a recorded signal could not be re-applied");
+        if let Some(dispatch) = self.dispatch.get() {
+            let applied = if signal.update.is_some() {
+                (dispatch.update)(&signal.name, signal.argument.clone()).map(|_| ())
+            } else {
+                (dispatch.signal)(&signal.name, signal.argument.clone())
+            };
+            if let Err(error) = applied {
+                tracing::warn!(%error, signal = %signal.name, "a recorded signal could not be re-applied");
+            }
         }
         self.state_changed.notify_waiters();
     }
@@ -1373,6 +1400,7 @@ impl InstanceCore {
             SignalRecord {
                 name: name.to_string(),
                 argument: argument.clone(),
+                update: None,
                 order: journal.next_order(),
             }
         };
@@ -1385,6 +1413,55 @@ impl InstanceCore {
         lock(&self.journal).signals.push(record);
         self.state_changed.notify_waiters();
         self.persist().await
+    }
+
+    /// Runs an `#[update]` handler and records it if it accepts. With an `id`, an update that was already accepted
+    /// returns its recorded result instead of running again.
+    pub(crate) async fn deliver_update(
+        &self,
+        name: &str,
+        argument: Value,
+        id: Option<String>,
+    ) -> Result<Value, Error> {
+        if self.status() != JournalStatus::Running || self.has_ended() {
+            return Err(self.not_running());
+        }
+        if let Some(id) = &id
+            && let Some(result) = lock(&self.journal).signals.iter().find_map(|signal| {
+                signal
+                    .update
+                    .as_ref()
+                    .filter(|update| update.id.as_deref() == Some(id.as_str()))
+                    .map(|update| update.result.clone())
+            })
+        {
+            return Ok(result);
+        }
+        let dispatch = self.dispatch().await?;
+        // An update answers the caller, so it is applied on top of the whole history.
+        while !lock(&self.pending_signals).is_empty() {
+            tokio::task::yield_now().await;
+        }
+        let result = match (dispatch.update)(name, argument.clone())? {
+            Ok(result) => result,
+            Err(rejection) => return Err(Error::Rejected(rejection.to_string())),
+        };
+        {
+            let mut journal = lock(&self.journal);
+            let order = journal.next_order();
+            journal.signals.push(SignalRecord {
+                name: name.to_string(),
+                argument,
+                update: Some(UpdateRecord {
+                    id,
+                    result: result.clone(),
+                }),
+                order,
+            });
+        }
+        self.state_changed.notify_waiters();
+        self.persist().await?;
+        Ok(result)
     }
 
     pub(crate) async fn query(&self, name: &str) -> Result<Value, Error> {
@@ -1407,6 +1484,10 @@ impl InstanceCore {
 
     pub(crate) fn request_cancel(&self) {
         self.cancel.send_replace(true);
+    }
+
+    pub(crate) fn cancel_requested(&self) -> bool {
+        *self.cancel.borrow()
     }
 
     // ---- running steps ----
@@ -1482,21 +1563,60 @@ impl InstanceCore {
             .await?;
         }
         let key = self.step_key(&spec);
-        let outcome = match spec.timeout {
+        if !spec.shielded && self.cancel_requested() {
+            return Err(StepError::Cancelled);
+        }
+        let live = self.run_live(&spec, &key);
+        let outcome = if spec.shielded {
+            live.await?
+        } else {
+            tokio::select! {
+                outcome = live => outcome?,
+                () = cancelled(self.cancel.subscribe()) => {
+                    if matches!(spec.exec, StepExec::Child(_))
+                        && let Ok(shared) = self.shared()
+                    {
+                        shared.cancel(&format!("{}/{}", self.id, spec.seq));
+                    }
+                    return Err(StepError::Cancelled);
+                }
+            }
+        };
+        self.record(&spec, &key, hash, &outcome);
+        self.persist().await?;
+        self.emit_step_events(&spec, &outcome, false).await?;
+        outcome.into_result()
+    }
+
+    /// Runs a step that has no record, applying its timeout.
+    async fn run_live(self: &Arc<Self>, spec: &StepSpec, key: &str) -> Result<Outcome, Error> {
+        Ok(match spec.timeout {
             Some(limit) => {
                 let deadline = self.deadline(format!("timeout:{key}"), limit).await?;
                 let clock = Arc::clone(&self.clock);
                 tokio::select! {
-                    outcome = self.execute_live(&spec, &key) => outcome?,
-                    () = clock.sleep_until(deadline) => Outcome::Timeout(format!(
-                        "{} `{}` exceeded its timeout of {limit:?}",
-                        step_noun(spec.kind),
-                        spec.name
-                    )),
+                    outcome = self.execute_live(spec, key) => outcome?,
+                    () = clock.sleep_until(deadline) => {
+                        if matches!(spec.exec, StepExec::Child(_))
+                            && let Ok(shared) = self.shared()
+                        {
+                            // A child that ran out of time is stopped, not left running unobserved.
+                            shared.cancel(&format!("{}/{}", self.id, spec.seq));
+                        }
+                        Outcome::Timeout(format!(
+                            "{} `{}` exceeded its timeout of {limit:?}",
+                            step_noun(spec.kind),
+                            spec.name
+                        ))
+                    }
                 }
             }
-            None => self.execute_live(&spec, &key).await?,
-        };
+            None => self.execute_live(spec, key).await?,
+        })
+    }
+
+    /// Writes a live step's outcome into the journal (in memory; the caller persists).
+    fn record(&self, spec: &StepSpec, key: &str, hash: String, outcome: &Outcome) {
         {
             let mut journal = lock(&self.journal);
             journal.deadlines.remove(&format!("timeout:{key}"));
@@ -1528,9 +1648,6 @@ impl InstanceCore {
                 },
             );
         }
-        self.persist().await?;
-        self.emit_step_events(&spec, &outcome, false).await?;
-        outcome.into_result()
     }
 
     /// The durable deadline stored under `key`, recording `now + duration` the first time.
@@ -1649,6 +1766,37 @@ impl InstanceCore {
                 };
                 Ok(into_outcome(result))
             }
+            StepExec::Start(target) => {
+                let shared = self.shared()?;
+                let id = format!("{}/{}", self.id, spec.seq);
+                match target {
+                    RunTarget::Native(info) => {
+                        let entry = shared.find_workflow(&info.id)?;
+                        // A started workflow is on its own: no parent, so it is recovered and listed by itself.
+                        let journal = match shared.load_journal(&id).await? {
+                            Some(journal) => journal,
+                            None => Journal::new(info.id.clone(), spec.input.clone()),
+                        };
+                        shared
+                            .launch(id.clone(), entry, spec.input.clone(), journal)
+                            .await?;
+                        Ok(Outcome::Ok(Value::String(id)))
+                    }
+                    RunTarget::Definition(definition) => {
+                        let launched = shared
+                            .launch_definition(definition, spec.input.clone())
+                            .await?;
+                        Ok(Outcome::Ok(Value::String(launched.core.id.clone())))
+                    }
+                    RunTarget::Catalog { name, version } => {
+                        let definition = shared.catalogs.load(name, version).await?;
+                        let launched = shared
+                            .launch_definition(&definition, spec.input.clone())
+                            .await?;
+                        Ok(Outcome::Ok(Value::String(launched.core.id.clone())))
+                    }
+                }
+            }
             StepExec::Sleep(duration) => {
                 let deadline = self.deadline(format!("sleep:{key}"), *duration).await?;
                 self.clock.sleep_until(deadline).await;
@@ -1702,7 +1850,8 @@ impl InstanceCore {
         let mut attempt = 1;
         loop {
             let context =
-                TaskContext::new(&self.id, name, attempt, format!("{}/{}", self.id, spec.seq));
+                TaskContext::new(&self.id, name, attempt, format!("{}/{}", self.id, spec.seq))
+                    .with_cancel(self.cancel.subscribe());
             match task.invoke(context, spec.input.clone()).await {
                 Ok(value) => {
                     if task.cached {
@@ -1772,9 +1921,16 @@ fn into_outcome(result: Result<Value, Error>) -> Outcome {
 // Driving a workflow
 // ---------------------------------------------------------------------------------------------------------------
 
+/// How long a cancelled workflow may take to finish its clean-up before it is stopped.
+const CANCEL_GRACE: Duration = Duration::from_secs(60);
+
+/// The journal key of a workflow's own deadline (see `ExecuteOptions::timeout`).
+pub(crate) const WORKFLOW_DEADLINE: &str = "workflow";
+
 enum Ended<T> {
     Finished(T),
     Cancelled,
+    TimedOut,
     Frontier,
 }
 
@@ -1802,8 +1958,13 @@ pub(crate) async fn drive<W: WorkflowDef>(
         .into_iter()
         .map(|handler| (handler.name, handler))
         .collect();
-    let (signal_state, query_state) = (Arc::clone(&state), Arc::clone(&state));
-    let (signal_id, query_id) = (core.id.clone(), core.id.clone());
+    let updates: HashMap<&'static str, _> = W::updates()
+        .into_iter()
+        .map(|handler| (handler.name, handler))
+        .collect();
+    let (signal_state, query_state, update_state) =
+        (Arc::clone(&state), Arc::clone(&state), Arc::clone(&state));
+    let (signal_id, query_id, update_id) = (core.id.clone(), core.id.clone(), core.id.clone());
     let dispatch = Dispatch {
         signal: Box::new(move |name, argument| {
             let handler = signals
@@ -1811,6 +1972,14 @@ pub(crate) async fn drive<W: WorkflowDef>(
                 .ok_or_else(|| Error::invalid(format!("workflow has no signal named `{name}`")))?;
             let mut state = lock(&signal_state);
             let mut context = SyncWorkflowContext::<W>::new(&signal_id);
+            (handler.apply)(&mut state, &mut context, argument).map_err(Error::invalid)
+        }),
+        update: Box::new(move |name, argument| {
+            let handler = updates
+                .get(name)
+                .ok_or_else(|| Error::invalid(format!("workflow has no update named `{name}`")))?;
+            let mut state = lock(&update_state);
+            let mut context = SyncWorkflowContext::<W>::new(&update_id);
             (handler.apply)(&mut state, &mut context, argument).map_err(Error::invalid)
         }),
         query: Box::new(move |name| {
@@ -1832,10 +2001,8 @@ pub(crate) async fn drive<W: WorkflowDef>(
         .filter(|signal| signal.order == 0)
         .cloned()
         .collect();
-    if let Some(dispatch) = core.dispatch.get() {
-        for signal in unordered {
-            (dispatch.signal)(&signal.name, signal.argument)?;
-        }
+    for signal in unordered {
+        core.apply_signal(&signal);
     }
 
     let typed: W::In = serde_json::from_value(input).map_err(|e| {
@@ -1865,9 +2032,28 @@ pub(crate) async fn drive<W: WorkflowDef>(
         .replay_only
         .as_ref()
         .is_some_and(|replay| replay.allow_frontier);
+    let run = W::run(&mut context, typed);
+    tokio::pin!(run);
+    let deadline = lock(&core.journal)
+        .deadlines
+        .get(WORKFLOW_DEADLINE)
+        .copied();
+    let timed_out = async {
+        match deadline {
+            Some(deadline) if core.replay_only.is_none() => core.clock.sleep_until(deadline).await,
+            Some(_) | None => std::future::pending().await,
+        }
+    };
     let ended = tokio::select! {
-        result = W::run(&mut context, typed) => Ended::Finished(result),
-        () = cancelled(core.cancel.subscribe()) => Ended::Cancelled,
+        result = &mut run => Ended::Finished(result),
+        () = timed_out => Ended::TimedOut,
+        () = cancelled(core.cancel.subscribe()) => {
+            // Pending steps now fail with `StepError::Cancelled`; give the workflow the chance to clean up.
+            match tokio::time::timeout(CANCEL_GRACE, &mut run).await {
+                Ok(result) => Ended::Finished(result),
+                Err(_) => Ended::Cancelled,
+            }
+        }
         () = core.frontier.notified(), if frontier_possible => Ended::Frontier,
     };
 
@@ -1879,6 +2065,9 @@ pub(crate) async fn drive<W: WorkflowDef>(
         }),
         Ended::Finished(Err(error)) => Err(Error::from(error)),
         Ended::Cancelled => Err(Error::Cancelled),
+        Ended::TimedOut => Err(Error::Timeout {
+            detail: format!("workflow {} ran past its execution timeout", core.workflow),
+        }),
         Ended::Frontier => Ok(Value::Null),
     };
     if core.replay_only.is_some() {
@@ -1939,6 +2128,9 @@ impl InstanceCore {
             if self.apply_next_pending() {
                 continue;
             }
+            if self.replay_only.is_none() && self.cancel_requested() {
+                return Err(StepError::Cancelled);
+            }
             if let Some(replay_only) = &self.replay_only {
                 // No signal is left to apply, so nothing in the history ever satisfied the condition.
                 if replay_only.allow_frontier {
@@ -1955,7 +2147,11 @@ impl InstanceCore {
                 }))
                 .into());
             }
-            changed.await;
+            let mut cancel = self.cancel.subscribe();
+            tokio::select! {
+                () = &mut changed => {}
+                _ = cancel.changed() => {}
+            }
         }
     }
 }

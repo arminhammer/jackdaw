@@ -378,6 +378,18 @@ impl LibWorld {
         eventually(&self.clock, Duration::from_secs(10), condition, what).await;
     }
 
+    /// Polls `condition` for up to 10s of real time without moving the clock.
+    pub async fn until_frozen(&self, what: &str, mut condition: impl FnMut() -> bool) {
+        let started = Instant::now();
+        while !condition() {
+            assert!(
+                started.elapsed() < Duration::from_secs(10),
+                "timed out waiting until {what}"
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+
     /// Lets the instances run until nothing changes for a moment, without moving the clock past long timers.
     pub async fn quiesce(&self) {
         let mut last = usize::MAX;

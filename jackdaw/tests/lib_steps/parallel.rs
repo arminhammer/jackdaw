@@ -296,13 +296,6 @@ fn price_fails(world: &mut LibWorld) {
     world.set_fixture(super::fixture("par.quote"));
 }
 
-#[then(regex = r#"^the workflow fails with "Price"'s fault$"#)]
-async fn fails_with_price(world: &mut LibWorld) {
-    let last = world.last();
-    let fault = world.outcome(last).await.fault().clone();
-    assert_eq!(fault.detail.as_deref(), Some("price service down"));
-}
-
 #[given(regex = r#"^a "futures::join!" of "Price", which fails, and "Stock", which succeeds$"#)]
 fn join_both(world: &mut LibWorld) {
     world.probe.script("price", |s| {
@@ -369,14 +362,6 @@ async fn three_two_done(world: &mut LibWorld) {
     world
         .until("two tasks finished", || probe.completed("counted") >= 2)
         .await;
-}
-
-#[when("the engine is dropped and a new engine resumes the instance")]
-async fn dropped_and_resumed(world: &mut LibWorld) {
-    world.crash().await;
-    world.probe.release("counted");
-    let last = world.last();
-    world.resume(last).await;
 }
 
 #[then("the first two tasks ran once in total")]

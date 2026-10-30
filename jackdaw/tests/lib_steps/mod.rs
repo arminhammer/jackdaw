@@ -6,11 +6,18 @@
 #![allow(dead_code)]
 
 pub mod calling_tasks;
+pub mod cancel;
+pub mod children;
 pub mod common;
 pub mod conditionals;
+pub mod errors;
+pub mod events;
 pub mod loops;
 pub mod parallel;
+pub mod recorded;
+pub mod signals;
 pub mod support;
+pub mod timers;
 pub mod world;
 
 use jackdaw::prelude::*;
@@ -27,6 +34,13 @@ pub fn harnesses(probe: &Arc<Probe>) -> Harnesses {
     conditionals::defaults(probe);
     loops::defaults(probe);
     parallel::defaults(probe);
+    errors::defaults(probe);
+    timers::defaults(probe);
+    events::defaults(probe);
+    signals::defaults(probe);
+    children::defaults(probe);
+    recorded::defaults(probe);
+    cancel::defaults(probe);
     let inventory = Arc::new(calling_tasks::Inventory::default());
     let mut sets: Vec<TaskSet> = Vec::new();
     let p = Arc::clone(probe);
@@ -44,6 +58,22 @@ pub fn harnesses(probe: &Arc<Probe>) -> Harnesses {
     sets.push(Box::new(move |b| b.tasks(loops::Looping(Arc::clone(&p)))));
     let p = Arc::clone(probe);
     sets.push(Box::new(move |b| b.tasks(parallel::Fan(Arc::clone(&p)))));
+    let p = Arc::clone(probe);
+    sets.push(Box::new(move |b| b.tasks(errors::Errs(Arc::clone(&p)))));
+    let p = Arc::clone(probe);
+    sets.push(Box::new(move |b| b.tasks(timers::Timed(Arc::clone(&p)))));
+    let p = Arc::clone(probe);
+    sets.push(Box::new(move |b| b.tasks(events::Waits(Arc::clone(&p)))));
+    let p = Arc::clone(probe);
+    sets.push(Box::new(move |b| b.tasks(signals::Shop(Arc::clone(&p)))));
+    let p = Arc::clone(probe);
+    sets.push(Box::new(move |b| b.tasks(children::Kids(Arc::clone(&p)))));
+    let p = Arc::clone(probe);
+    sets.push(Box::new(move |b| {
+        b.tasks(recorded::Recorded(Arc::clone(&p)))
+    }));
+    let p = Arc::clone(probe);
+    sets.push(Box::new(move |b| b.tasks(cancel::Cancels(Arc::clone(&p)))));
     Harnesses {
         probe: Arc::clone(probe),
         sets,
@@ -58,6 +88,13 @@ pub fn catalog() -> Vec<Fixture> {
     all.extend(conditionals::fixtures());
     all.extend(loops::fixtures());
     all.extend(parallel::fixtures());
+    all.extend(errors::fixtures());
+    all.extend(timers::fixtures());
+    all.extend(events::fixtures());
+    all.extend(signals::fixtures());
+    all.extend(children::fixtures());
+    all.extend(recorded::fixtures());
+    all.extend(cancel::fixtures());
     all
 }
 
@@ -96,6 +133,7 @@ pub fn fixture_by_code(code: &str) -> Fixture {
     table.extend(calling_tasks::by_code());
     table.extend(loops::by_code());
     table.extend(parallel::by_code());
+    table.extend(errors::by_code());
     let mut matches = table.iter().filter(|(needle, _)| code.contains(needle));
     let (_, name) = matches
         .next()

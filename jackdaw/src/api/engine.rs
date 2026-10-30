@@ -28,7 +28,9 @@ use super::store::Redb;
 use super::task::{
     BoxFuture, NativeTask, RegisterTask, TaskContext, TaskDef, TaskOptions, TaskSet,
 };
-use super::workflow::{QueryRef, RunTarget, Runnable, SignalRef, WorkflowDef, WorkflowId};
+use super::workflow::{
+    QueryRef, RunTarget, Runnable, SignalRef, UpdateRef, WorkflowDef, WorkflowId,
+};
 use crate::cache::CacheProvider;
 use crate::durableengine::DurableEngine;
 use crate::executor::Executor;
@@ -397,6 +399,49 @@ impl Engine {
         Ok(self.wrap(launched))
     }
 
+    /// Starts a workflow with [`ExecuteOptions`]: an id of your choosing (see [`execute_with_id`](Self::execute_with_id))
+    /// and a deadline for the whole run.
+    ///
+    /// # Errors
+    /// As for [`execute`](Self::execute) and [`execute_with_id`](Self::execute_with_id).
+    pub async fn execute_with<R: Runnable>(
+        &self,
+        runnable: R,
+        input: R::In,
+        options: ExecuteOptions,
+    ) -> Result<ExecutionHandle<R::Out>, Error> {
+        let RunTarget::Native(info) = runnable.target() else {
+            return Err(Error::invalid(
+                "execute_with starts Rust workflows; run YAML workflows with `execute`",
+            ));
+        };
+        let value = serde_json::to_value(&input)
+            .map_err(|e| Error::invalid(format!("the input could not be serialized: {e}")))?;
+        let _starting = self.shared.starts.lock().await;
+        let id = options
+            .id
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        if let Some(journal) = self.shared.load_journal(&id).await? {
+            if journal.workflow != info.id {
+                return Err(Error::invalid(format!(
+                    "instance `{id}` already exists and belongs to workflow {}, not {}",
+                    journal.workflow, info.id
+                )));
+            }
+            return self.attach(&id, journal).await;
+        }
+        let entry = self.shared.find_workflow(&info.id)?;
+        let mut journal = Journal::new(info.id.clone(), value.clone());
+        if let Some(timeout) = options.timeout {
+            journal.deadlines.insert(
+                super::runtime::WORKFLOW_DEADLINE.to_string(),
+                super::clock::after(self.shared.clock.now(), timeout),
+            );
+        }
+        let launched = self.shared.launch(id, entry, value, journal).await?;
+        Ok(self.wrap(launched))
+    }
+
     /// Starts a workflow under an id you choose. Starting the same id again returns the existing instance instead of a
     /// second one, so a retried request cannot start the work twice.
     ///
@@ -409,28 +454,8 @@ impl Engine {
         runnable: R,
         input: R::In,
     ) -> Result<ExecutionHandle<R::Out>, Error> {
-        let id = id.into();
-        let RunTarget::Native(info) = runnable.target() else {
-            return Err(Error::invalid(
-                "execute_with_id starts Rust workflows; run YAML workflows with `execute`",
-            ));
-        };
-        let value = serde_json::to_value(&input)
-            .map_err(|e| Error::invalid(format!("the input could not be serialized: {e}")))?;
-        let _starting = self.shared.starts.lock().await;
-        if let Some(journal) = self.shared.load_journal(&id).await? {
-            if journal.workflow != info.id {
-                return Err(Error::invalid(format!(
-                    "instance `{id}` already exists and belongs to workflow {}, not {}",
-                    journal.workflow, info.id
-                )));
-            }
-            return self.attach(&id, journal).await;
-        }
-        let entry = self.shared.find_workflow(&info.id)?;
-        let journal = Journal::new(info.id.clone(), value.clone());
-        let launched = self.shared.launch(id, entry, value, journal).await?;
-        Ok(self.wrap(launched))
+        self.execute_with(runnable, input, ExecuteOptions::new().id(id))
+            .await
     }
 
     /// A handle to an existing instance of `W`, for signalling, querying, cancelling or awaiting it. An instance that
@@ -701,6 +726,48 @@ impl<Out> ExecutionHandle<Out> {
         self.core.deliver_signal(signal.name, value).await
     }
 
+    /// Sends an `#[update]` and returns the handler's answer. The update is recorded like a signal when the handler
+    /// accepts it.
+    ///
+    /// # Errors
+    /// `Error::Rejected` if the handler refuses the argument; otherwise as for [`signal`](Self::signal).
+    pub async fn update<W, A: Serialize, R: DeserializeOwned>(
+        &self,
+        update: UpdateRef<W, A, R>,
+        argument: A,
+    ) -> Result<R, Error> {
+        self.send_update(update, argument, None).await
+    }
+
+    /// Like [`update`](Self::update), but idempotent: sending the same `update_id` again returns the first result
+    /// without running the handler again.
+    ///
+    /// # Errors
+    /// As for [`update`](Self::update).
+    pub async fn update_with_id<W, A: Serialize, R: DeserializeOwned>(
+        &self,
+        update: UpdateRef<W, A, R>,
+        argument: A,
+        update_id: impl Into<String>,
+    ) -> Result<R, Error> {
+        self.send_update(update, argument, Some(update_id.into()))
+            .await
+    }
+
+    async fn send_update<W, A: Serialize, R: DeserializeOwned>(
+        &self,
+        update: UpdateRef<W, A, R>,
+        argument: A,
+        id: Option<String>,
+    ) -> Result<R, Error> {
+        let value = serde_json::to_value(argument).map_err(|e| {
+            Error::invalid(format!("the update argument could not be serialized: {e}"))
+        })?;
+        let result = self.core.deliver_update(update.name, value, id).await?;
+        serde_json::from_value(result)
+            .map_err(|e| Error::Engine(format!("the update result does not match its type: {e}")))
+    }
+
     /// Reads the workflow's state through a `#[query]` method.
     ///
     /// # Errors
@@ -864,5 +931,35 @@ impl ListFilter {
             && self
                 .started_before
                 .is_none_or(|before| info.started_at.is_some_and(|at| at < before))
+    }
+}
+
+/// How [`Engine::execute_with`] starts an instance.
+#[derive(Debug, Clone, Default)]
+pub struct ExecuteOptions {
+    id: Option<String>,
+    timeout: Option<std::time::Duration>,
+}
+
+impl ExecuteOptions {
+    /// No id (a random one is used) and no deadline.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Starts the instance under this id; starting it again returns the existing instance.
+    #[must_use]
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+
+    /// Ends the instance with `Error::Timeout` if it is still running this long after it started. The deadline is
+    /// stored with the instance, so it holds across restarts.
+    #[must_use]
+    pub fn timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.timeout = Some(timeout);
+        self
     }
 }

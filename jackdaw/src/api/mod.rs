@@ -23,11 +23,12 @@ pub use clock::{Clock, SystemClock};
 pub use context::{Branch, Condition, CoreRef, Either, ForEach, Step, WorkflowContext, race};
 pub use duration::DurationExt;
 pub use engine::{
-    Engine, EngineBuilder, ExecutionHandle, InstanceInfo, IntoTaskSet, ListFilter, Recovery,
-    Status, Unrecoverable,
+    Engine, EngineBuilder, ExecuteOptions, ExecutionHandle, InstanceInfo, IntoTaskSet, ListFilter,
+    Recovery, Status, Unrecoverable,
 };
 pub use error::{
-    Divergence, Error, Fault, StepError, TaskError, WorkflowError, WorkflowResult, error_types,
+    Divergence, Error, Fault, StepError, TaskError, UpdateError, WorkflowError, WorkflowResult,
+    error_types,
 };
 pub use event::{Event, EventStream};
 pub use runtime::{Registry, register_workflow};
@@ -38,6 +39,6 @@ pub use task::{
 };
 pub use workflow::{
     AsDependency, Dependency, QueryHandler, QueryRef, ReplayMode, RunTarget, Runnable,
-    SignalHandler, SignalRef, SyncWorkflowContext, Workflow, WorkflowContextView, WorkflowDef,
-    WorkflowId, WorkflowInfo, WorkflowMeta, WorkflowRef,
+    SignalHandler, SignalRef, SyncWorkflowContext, UpdateHandler, UpdateRef, Workflow,
+    WorkflowContextView, WorkflowDef, WorkflowId, WorkflowInfo, WorkflowMeta, WorkflowRef,
 };

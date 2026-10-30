@@ -27,7 +27,7 @@ Feature: Durable timers survive restarts
 
   @todo @crash
   Scenario: A timer that fired while the process was down fires on resume
-    Given a workflow that calls "ctx.sleep(5.mins())" and then returns "done"
+    Given a workflow that calls "ctx.sleep(5.minutes())" and then returns "done"
     When I execute it
     And the engine is dropped
     And the clock advances 1 hour

@@ -16,6 +16,11 @@ fn mistyped_task_calls_and_outputs_are_compile_errors() {
 }
 
 #[test]
+fn misused_macros_are_compile_errors() {
+    trybuild::TestCases::new().compile_fail("tests/rust/ui/misuse_*.rs");
+}
+
+#[test]
 fn audited_code_can_opt_out_of_the_lint() {
     trybuild::TestCases::new().pass("tests/rust/ui/pass_*.rs");
 }

@@ -1,0 +1,5 @@
+error[E0599]: no method named `call` found for mutable reference `&mut jackdaw::api::SyncWorkflowContext<W>` in the current scope
+  --> tests/rust/ui/misuse_signal_calls_task.rs:29:21
+   |
+29 |         let _ = ctx.call(Charge, &5);
+   |                     ^^^^ method not found in `&mut jackdaw::api::SyncWorkflowContext<W>`

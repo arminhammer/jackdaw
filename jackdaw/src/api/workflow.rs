@@ -94,6 +94,12 @@ pub trait WorkflowDef: WorkflowMeta + Sized + Send + Sync + 'static {
     /// The `#[query]` methods.
     fn queries() -> Vec<QueryHandler<Self>>;
 
+    /// The `#[update]` methods.
+    #[must_use]
+    fn updates() -> Vec<UpdateHandler<Self>> {
+        Vec::new()
+    }
+
     /// The tasks and workflows `#[run]` refers to, found by the macro. Checked when the engine is built.
     fn dependencies() -> Vec<Dependency>;
 }
@@ -182,6 +188,15 @@ type SignalFn<W> = Box<
         + Send
         + Sync,
 >;
+type UpdateFn<W> = Box<
+    dyn Fn(
+            &mut W,
+            &mut SyncWorkflowContext<W>,
+            serde_json::Value,
+        ) -> Result<Result<serde_json::Value, super::error::UpdateError>, String>
+        + Send
+        + Sync,
+>;
 type QueryFn<W> =
     Box<dyn Fn(&W, &WorkflowContextView) -> Result<serde_json::Value, String> + Send + Sync>;
 
@@ -205,6 +220,63 @@ impl<W> SignalHandler<W> {
                     .map_err(|e| format!("invalid signal argument: {e}"))?;
                 handler(state, ctx, arg);
                 Ok(())
+            }),
+        }
+    }
+}
+
+/// A workflow's `#[update]` method as a value (`Cart::add_item`): a signal that answers the caller.
+pub struct UpdateRef<W, A, R> {
+    pub(crate) name: &'static str,
+    _types: PhantomData<fn(W, A) -> R>,
+}
+
+impl<W, A, R> UpdateRef<W, A, R> {
+    /// The marker for the update `name`.
+    #[must_use]
+    pub const fn new(name: &'static str) -> Self {
+        Self {
+            name,
+            _types: PhantomData,
+        }
+    }
+}
+
+impl<W, A, R> Clone for UpdateRef<W, A, R> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<W, A, R> Copy for UpdateRef<W, A, R> {}
+
+/// An `#[update]` method, with its argument and result types erased.
+pub struct UpdateHandler<W> {
+    pub(crate) name: &'static str,
+    pub(crate) apply: UpdateFn<W>,
+}
+
+impl<W> UpdateHandler<W> {
+    /// Wraps `handler`, decoding the argument into `A` and encoding the result.
+    pub fn new<A, R, F>(name: &'static str, handler: F) -> Self
+    where
+        A: DeserializeOwned + 'static,
+        R: Serialize + 'static,
+        F: Fn(&mut W, &mut SyncWorkflowContext<W>, A) -> Result<R, super::error::UpdateError>
+            + Send
+            + Sync
+            + 'static,
+    {
+        Self {
+            name,
+            apply: Box::new(move |state, ctx, value| {
+                let arg: A = serde_json::from_value(value)
+                    .map_err(|e| format!("invalid update argument: {e}"))?;
+                Ok(match handler(state, ctx, arg) {
+                    Ok(result) => Ok(serde_json::to_value(result)
+                        .map_err(|e| format!("the update result could not be serialized: {e}"))?),
+                    Err(rejection) => Err(rejection),
+                })
             }),
         }
     }
