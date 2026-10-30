@@ -202,8 +202,7 @@ fn child_timeout(world: &mut LibWorld) {
     world.set_fixture(super::fixture("timers.child-timeout"));
 }
 
-#[given(regex = r#"^"Slow" takes 10 minutes$"#)]
-fn slow_ten(_world: &mut LibWorld) {}
+// `"Slow" takes 10 minutes` matches the generic `"<task>" takes <duration>` step in saga.rs; `Slow` sleeps 10 minutes.
 
 #[then(regex = r"^the step times out after (\d+) minutes$")]
 async fn times_out_after(world: &mut LibWorld, minutes: u64) {

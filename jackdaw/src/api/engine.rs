@@ -18,13 +18,14 @@
 //! ```
 use super::catalog::CatalogDef;
 use super::clock::{Clock, SharedClock, SystemClock};
+use super::codec::PayloadCodec;
 use super::error::{Divergence, Error};
 use super::event::{Event, EventStream};
 use super::runtime::{
     CatalogSet, InstanceCore, Journal, JournalStatus, Launched, Registry, Shared, StepExec,
     replay_instance,
 };
-use super::store::Redb;
+use super::store::Store;
 use super::task::{
     BoxFuture, NativeTask, RegisterTask, TaskContext, TaskDef, TaskOptions, TaskSet,
 };
@@ -154,6 +155,7 @@ pub struct EngineBuilder {
     event_buffer: usize,
     self_replay: bool,
     clock: Option<SharedClock>,
+    codec: Option<Arc<dyn PayloadCodec>>,
 }
 
 impl Default for EngineBuilder {
@@ -174,12 +176,14 @@ impl EngineBuilder {
             event_buffer: 1000,
             self_replay: false,
             clock: None,
+            codec: None,
         }
     }
 
-    /// Persists workflow state and caches results in one durable store.
+    /// Persists workflow state and caches results in one durable store: [`Redb`](super::Redb),
+    /// [`Sqlite`](super::Sqlite), [`Postgres`](super::Postgres), or your own [`Store`].
     #[must_use]
-    pub fn store(mut self, store: Redb) -> Self {
+    pub fn store(mut self, store: impl Store) -> Self {
         self.persistence = Some(store.persistence());
         self.cache = Some(store.cache());
         self
@@ -241,6 +245,14 @@ impl EngineBuilder {
         self
     }
 
+    /// Passes everything the engine stores (journals and history payloads) through `codec`, for example to encrypt
+    /// it. An engine reading those records needs the same codec.
+    #[must_use]
+    pub fn codec(mut self, codec: impl PayloadCodec) -> Self {
+        self.codec = Some(Arc::new(codec));
+        self
+    }
+
     /// The time source for `ctx.now()`, durable sleeps, step timeouts and retry delays. Defaults to [`SystemClock`].
     ///
     /// Tests pass a clock from [`crate::testing`]; sharing one clock between engines keeps time moving across a
@@ -294,6 +306,7 @@ impl EngineBuilder {
                 legacy,
                 self.self_replay,
                 self.clock.unwrap_or_else(|| Arc::new(SystemClock)),
+                self.codec,
             )),
         })
     }
@@ -433,6 +446,7 @@ impl Engine {
         let entry = self.shared.find_workflow(&info.id)?;
         let mut journal = Journal::new(info.id.clone(), value.clone());
         if let Some(timeout) = options.timeout {
+            // A new journal is written out in full by its first persist, deadline included.
             journal.deadlines.insert(
                 super::runtime::WORKFLOW_DEADLINE.to_string(),
                 super::clock::after(self.shared.clock.now(), timeout),
@@ -499,6 +513,12 @@ impl Engine {
             }
             match self.shared.find_workflow(&journal.workflow) {
                 Ok(entry) => {
+                    // The summary is only the journal's header; resuming needs its whole history.
+                    let journal = self
+                        .shared
+                        .load_journal(&summary.id)
+                        .await?
+                        .unwrap_or(journal);
                     let input = journal.input.clone();
                     self.shared
                         .launch(summary.id.clone(), entry, input, journal)
@@ -544,6 +564,41 @@ impl Engine {
             .skip(filter.offset)
             .take(filter.limit.unwrap_or(usize::MAX))
             .collect())
+    }
+
+    /// What the engine knows about one instance: its status, its run, how far it got, and what it is waiting for.
+    ///
+    /// # Errors
+    /// If there is no such instance or the store cannot be read.
+    pub async fn describe(&self, id: &str) -> Result<InstanceDetails, Error> {
+        let journal = self
+            .shared
+            .load_journal(id)
+            .await?
+            .ok_or_else(|| Error::Engine(format!("no workflow instance `{id}` was found")))?;
+        Ok(InstanceDetails {
+            id: id.to_string(),
+            status: journal.status.into(),
+            run: journal.run.max(1),
+            steps: journal.steps.len(),
+            timers: journal
+                .deadlines
+                .iter()
+                .map(|(key, at)| PendingTimer {
+                    key: key.clone(),
+                    fires_at: *at,
+                })
+                .collect(),
+            pending_events: journal
+                .inbox
+                .values()
+                .map(std::collections::VecDeque::len)
+                .sum(),
+            started_at: journal.created_at,
+            updated_at: journal.updated_at,
+            parent: journal.parent.clone(),
+            workflow: journal.workflow,
+        })
     }
 
     /// Cancels an instance running in this engine, and its child workflows.
@@ -618,14 +673,17 @@ impl Engine {
     /// # Errors
     /// If the store cannot be read.
     pub async fn history(&self, id: &str) -> Result<Vec<Event>, Error> {
-        Ok(self
-            .shared
+        let codec = self.shared.codec.as_deref();
+        self.shared
             .persistence
             .get_events(id)
             .await?
             .into_iter()
-            .map(Event::from_stored)
-            .collect())
+            .map(|stored| {
+                super::runtime::map_payloads(stored, |value| super::codec::decode(codec, value))
+                    .map(Event::from_stored)
+            })
+            .collect()
     }
 
     /// Replays every stored instance this engine knows against its current code and reports the ones whose history
@@ -962,4 +1020,41 @@ impl ExecuteOptions {
         self.timeout = Some(timeout);
         self
     }
+}
+
+/// One instance in detail, from [`Engine::describe`].
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct InstanceDetails {
+    /// The instance id.
+    pub id: String,
+    /// The workflow it runs.
+    pub workflow: WorkflowId,
+    /// Where it is in its life.
+    pub status: Status,
+    /// Which run it is on (see `continue_as_new`); the first run is 1.
+    pub run: u32,
+    /// How many steps the current run has recorded.
+    pub steps: usize,
+    /// Durable timers and step timeouts that have not fired yet.
+    pub timers: Vec<PendingTimer>,
+    /// Events sent to the instance that no `wait_for_event` has consumed yet.
+    pub pending_events: usize,
+    /// When it started.
+    pub started_at: Option<DateTime<Utc>>,
+    /// When its journal last changed.
+    pub updated_at: Option<DateTime<Utc>>,
+    /// The instance that runs it as a child workflow.
+    pub parent: Option<String>,
+}
+
+/// A durable deadline of an instance: a sleep (`sleep:<step>`), a step timeout (`timeout:<step>`) or the workflow's
+/// own deadline (`workflow`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct PendingTimer {
+    /// What the deadline belongs to.
+    pub key: String,
+    /// When it fires.
+    pub fires_at: DateTime<Utc>,
 }

@@ -6,6 +6,7 @@
 
 mod catalog;
 mod clock;
+mod codec;
 mod context;
 mod duration;
 mod engine;
@@ -20,11 +21,12 @@ pub use catalog::{CatalogDef, CatalogEntry, CatalogTaskRef, CatalogWorkflowRef, 
 #[doc(hidden)]
 pub use clock::after as clock_after;
 pub use clock::{Clock, SystemClock};
+pub use codec::PayloadCodec;
 pub use context::{Branch, Condition, CoreRef, Either, ForEach, Step, WorkflowContext, race};
 pub use duration::DurationExt;
 pub use engine::{
-    Engine, EngineBuilder, ExecuteOptions, ExecutionHandle, InstanceInfo, IntoTaskSet, ListFilter,
-    Recovery, Status, Unrecoverable,
+    Engine, EngineBuilder, ExecuteOptions, ExecutionHandle, InstanceDetails, InstanceInfo,
+    IntoTaskSet, ListFilter, PendingTimer, Recovery, Status, Unrecoverable,
 };
 pub use error::{
     Divergence, Error, Fault, StepError, TaskError, UpdateError, WorkflowError, WorkflowResult,
@@ -32,7 +34,7 @@ pub use error::{
 };
 pub use event::{Event, EventStream};
 pub use runtime::{Registry, register_workflow};
-pub use store::Redb;
+pub use store::{Postgres, Redb, Sqlite, Store};
 pub use task::{
     BoxFuture, NativeTask, RegisterTask, Retry, TaskContext, TaskDef, TaskOptions, TaskRef,
     TaskSet, TaskTarget,

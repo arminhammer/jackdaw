@@ -26,3 +26,11 @@ CREATE TABLE IF NOT EXISTS workflow_checkpoints (
     data JSONB NOT NULL,
     timestamp TIMESTAMPTZ NOT NULL
 );
+
+-- Journal log: append-only records of Rust workflow instances (steps, signals, events, deadlines)
+CREATE TABLE IF NOT EXISTS workflow_journal (
+    instance_id TEXT NOT NULL,
+    position BIGINT NOT NULL,
+    body JSONB NOT NULL,
+    PRIMARY KEY (instance_id, position)
+);

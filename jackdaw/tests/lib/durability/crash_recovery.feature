@@ -30,7 +30,7 @@ Feature: Workflows resume after a crash
     When a new engine calls "Engine::resume::<RefundWorkflow>(id)"
     Then it fails with "Error::Invalid" saying the instance belongs to "shop/order@1.0.0"
 
-  @todo
+  @implemented
   Scenario: Running instances are recovered automatically at startup
     Given three instances in the store with statuses "Running", "Running" and "Completed"
     When a new engine is built on the store and "Engine::recover()" is called
@@ -38,7 +38,7 @@ Feature: Workflows resume after a crash
     And the completed instance is not touched
     And "recover" returns the ids it resumed
 
-  @todo
+  @implemented
   Scenario: Recovery reports instances it cannot resume
     Given a running instance of workflow "shop/order@0.9.0" in the store
     And the new engine only registers "shop/order@1.0.0"
@@ -47,7 +47,7 @@ Feature: Workflows resume after a crash
     And it stays "Running" in the store
     And the other instances are still recovered
 
-  @todo
+  @implemented
   Scenario Outline: Every kind of step resumes without repeating completed work
     Given a workflow whose second step is <step>
     And the engine is dropped while the second step is in flight
@@ -68,7 +68,7 @@ Feature: Workflows resume after a crash
       | race of a sleep and an event                          |
       | ctx.run_definition of a YAML workflow                 |
 
-  @todo
+  @implemented
   Scenario: Child workflows are recovered with their parent
     Given a parent that is waiting on a running child
     And the engine is dropped
@@ -84,7 +84,7 @@ Feature: Workflows resume after a crash
     When a new engine resumes the instance
     Then the task does not run again
 
-  @todo
+  @implemented
   Scenario: A task that was running at the crash is retried, with the same idempotency key
     Given a task that records its idempotency key and was running when the engine was dropped
     When a new engine resumes the instance

@@ -386,6 +386,24 @@ pub(crate) struct SignalRecord {
     pub order: u64,
 }
 
+/// One change to an instance's journal, as it is appended to the store's journal log. Appending these instead of
+/// rewriting the journal keeps the cost of a step independent of how many steps came before it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "entry")]
+pub(crate) enum LogEntry {
+    Step { key: usize, record: StepRecord },
+    Signal(SignalRecord),
+    Delivered { name: String, payload: Value },
+    Consumed { name: String },
+    Deadline { key: String, at: DateTime<Utc> },
+    DeadlineCleared { key: String },
+    Patch { id: String, applies: bool },
+    NewRun { run: u32, input: Value },
+}
+
+/// The checkpoint format: 2 keeps steps, signals, events and deadlines in the journal log.
+const JOURNAL_FORMAT: u64 = 2;
+
 /// The part of a [`SignalRecord`] that only an update has.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct UpdateRecord {
@@ -453,6 +471,12 @@ pub(crate) struct Journal {
     /// The last history position handed out (see [`StepRecord::order`]).
     #[serde(default)]
     pub history: u64,
+    /// The position the next journal-log record gets in the store.
+    #[serde(default)]
+    pub log_next: u64,
+    /// Whether this journal's content is already in the store's journal log (it was loaded from it).
+    #[serde(skip)]
+    pub logged: bool,
     /// Which run of the instance this journal belongs to (0 or 1: the first; see `continue_as_new`).
     #[serde(default)]
     pub run: u32,
@@ -477,6 +501,8 @@ impl Journal {
             deadlines: BTreeMap::new(),
             inbox: BTreeMap::new(),
             history: 0,
+            log_next: 0,
+            logged: false,
             run: 1,
             created_at: None,
             updated_at: None,
@@ -490,17 +516,121 @@ impl Journal {
 
     /// Records a step. Strict replay finds records by position, so the position is the key. Lenient replay finds them
     /// by kind, name and ordinal, so a new record takes a fresh key instead of overwriting an older step's record.
-    fn insert(&mut self, mode: ReplayMode, seq: usize, mut record: StepRecord) {
+    fn insert(&mut self, mode: ReplayMode, seq: usize, mut record: StepRecord) -> LogEntry {
         record.order = self.next_order();
         let key = match mode {
             ReplayMode::Strict => seq,
             ReplayMode::Lenient => self.steps.keys().next_back().map_or(0, |last| last + 1),
         };
-        self.steps.insert(key, record);
+        self.steps.insert(key, record.clone());
+        LogEntry::Step { key, record }
     }
 
+    /// Reads a journal stored before the journal log existed (everything in one checkpoint).
     fn from_checkpoint(checkpoint: &WorkflowCheckpoint) -> Option<Self> {
         serde_json::from_value(checkpoint.data.get("jackdaw_native")?.clone()).ok()
+    }
+
+    /// The journal without the parts that live in the journal log: what the checkpoint stores.
+    fn header(&self) -> Self {
+        // Built field by field: cloning the whole journal here would make every write cost as much as the history.
+        Self {
+            workflow: self.workflow.clone(),
+            input: self.input.clone(),
+            status: self.status,
+            steps: BTreeMap::new(),
+            signals: Vec::new(),
+            patches: BTreeMap::new(),
+            result: self.result.clone(),
+            failure: self.failure.clone(),
+            parent: self.parent.clone(),
+            deadlines: BTreeMap::new(),
+            inbox: BTreeMap::new(),
+            history: self.history,
+            log_next: self.log_next,
+            logged: self.logged,
+            run: self.run,
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+        }
+    }
+
+    /// Log entries that recreate this journal's content (for a journal that is not in the log yet).
+    fn entries(&self) -> Vec<LogEntry> {
+        let mut entries: Vec<LogEntry> = self
+            .steps
+            .iter()
+            .map(|(key, record)| LogEntry::Step {
+                key: *key,
+                record: record.clone(),
+            })
+            .collect();
+        entries.extend(self.signals.iter().cloned().map(LogEntry::Signal));
+        entries.extend(self.patches.iter().map(|(id, applies)| LogEntry::Patch {
+            id: id.clone(),
+            applies: *applies,
+        }));
+        entries.extend(self.deadlines.iter().map(|(key, at)| LogEntry::Deadline {
+            key: key.clone(),
+            at: *at,
+        }));
+        for (name, queue) in &self.inbox {
+            entries.extend(queue.iter().map(|payload| LogEntry::Delivered {
+                name: name.clone(),
+                payload: payload.clone(),
+            }));
+        }
+        entries
+    }
+
+    /// Folds the store's journal log into this header.
+    fn apply_log(&mut self, records: Vec<crate::persistence::JournalRecord>) -> Result<(), Error> {
+        for (position, body) in records {
+            let entry: LogEntry = serde_json::from_value(body).map_err(|e| {
+                Error::Engine(format!("journal record {position} cannot be read: {e}"))
+            })?;
+            self.log_next = self.log_next.max(position + 1);
+            match entry {
+                LogEntry::Step { key, record } => {
+                    self.history = self.history.max(record.order);
+                    self.steps.insert(key, record);
+                }
+                LogEntry::Signal(signal) => {
+                    self.history = self.history.max(signal.order);
+                    self.signals.push(signal);
+                }
+                LogEntry::Delivered { name, payload } => {
+                    self.inbox.entry(name).or_default().push_back(payload);
+                }
+                LogEntry::Consumed { name } => {
+                    if let Some(queue) = self.inbox.get_mut(&name) {
+                        queue.pop_front();
+                        if queue.is_empty() {
+                            self.inbox.remove(&name);
+                        }
+                    }
+                }
+                LogEntry::Deadline { key, at } => {
+                    self.deadlines.insert(key, at);
+                }
+                LogEntry::DeadlineCleared { key } => {
+                    self.deadlines.remove(&key);
+                }
+                LogEntry::Patch { id, applies } => {
+                    self.patches.insert(id, applies);
+                }
+                LogEntry::NewRun { .. } => {
+                    // The header already describes the newest run; everything before this marker belongs to an
+                    // older run (normally pruned already).
+                    self.steps.clear();
+                    self.signals.clear();
+                    self.patches.clear();
+                    self.deadlines.retain(|key, _| key == WORKFLOW_DEADLINE);
+                }
+            }
+        }
+        self.logged = true;
+        Ok(())
     }
 
     /// The instance's outcome, if it has ended.
@@ -543,9 +673,15 @@ pub(crate) fn duplicate(result: &Result<Value, Error>) -> Result<Value, Error> {
             Error::Invalid(message) => Error::Invalid(message.clone()),
             Error::Rejected(message) => Error::Rejected(message.clone()),
             Error::NonDeterminism(divergence) => Error::NonDeterminism(divergence.clone()),
-            other @ (Error::Persistence(_) | Error::Cache(_) | Error::Engine(_)) => {
-                Error::Engine(other.to_string())
+            Error::Persistence(source) => {
+                Error::Persistence(crate::persistence::Error::Persistence {
+                    message: source.to_string(),
+                })
             }
+            Error::Cache(source) => Error::Cache(crate::cache::Error::Cache {
+                message: source.to_string(),
+            }),
+            Error::Engine(message) => Error::Engine(message.clone()),
         }),
     }
 }
@@ -562,6 +698,7 @@ pub(crate) struct Shared {
     pub legacy: DurableEngine,
     pub self_replay: bool,
     pub clock: SharedClock,
+    pub codec: Option<Arc<dyn super::codec::PayloadCodec>>,
     instances: Mutex<HashMap<String, Arc<InstanceCore>>>,
     running: Mutex<Vec<JoinHandle<()>>>,
     index: tokio::sync::Mutex<()>,
@@ -600,6 +737,7 @@ impl Shared {
         legacy: DurableEngine,
         self_replay: bool,
         clock: SharedClock,
+        codec: Option<Arc<dyn super::codec::PayloadCodec>>,
     ) -> Self {
         Self {
             persistence,
@@ -609,6 +747,7 @@ impl Shared {
             legacy,
             self_replay,
             clock,
+            codec,
             instances: Mutex::new(HashMap::new()),
             running: Mutex::new(Vec::new()),
             index: tokio::sync::Mutex::new(()),
@@ -678,7 +817,15 @@ impl Shared {
         Ok(())
     }
 
+    /// Every instance id the store knows: from the store's own listing when it has one, otherwise from the index the
+    /// engine keeps for stores that cannot list.
     pub(crate) async fn indexed(&self) -> Result<Vec<String>, Error> {
+        if let Some(ids) = self.persistence.list_instances().await? {
+            return Ok(ids
+                .into_iter()
+                .filter(|id| id != INDEX_ID && !id.ends_with("#journal"))
+                .collect());
+        }
         Ok(match self.persistence.get_checkpoint(INDEX_ID).await? {
             Some(checkpoint) => checkpoint
                 .data
@@ -696,22 +843,55 @@ impl Shared {
     }
 
     pub(crate) async fn load_journal(&self, id: &str) -> Result<Option<Journal>, Error> {
+        self.read_journal(id, true).await
+    }
+
+    /// The journal's header (no steps, signals, events or deadlines): enough for status and listing.
+    async fn load_header(&self, id: &str) -> Result<Option<Journal>, Error> {
+        self.read_journal(id, false).await
+    }
+
+    async fn read_journal(&self, id: &str, with_log: bool) -> Result<Option<Journal>, Error> {
         if let Some(core) = self.instance(id) {
             return Ok(Some(lock(&core.journal).clone()));
         }
-        Ok(self
-            .persistence
-            .get_checkpoint(id)
-            .await?
-            .as_ref()
-            .and_then(Journal::from_checkpoint))
+        let Some(mut checkpoint) = self.persistence.get_checkpoint(id).await? else {
+            return Ok(None);
+        };
+        let codec = self.codec.as_deref();
+        if let Some(header) = checkpoint.data.get_mut("jackdaw_native") {
+            *header = super::codec::decode(codec, header.take())?;
+        }
+        let Some(mut journal) = Journal::from_checkpoint(&checkpoint) else {
+            return Ok(None); // not a Rust workflow's journal (the YAML engine keeps checkpoints too)
+        };
+        let format = checkpoint
+            .data
+            .get("journal_format")
+            .and_then(Value::as_u64)
+            .unwrap_or(1);
+        if format >= JOURNAL_FORMAT {
+            if with_log {
+                let records = self
+                    .persistence
+                    .load_journal(id)
+                    .await?
+                    .into_iter()
+                    .map(|(position, body)| Ok((position, super::codec::decode(codec, body)?)))
+                    .collect::<Result<Vec<_>, Error>>()?;
+                journal.apply_log(records)?;
+            } else {
+                journal.logged = true;
+            }
+        }
+        Ok(Some(journal))
     }
 
-    /// Every stored native instance with its journal.
+    /// Every stored native instance with its journal header.
     pub(crate) async fn summaries(&self) -> Result<Vec<Summary>, Error> {
         let mut found = Vec::new();
         for id in self.indexed().await? {
-            if let Some(journal) = self.load_journal(&id).await? {
+            if let Some(journal) = self.load_header(&id).await? {
                 found.push(Summary { id, journal });
             }
         }
@@ -743,7 +923,9 @@ impl Shared {
             false,
         );
         core.persist().await?;
-        self.add_to_index(&core.id).await?;
+        if self.persistence.list_instances().await?.is_none() {
+            self.add_to_index(&core.id).await?;
+        }
 
         let run = entry.runner.spawn(Arc::clone(&core), input);
         let runner = Arc::clone(&entry.runner);
@@ -760,7 +942,9 @@ impl Shared {
                 result = Err(error);
             }
             publish.0.publish(result);
-            if let Some(shared) = weak.upgrade() {
+            if let Some(shared) = weak.upgrade()
+                && publish.0.ended_durably.load(Ordering::SeqCst)
+            {
                 shared.forget(&publish.0.id);
             }
         });
@@ -910,6 +1094,76 @@ impl Child {
     }
 }
 
+/// Applies `f` to the payloads a stored history event carries (inputs, results, outputs).
+pub(crate) fn map_payloads(
+    event: crate::workflow::WorkflowEvent,
+    f: impl Fn(Value) -> Result<Value, Error>,
+) -> Result<crate::workflow::WorkflowEvent, Error> {
+    use crate::workflow::WorkflowEvent as Stored;
+    Ok(match event {
+        Stored::WorkflowStarted {
+            instance_id,
+            workflow_id,
+            timestamp,
+            initial_data,
+        } => Stored::WorkflowStarted {
+            instance_id,
+            workflow_id,
+            timestamp,
+            initial_data: f(initial_data)?,
+        },
+        Stored::TaskCompleted {
+            instance_id,
+            task_name,
+            result,
+            timestamp,
+            duration_ms,
+        } => Stored::TaskCompleted {
+            instance_id,
+            task_name,
+            result: f(result)?,
+            timestamp,
+            duration_ms,
+        },
+        Stored::WorkflowCompleted {
+            instance_id,
+            final_data,
+            timestamp,
+            duration_ms,
+        } => Stored::WorkflowCompleted {
+            instance_id,
+            final_data: f(final_data)?,
+            timestamp,
+            duration_ms,
+        },
+        Stored::WorkflowContinuedAsNew {
+            instance_id,
+            run,
+            input,
+            timestamp,
+        } => Stored::WorkflowContinuedAsNew {
+            instance_id,
+            run,
+            input: f(input)?,
+            timestamp,
+        },
+        other @ (Stored::TaskEntered { .. }
+        | Stored::TaskCreated { .. }
+        | Stored::TaskStarted { .. }
+        | Stored::TaskRetried { .. }
+        | Stored::WorkflowCorrelationStarted { .. }
+        | Stored::WorkflowCorrelationCompleted { .. }
+        | Stored::WorkflowFailed { .. }
+        | Stored::WorkflowCancelled { .. }
+        | Stored::WorkflowSuspended { .. }
+        | Stored::WorkflowResumed { .. }
+        | Stored::TaskCancelled { .. }
+        | Stored::TaskSuspended { .. }
+        | Stored::TaskResumed { .. }
+        | Stored::TaskFaulted { .. }) => other,
+    })
+}
+
 /// Publishes "the engine stopped" if the task running an instance is aborted before it publishes a result, so nobody
 /// waits forever on an instance whose engine was dropped.
 struct PublishOnDrop(Arc<InstanceCore>);
@@ -1003,6 +1257,11 @@ pub(crate) struct InstanceCore {
     pub frontier: Notify,
     persist_lock: tokio::sync::Mutex<()>,
     result: watch::Sender<Option<Arc<Result<Value, Error>>>>,
+    /// Journal changes not yet appended to the store's journal log.
+    tail: Mutex<Vec<LogEntry>>,
+    /// Whether the instance's end was written to the store. An instance whose end could not be written stays in the
+    /// engine's memory, so its status is not misreported from the stale store.
+    ended_durably: std::sync::atomic::AtomicBool,
 }
 
 /// A step, ready to run.
@@ -1055,6 +1314,12 @@ impl InstanceCore {
             .filter(|signal| signal.order > 0)
             .cloned()
             .collect();
+        // A journal that is not in the store's log yet (new, or stored in the old format) is written out in full.
+        let tail = if journal.logged || ephemeral || replay_only.is_some() {
+            Vec::new()
+        } else {
+            journal.entries()
+        };
         Arc::new(Self {
             id,
             workflow,
@@ -1078,6 +1343,8 @@ impl InstanceCore {
             frontier: Notify::new(),
             persist_lock: tokio::sync::Mutex::new(()),
             result,
+            tail: Mutex::new(tail),
+            ended_durably: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
@@ -1212,7 +1479,7 @@ impl InstanceCore {
         }
         self.apply_all_pending();
         let value = produce();
-        lock(&self.journal).insert(
+        let entry = lock(&self.journal).insert(
             self.replay,
             spec.seq,
             StepRecord {
@@ -1225,7 +1492,15 @@ impl InstanceCore {
                 order: 0,
             },
         );
+        self.log(entry);
         value
+    }
+
+    /// Queues a journal change for the store's journal log (written by the next `persist`).
+    fn log(&self, entry: LogEntry) {
+        if !self.ephemeral && self.replay_only.is_none() {
+            lock(&self.tail).push(entry);
+        }
     }
 
     /// For `select!`: which branch won on the run that is being replayed, if there is a record.
@@ -1244,7 +1519,7 @@ impl InstanceCore {
     }
 
     pub(crate) fn record_winner(&self, spec: &StepSpec, winner: usize) {
-        lock(&self.journal).insert(
+        let entry = lock(&self.journal).insert(
             self.replay,
             spec.seq,
             StepRecord {
@@ -1257,6 +1532,7 @@ impl InstanceCore {
                 order: 0,
             },
         );
+        self.log(entry);
     }
 
     /// `ctx.patched(id)`: true for new executions, false when replaying a history that started before the patch.
@@ -1270,6 +1546,10 @@ impl InstanceCore {
             boundary > 0 && self.next_seq.load(Ordering::SeqCst) <= boundary;
         let applies = !replaying_old_history;
         journal.patches.insert(id.to_string(), applies);
+        self.log(LogEntry::Patch {
+            id: id.to_string(),
+            applies,
+        });
         applies
     }
 
@@ -1330,7 +1610,13 @@ impl InstanceCore {
             && self.replay_only.is_none()
             && let Some(stored) = event.to_stored()
         {
-            let persistence = Arc::clone(&self.shared()?.persistence);
+            let (persistence, codec) = {
+                let shared = self.shared()?;
+                (Arc::clone(&shared.persistence), shared.codec.clone())
+            };
+            let stored = map_payloads(stored, |value| {
+                super::codec::encode(codec.as_deref(), &value)
+            })?;
             persistence.save_event(stored).await?;
         }
         if self.replay_only.is_none() {
@@ -1344,13 +1630,30 @@ impl InstanceCore {
         if self.ephemeral || self.replay_only.is_some() {
             return Ok(());
         }
-        let persistence = Arc::clone(&self.shared()?.persistence);
+        let (persistence, codec) = {
+            let shared = self.shared()?;
+            (Arc::clone(&shared.persistence), shared.codec.clone())
+        };
+        let codec = codec.as_deref();
         let _guard = self.persist_lock.lock().await;
-        let snapshot = {
+        let (snapshot, records) = {
             let mut journal = lock(&self.journal);
             journal.updated_at = Some(self.clock.now());
-            journal.clone()
+            let mut records = Vec::new();
+            for entry in lock(&self.tail).drain(..) {
+                let body = serde_json::to_value(&entry).map_err(|e| {
+                    Error::Engine(format!("a journal record could not be serialized: {e}"))
+                })?;
+                let body = super::codec::encode(codec, &body)?;
+                records.push((journal.log_next, body));
+                journal.log_next += 1;
+            }
+            journal.logged = true;
+            (journal.header(), records)
         };
+        if !records.is_empty() {
+            persistence.append_journal(&self.id, records).await?;
+        }
         let current_task = snapshot
             .steps
             .values()
@@ -1359,10 +1662,11 @@ impl InstanceCore {
             .unwrap_or_default();
         let data = serde_json::to_value(&snapshot)
             .map_err(|e| Error::Engine(format!("the journal could not be serialized: {e}")))?;
+        let data = super::codec::encode(codec, &data)?;
         let checkpoint = WorkflowCheckpoint {
             instance_id: self.id.clone(),
             current_task,
-            data: json!({ "jackdaw_native": data }),
+            data: json!({ "jackdaw_native": data, "journal_format": JOURNAL_FORMAT }),
             timestamp: Utc::now(),
         };
         persistence.save_checkpoint(checkpoint).await?;
@@ -1415,7 +1719,8 @@ impl InstanceCore {
         } else {
             (dispatch.signal)(name, argument)?;
         }
-        lock(&self.journal).signals.push(record);
+        lock(&self.journal).signals.push(record.clone());
+        self.log(LogEntry::Signal(record));
         self.state_changed.notify_waiters();
         self.persist().await
     }
@@ -1444,9 +1749,7 @@ impl InstanceCore {
         }
         let dispatch = self.dispatch().await?;
         // An update answers the caller, so it is applied on top of the whole history.
-        while !lock(&self.pending_signals).is_empty() {
-            tokio::task::yield_now().await;
-        }
+        self.caught_up().await;
         let result = match (dispatch.update)(name, argument.clone())? {
             Ok(result) => result,
             Err(rejection) => return Err(Error::Rejected(rejection.to_string())),
@@ -1454,7 +1757,7 @@ impl InstanceCore {
         {
             let mut journal = lock(&self.journal);
             let order = journal.next_order();
-            journal.signals.push(SignalRecord {
+            let record = SignalRecord {
                 name: name.to_string(),
                 argument,
                 update: Some(UpdateRecord {
@@ -1462,7 +1765,9 @@ impl InstanceCore {
                     result: result.clone(),
                 }),
                 order,
-            });
+            };
+            journal.signals.push(record.clone());
+            self.log(LogEntry::Signal(record));
         }
         self.state_changed.notify_waiters();
         self.persist().await?;
@@ -1470,7 +1775,20 @@ impl InstanceCore {
     }
 
     pub(crate) async fn query(&self, name: &str) -> Result<Value, Error> {
-        (self.dispatch().await?.query)(name)
+        let dispatch = self.dispatch().await?;
+        self.caught_up().await;
+        (dispatch.query)(name)
+    }
+
+    /// Waits (briefly) until a rebuilt instance has re-applied the signals in its history, so a query or update sees
+    /// the state the instance had, not the state it starts from. Replay applies them as soon as the workflow reaches
+    /// the point where they arrived, which is normally within moments of a resume.
+    async fn caught_up(&self) {
+        let started = std::time::Instant::now();
+        while !lock(&self.pending_signals).is_empty() && started.elapsed() < Duration::from_secs(5)
+        {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
     }
 
     /// Stores an event for a `wait_for_event`. It is persisted before this returns, so it survives a crash.
@@ -1482,7 +1800,11 @@ impl InstanceCore {
             .inbox
             .entry(name.to_string())
             .or_default()
-            .push_back(payload);
+            .push_back(payload.clone());
+        self.log(LogEntry::Delivered {
+            name: name.to_string(),
+            payload,
+        });
         self.inbox_changed.notify_waiters();
         self.persist().await
     }
@@ -1507,12 +1829,30 @@ impl InstanceCore {
             journal.result = None;
             journal.run
         };
+        let marker = {
+            let mut tail = lock(&self.tail);
+            tail.clear();
+            tail.push(LogEntry::NewRun {
+                run,
+                input: input.clone(),
+            });
+            lock(&self.journal).log_next
+        };
         self.next_seq.store(0, Ordering::SeqCst);
         self.boundary.store(0, Ordering::SeqCst);
         lock(&self.ordinals).clear();
         lock(&self.pending_signals).clear();
         lock(&self.claims).clear();
         self.persist().await?;
+        if !self.ephemeral
+            && self.replay_only.is_none()
+            && let Ok(shared) = self.shared()
+        {
+            // The new run is complete in the log from the marker on; the older runs' records can go.
+            let persistence = Arc::clone(&shared.persistence);
+            drop(shared);
+            persistence.prune_journal(&self.id, marker).await?;
+        }
         self.emit(Event::ContinuedAsNew {
             instance_id: self.id.clone(),
             run,
@@ -1659,8 +1999,11 @@ impl InstanceCore {
     fn record(&self, spec: &StepSpec, key: &str, hash: String, outcome: &Outcome) {
         {
             let mut journal = lock(&self.journal);
-            journal.deadlines.remove(&format!("timeout:{key}"));
-            journal.deadlines.remove(&format!("sleep:{key}"));
+            for deadline in [format!("timeout:{key}"), format!("sleep:{key}")] {
+                if journal.deadlines.remove(&deadline).is_some() {
+                    self.log(LogEntry::DeadlineCleared { key: deadline });
+                }
+            }
             if spec.kind == "event" && matches!(outcome, Outcome::Ok(_)) {
                 // The event moves from the inbox into the step's record in one write.
                 if let Some(queue) = journal.inbox.get_mut(&spec.name) {
@@ -1669,12 +2012,15 @@ impl InstanceCore {
                         journal.inbox.remove(&spec.name);
                     }
                 }
+                self.log(LogEntry::Consumed {
+                    name: spec.name.clone(),
+                });
                 let mut claims = lock(&self.claims);
                 if let Some(claimed) = claims.get_mut(&spec.name) {
                     *claimed = claimed.saturating_sub(1);
                 }
             }
-            journal.insert(
+            let entry = journal.insert(
                 self.replay,
                 spec.seq,
                 StepRecord {
@@ -1687,6 +2033,7 @@ impl InstanceCore {
                     order: 0,
                 },
             );
+            self.log(entry);
         }
     }
 
@@ -1697,7 +2044,8 @@ impl InstanceCore {
             return Ok(deadline);
         }
         let deadline = super::clock::after(self.clock.now(), duration);
-        lock(&self.journal).deadlines.insert(key, deadline);
+        lock(&self.journal).deadlines.insert(key.clone(), deadline);
+        self.log(LogEntry::Deadline { key, at: deadline });
         self.persist().await?;
         Ok(deadline)
     }
@@ -2137,9 +2485,13 @@ pub(crate) async fn drive<W: WorkflowDef>(
     }
 
     core.finish(&result);
-    if let Err(error) = core.persist().await {
-        // The end could not be recorded: report that instead, the instance will be resumed.
-        result = Err(error);
+    match core.persist().await {
+        Ok(()) => core.ended_durably.store(true, Ordering::SeqCst),
+        Err(error) => {
+            // The end could not be recorded: report that instead. The store still says "running", so a new engine
+            // will resume the instance.
+            result = Err(error);
+        }
     }
     let terminal = match &result {
         Ok(output) => Event::WorkflowCompleted {

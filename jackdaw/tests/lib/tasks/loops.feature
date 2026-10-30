@@ -85,7 +85,7 @@ Feature: Loops in Rust workflows
     And a new engine resumes the instance
     Then each item's task ran exactly once in total
 
-  @todo @performance
+  @implemented @performance
   Scenario: A long loop keeps journal writes linear
     Given a loop of 10000 iterations with one step each
     When I execute it with a store that records bytes written

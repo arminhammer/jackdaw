@@ -124,7 +124,7 @@
 //! The error is a [`Divergence`](crate::api::Divergence) that points at your code:
 //!
 //! ```text
-//! non-deterministic replay of workflow shop/order 1.0.0 instance 7c1e..: step #1 at src/order.rs:42
+//! non-deterministic replay of workflow shop/order@1.0.0 instance 7c1e..: step #1 at src/order.rs:42
 //! expected `call notify`, but the history has `call charge`
 //! ```
 //!

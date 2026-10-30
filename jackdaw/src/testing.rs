@@ -11,8 +11,8 @@
 //! - [`ManualClock`] only moves when the test calls [`ManualClock::advance`]. Share one between engines to keep time
 //!   moving across a simulated crash.
 use crate::api::{
-    BoxFuture, CatalogDef, Clock as EngineClock, Engine, EngineBuilder, Error, IntoTaskSet, Redb,
-    RegisterTask, WorkflowDef,
+    BoxFuture, CatalogDef, Clock as EngineClock, Engine, EngineBuilder, Error, IntoTaskSet,
+    RegisterTask, Store, WorkflowDef,
 };
 use chrono::{DateTime, Utc};
 use std::ops::Deref;
@@ -211,7 +211,7 @@ impl TestEngineBuilder {
     }
 
     #[must_use]
-    pub fn store(mut self, store: Redb) -> Self {
+    pub fn store(mut self, store: impl Store) -> Self {
         self.inner = self.inner.store(store);
         self
     }

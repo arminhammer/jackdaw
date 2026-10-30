@@ -138,6 +138,20 @@ pub struct LibWorld {
     pub recovery: Option<Recovery>,
     pub notes: HashMap<String, Value>,
     pub mark: Option<usize>,
+    /// A store the scenario built itself (it outlives engines, like a database would).
+    pub persistence: Option<Arc<dyn jackdaw::persistence::PersistenceProvider>>,
+    /// Extra builder settings for every engine of the scenario (a codec, ...).
+    pub extras: Vec<Arc<dyn Fn(EngineBuilder) -> EngineBuilder + Send + Sync>>,
+    /// The Postgres database of this scenario, when the store under test is Postgres.
+    pub postgres_url: Option<String>,
+    /// The recording/failing store of the durability scenarios.
+    pub test_store: Option<Arc<super::durability::TestStore>>,
+}
+
+/// Which durable store the scenarios run on: `JACKDAW_TEST_STORE=redb|sqlite|postgres` (default redb). Postgres needs
+/// `DATABASE_URL` pointing at a server where the test user may create databases.
+pub fn store_kind() -> String {
+    std::env::var("JACKDAW_TEST_STORE").unwrap_or_else(|_| "redb".to_string())
 }
 
 impl fmt::Debug for LibWorld {
@@ -177,17 +191,49 @@ impl LibWorld {
             recovery: None,
             notes: HashMap::new(),
             mark: None,
+            persistence: None,
+            extras: Vec::new(),
+            postgres_url: None,
+            test_store: None,
         }
     }
 
     /// A builder with this scenario's store, clock, tasks and workflows.
     pub fn builder(&self) -> EngineBuilder {
         let mut builder = Engine::builder().clock(self.clock.clone());
-        if self.durable {
-            builder = builder.store(
-                Redb::open(self.dir.path().join("jackdaw.redb"))
-                    .expect("the scenario's store opens"),
-            );
+        if let Some(persistence) = &self.persistence {
+            builder = builder.persistence(Arc::clone(persistence));
+        } else if self.durable {
+            builder = match store_kind().as_str() {
+                "sqlite" => {
+                    let path = self.dir.path().join("jackdaw.sqlite");
+                    let store = tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current()
+                            .block_on(jackdaw::api::Sqlite::open(&path))
+                    })
+                    .expect("the scenario's SQLite store opens");
+                    builder.store(store)
+                }
+                "postgres" => {
+                    let url = self
+                        .postgres_url
+                        .clone()
+                        .expect("a Postgres database for the scenario");
+                    let store = tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current()
+                            .block_on(jackdaw::api::Postgres::connect(&url))
+                    })
+                    .expect("the scenario's Postgres store connects");
+                    builder.store(store)
+                }
+                _ => builder.store(
+                    Redb::open(self.dir.path().join("jackdaw.redb"))
+                        .expect("the scenario's store opens"),
+                ),
+            };
+        }
+        for extra in &self.extras {
+            builder = extra(builder);
         }
         if !self.no_tasks {
             for set in &self.harnesses.sets {
@@ -280,6 +326,11 @@ impl LibWorld {
 
     /// Waits for run `index` to end, moving the clock to the next deadline whenever nothing else is happening.
     pub async fn outcome(&mut self, index: usize) -> Outcome {
+        self.outcome_within(index, Duration::from_secs(30)).await
+    }
+
+    /// Like [`outcome`](Self::outcome), with a different real-time limit (for long scenarios).
+    pub async fn outcome_within(&mut self, index: usize, limit: Duration) -> Outcome {
         if let Some(outcome) = &self.runs[index].outcome {
             return outcome.clone();
         }
@@ -294,8 +345,8 @@ impl LibWorld {
                 }
             }
             assert!(
-                started.elapsed() < Duration::from_secs(30),
-                "run `{}` did not finish within 30s of real time",
+                started.elapsed() < limit,
+                "run `{}` did not finish within {limit:?} of real time",
                 self.runs[index].label
             );
         };
@@ -326,7 +377,7 @@ impl LibWorld {
         }
         // Let the runtime drop the aborted instance tasks; with a durable store, until the file can be opened again.
         tokio::time::sleep(Duration::from_millis(20)).await;
-        if self.durable {
+        if self.durable && self.persistence.is_none() && store_kind() == "redb" {
             let path = self.dir.path().join("jackdaw.redb");
             let started = Instant::now();
             while Redb::open(&path).is_err() {

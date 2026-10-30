@@ -63,7 +63,7 @@ Feature: Incident response
   @implemented
   Scenario: No acknowledgement escalates every 15 minutes
     When I execute "Incident" with an escalation chain of 3 people
-    And 45 minutes pass without an "ack"
+    And 30 minutes pass without an "ack"
     Then "Page" ran 3 times, once per person in order
     When 15 more minutes pass
     Then the last person is paged again

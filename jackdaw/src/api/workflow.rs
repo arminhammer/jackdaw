@@ -44,7 +44,7 @@ impl WorkflowId {
 
 impl fmt::Display for WorkflowId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}/{} {}", self.namespace, self.name, self.version)
+        write!(f, "{}/{}@{}", self.namespace, self.name, self.version)
     }
 }
 

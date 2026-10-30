@@ -7,8 +7,35 @@ use cucumber::{given, then, when};
 use serde_json::json;
 
 #[given(regex = r"^an engine with a Redb store( and a controllable clock)?$")]
-fn redb_engine(world: &mut LibWorld) {
+async fn redb_engine(world: &mut LibWorld) {
+    durable(world).await;
+}
+
+/// Makes the scenario's engines durable, on the store `JACKDAW_TEST_STORE` names.
+pub async fn durable(world: &mut LibWorld) {
     world.durable = true;
+    if super::world::store_kind() == "postgres" && world.postgres_url.is_none() {
+        world.postgres_url = Some(fresh_postgres_database().await);
+    }
+}
+
+/// A new, empty database on the server `DATABASE_URL` points at.
+async fn fresh_postgres_database() -> String {
+    use sqlx::Connection as _;
+    let admin =
+        std::env::var("DATABASE_URL").expect("DATABASE_URL for JACKDAW_TEST_STORE=postgres");
+    let name = format!("jackdaw_{}", uuid::Uuid::new_v4().simple());
+    let mut connection = sqlx::PgConnection::connect(&admin)
+        .await
+        .expect("connect to Postgres");
+    sqlx::query(&format!("CREATE DATABASE {name}"))
+        .execute(&mut connection)
+        .await
+        .expect("create a scenario database");
+    let base = admin
+        .rsplit_once('/')
+        .map_or(admin.as_str(), |(base, _)| base);
+    format!("{base}/{name}")
 }
 
 #[given("an in-memory engine")]
@@ -17,8 +44,8 @@ fn memory_engine(world: &mut LibWorld) {
 }
 
 #[given("a durable store shared by two engine lifetimes")]
-fn shared_store(world: &mut LibWorld) {
-    world.durable = true;
+async fn shared_store(world: &mut LibWorld) {
+    durable(world).await;
 }
 
 #[given(regex = r"^a workflow whose run does:$")]
@@ -182,4 +209,13 @@ async fn drop_and_resume(world: &mut LibWorld) {
     world.probe.release_all();
     let last = world.last();
     world.resume(last).await;
+}
+
+#[given("the workflow:")]
+fn the_workflow(world: &mut LibWorld, step: &Step) {
+    let code = step
+        .docstring
+        .as_deref()
+        .expect("the step has the workflow's code");
+    world.set_fixture(super::fixture_by_code(code));
 }

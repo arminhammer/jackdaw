@@ -5,17 +5,23 @@
 //! task invocation. Workflows under test are [`world::Fixture`]s, registered on every engine the scenario builds.
 #![allow(dead_code)]
 
+pub mod approval;
+pub mod batch;
 pub mod calling_tasks;
 pub mod cancel;
 pub mod children;
 pub mod common;
 pub mod conditionals;
+pub mod durability;
 pub mod errors;
 pub mod events;
+pub mod incident;
 pub mod loops;
 pub mod parallel;
 pub mod recorded;
+pub mod saga;
 pub mod signals;
+pub mod subscription;
 pub mod support;
 pub mod timers;
 pub mod world;
@@ -41,6 +47,12 @@ pub fn harnesses(probe: &Arc<Probe>) -> Harnesses {
     children::defaults(probe);
     recorded::defaults(probe);
     cancel::defaults(probe);
+    durability::defaults(probe);
+    saga::defaults(probe);
+    approval::defaults(probe);
+    batch::defaults(probe);
+    incident::defaults(probe);
+    subscription::defaults(probe);
     let inventory = Arc::new(calling_tasks::Inventory::default());
     let mut sets: Vec<TaskSet> = Vec::new();
     let p = Arc::clone(probe);
@@ -74,6 +86,24 @@ pub fn harnesses(probe: &Arc<Probe>) -> Harnesses {
     }));
     let p = Arc::clone(probe);
     sets.push(Box::new(move |b| b.tasks(cancel::Cancels(Arc::clone(&p)))));
+    let p = Arc::clone(probe);
+    sets.push(Box::new(move |b| {
+        b.tasks(durability::Durable(Arc::clone(&p)))
+    }));
+    let p = Arc::clone(probe);
+    sets.push(Box::new(move |b| b.tasks(saga::Saga(Arc::clone(&p)))));
+    let p = Arc::clone(probe);
+    sets.push(Box::new(move |b| {
+        b.tasks(approval::Approvals(Arc::clone(&p)))
+    }));
+    let p = Arc::clone(probe);
+    sets.push(Box::new(move |b| b.tasks(batch::Batch(Arc::clone(&p)))));
+    let p = Arc::clone(probe);
+    sets.push(Box::new(move |b| b.tasks(incident::Ops(Arc::clone(&p)))));
+    let p = Arc::clone(probe);
+    sets.push(Box::new(move |b| {
+        b.tasks(subscription::Billing(Arc::clone(&p)))
+    }));
     Harnesses {
         probe: Arc::clone(probe),
         sets,
@@ -95,6 +125,12 @@ pub fn catalog() -> Vec<Fixture> {
     all.extend(children::fixtures());
     all.extend(recorded::fixtures());
     all.extend(cancel::fixtures());
+    all.extend(durability::fixtures());
+    all.extend(saga::fixtures());
+    all.extend(approval::fixtures());
+    all.extend(batch::fixtures());
+    all.extend(incident::fixtures());
+    all.extend(subscription::fixtures());
     all
 }
 
@@ -102,6 +138,8 @@ pub fn catalog() -> Vec<Fixture> {
 pub fn variants() -> Vec<Fixture> {
     let mut all = Vec::new();
     all.extend(conditionals::variants());
+    all.extend(durability::variants());
+    all.extend(subscription::variants());
     all
 }
 
@@ -134,6 +172,11 @@ pub fn fixture_by_code(code: &str) -> Fixture {
     table.extend(loops::by_code());
     table.extend(parallel::by_code());
     table.extend(errors::by_code());
+    table.extend(saga::by_code());
+    table.extend(approval::by_code());
+    table.extend(batch::by_code());
+    table.extend(incident::by_code());
+    table.extend(subscription::by_code());
     let mut matches = table.iter().filter(|(needle, _)| code.contains(needle));
     let (_, name) = matches
         .next()

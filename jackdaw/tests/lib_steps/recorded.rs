@@ -107,7 +107,11 @@ fn same_value(world: &mut LibWorld) {
 }
 
 #[then(regex = r#"^"Engine::replay_all" reports no divergence$"#)]
-fn replay_all_clean(world: &mut LibWorld) {
+async fn replay_all_clean(world: &mut LibWorld) {
+    if world.divergences.is_none() {
+        let engine = world.engine();
+        world.divergences = Some(engine.replay_all().await.expect("replay_all"));
+    }
     assert!(world.divergences.as_ref().expect("replayed").is_empty());
 }
 

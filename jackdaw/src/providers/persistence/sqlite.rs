@@ -1,4 +1,4 @@
-use crate::persistence::{Error, PersistenceProvider, Result, SerializationSnafu};
+use crate::persistence::{Error, JournalRecord, PersistenceProvider, Result, SerializationSnafu};
 use crate::workflow::{WorkflowCheckpoint, WorkflowEvent};
 use async_trait::async_trait;
 use snafu::prelude::*;
@@ -188,6 +188,92 @@ impl PersistenceProvider for SqlitePersistence {
             }
             None => Ok(None),
         }
+    }
+
+    async fn append_journal(&self, instance_id: &str, records: Vec<JournalRecord>) -> Result<()> {
+        let mut transaction = self.pool.begin().await.map_err(|e| Error::Database {
+            message: format!("Failed to begin a transaction: {e}"),
+        })?;
+        for (position, body) in records {
+            sqlx::query(
+                "INSERT INTO workflow_journal (instance_id, position, body) VALUES (?, ?, ?)",
+            )
+            .bind(instance_id)
+            .bind(i64::try_from(position).unwrap_or(i64::MAX))
+            .bind(serde_json::to_string(&body).context(SerializationSnafu)?)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|e| Error::Database {
+                message: format!("Failed to append a journal record: {e}"),
+            })?;
+        }
+        transaction.commit().await.map_err(|e| Error::Database {
+            message: format!("Failed to commit the journal: {e}"),
+        })
+    }
+
+    async fn load_journal(&self, instance_id: &str) -> Result<Vec<JournalRecord>> {
+        let rows = sqlx::query_as::<_, (i64, String)>(
+            "SELECT position, body FROM workflow_journal WHERE instance_id = ? ORDER BY position ASC",
+        )
+        .bind(instance_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| Error::Database {
+            message: format!("Failed to load the journal: {e}"),
+        })?;
+        let mut records = Vec::with_capacity(rows.len());
+        for (position, body) in rows {
+            records.push((
+                u64::try_from(position).unwrap_or(0),
+                serde_json::from_str(&body).context(SerializationSnafu)?,
+            ));
+        }
+        Ok(records)
+    }
+
+    async fn prune_journal(&self, instance_id: &str, before: u64) -> Result<()> {
+        sqlx::query("DELETE FROM workflow_journal WHERE instance_id = ? AND position < ?")
+            .bind(instance_id)
+            .bind(i64::try_from(before).unwrap_or(i64::MAX))
+            .execute(&self.pool)
+            .await
+            .map_err(|e| Error::Database {
+                message: format!("Failed to prune the journal: {e}"),
+            })?;
+        Ok(())
+    }
+
+    async fn list_instances(&self) -> Result<Option<Vec<String>>> {
+        let ids = sqlx::query_scalar::<_, String>("SELECT instance_id FROM workflow_checkpoints")
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| Error::Database {
+                message: format!("Failed to list instances: {e}"),
+            })?;
+        Ok(Some(ids))
+    }
+
+    async fn delete_instance(&self, instance_id: &str) -> Result<()> {
+        let mut transaction = self.pool.begin().await.map_err(|e| Error::Database {
+            message: format!("Failed to begin a transaction: {e}"),
+        })?;
+        for table in [
+            "workflow_checkpoints",
+            "workflow_events",
+            "workflow_journal",
+        ] {
+            sqlx::query(&format!("DELETE FROM {table} WHERE instance_id = ?"))
+                .bind(instance_id)
+                .execute(&mut *transaction)
+                .await
+                .map_err(|e| Error::Database {
+                    message: format!("Failed to delete from {table}: {e}"),
+                })?;
+        }
+        transaction.commit().await.map_err(|e| Error::Database {
+            message: format!("Failed to commit the deletion: {e}"),
+        })
     }
 }
 

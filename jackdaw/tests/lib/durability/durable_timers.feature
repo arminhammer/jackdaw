@@ -14,7 +14,7 @@ Feature: Durable timers survive restarts
     And the clock advances 10 seconds
     Then the workflow completes with "done"
 
-  @todo @crash
+  @implemented @crash
   Scenario: A resumed sleep waits only for the time that is left
     Given a workflow that calls "ctx.sleep(1.hours())" and then returns "done"
     When I execute it
@@ -25,7 +25,7 @@ Feature: Durable timers survive restarts
     When the clock advances 20 minutes
     Then the workflow completes with "done"
 
-  @todo @crash
+  @implemented @crash
   Scenario: A timer that fired while the process was down fires on resume
     Given a workflow that calls "ctx.sleep(5.minutes())" and then returns "done"
     When I execute it
@@ -34,13 +34,13 @@ Feature: Durable timers survive restarts
     And a new engine on the same store resumes the instance
     Then the workflow completes with "done" without waiting
 
-  @todo
+  @implemented
   Scenario: The fire time is recorded in the journal when the sleep starts
     Given a workflow that calls "ctx.sleep(1.hours())"
     When I execute it at "2026-01-01T00:00:00Z"
     Then the journal records the sleep step with fire time "2026-01-01T01:00:00Z"
 
-  @todo
+  @implemented
   Scenario: A replayed sleep does not wait at all
     Given a completed instance that slept for 1 hour
     When I call "Engine::replay_all"

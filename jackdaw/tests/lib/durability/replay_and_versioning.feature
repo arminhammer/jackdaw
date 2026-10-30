@@ -4,6 +4,9 @@ Feature: Changing a workflow while instances are running
   I want to know before deploying whether a code change breaks running instances
   So that I can patch the workflow instead of corrupting them
 
+  Background:
+    Given an engine with a Redb store
+
   @implemented
   Scenario: replay_all reports no divergence for an unchanged workflow
     Given a store with 10 completed and 5 running instances of a workflow
@@ -33,7 +36,7 @@ Feature: Changing a workflow while instances are running
     Then it fails with "Error::NonDeterminism" carrying the divergence
     And it does not run any step past the divergence
 
-  @todo
+  @implemented
   Scenario: Workflow versions are side by side
     Given an engine that registers "shop/order@1.0.0" and "shop/order@2.0.0"
     When "Engine::recover" resumes instances of both versions
