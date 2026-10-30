@@ -246,6 +246,20 @@ impl PersistenceProvider for PostgresPersistence {
         Ok(())
     }
 
+    async fn create_checkpoint(&self, checkpoint: WorkflowCheckpoint) -> Result<bool> {
+        let result = sqlx::query("INSERT INTO workflow_checkpoints (instance_id, current_task, data, timestamp) VALUES ($1, $2, $3, $4) ON CONFLICT (instance_id) DO NOTHING")
+            .bind(&checkpoint.instance_id)
+            .bind(&checkpoint.current_task)
+            .bind(&checkpoint.data)
+            .bind(checkpoint.timestamp)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| Error::Database {
+                message: format!("Failed to create checkpoint: {e}"),
+            })?;
+        Ok(result.rows_affected() == 1)
+    }
+
     async fn list_instances(&self) -> Result<Option<Vec<String>>> {
         let ids = sqlx::query_scalar::<_, String>("SELECT instance_id FROM workflow_checkpoints")
             .fetch_all(&self.pool)

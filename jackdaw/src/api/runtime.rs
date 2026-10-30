@@ -26,6 +26,7 @@ use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use sha2::{Digest, Sha256};
 use std::any::TypeId;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::future::Future;
 use std::marker::PhantomData;
 use std::panic::Location;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -477,6 +478,9 @@ pub(crate) struct Journal {
     /// Whether this journal's content is already in the store's journal log (it was loaded from it).
     #[serde(skip)]
     pub logged: bool,
+    /// A journal for an instance that does not exist in the store yet (made by `Journal::new`).
+    #[serde(skip)]
+    pub fresh: bool,
     /// Which run of the instance this journal belongs to (0 or 1: the first; see `continue_as_new`).
     #[serde(default)]
     pub run: u32,
@@ -503,6 +507,7 @@ impl Journal {
             history: 0,
             log_next: 0,
             logged: false,
+            fresh: true,
             run: 1,
             created_at: None,
             updated_at: None,
@@ -549,6 +554,7 @@ impl Journal {
             history: self.history,
             log_next: self.log_next,
             logged: self.logged,
+            fresh: false,
             run: self.run,
             created_at: self.created_at,
             updated_at: self.updated_at,
@@ -710,6 +716,8 @@ pub(crate) struct Shared {
     pub shutting_down: std::sync::atomic::AtomicBool,
     /// How long finished instances are kept (see `Engine::sweep`).
     pub retention: Option<Duration>,
+    /// Wakes the schedules when one is paused, resumed or removed.
+    pub schedules_changed: Arc<Notify>,
 }
 
 /// Counts running task steps and wakes shutdown when the count drops.
@@ -795,6 +803,7 @@ impl Shared {
             active_tasks: Arc::new(ActiveTasks::default()),
             shutting_down: std::sync::atomic::AtomicBool::new(false),
             retention: None,
+            schedules_changed: Arc::new(Notify::new()),
         }
     }
 
@@ -828,6 +837,12 @@ impl Shared {
             handle.abort();
         }
         lock(&self.instances).clear();
+    }
+
+    /// Runs a background task (a schedule) that stops with the engine.
+    pub(crate) fn spawn_background(&self, task: impl Future<Output = ()> + Send + 'static) {
+        let handle = tokio::spawn(task);
+        lock(&self.running).push(handle);
     }
 
     pub(crate) fn check_accepting(&self) -> Result<(), Error> {
@@ -972,6 +987,7 @@ impl Shared {
         let now = self.clock.now();
         journal.created_at.get_or_insert(now);
         journal.updated_at = Some(now);
+        let fresh = journal.fresh;
         let core = InstanceCore::new(
             id,
             entry.id.clone(),
@@ -981,7 +997,20 @@ impl Shared {
             None,
             false,
         );
-        core.persist().await?;
+        if fresh && !core.ephemeral && core.replay_only.is_none() {
+            // The claim writes the first checkpoint, so it stands in for the first persist.
+            if !core.claim().await? {
+                return Err(Error::invalid(format!(
+                    "workflow instance `{}` already exists (another engine started it)",
+                    core.id
+                )));
+            }
+            if !lock(&core.tail).is_empty() {
+                core.persist().await?;
+            }
+        } else {
+            core.persist().await?;
+        }
         if self.persistence.list_instances().await?.is_none() {
             self.add_to_index(&core.id).await?;
         }
@@ -1713,23 +1742,49 @@ impl InstanceCore {
         if !records.is_empty() {
             persistence.append_journal(&self.id, records).await?;
         }
+        let checkpoint = self.checkpoint_of(&snapshot, codec)?;
+        persistence.save_checkpoint(checkpoint).await?;
+        Ok(())
+    }
+
+    /// Claims the instance's id in the store: writes its first checkpoint only if no instance has the id yet.
+    /// Returns false if another engine (or an earlier start) already created it.
+    async fn claim(&self) -> Result<bool, Error> {
+        let (persistence, codec) = {
+            let shared = self.shared()?;
+            (Arc::clone(&shared.persistence), shared.codec.clone())
+        };
+        let header = {
+            let mut journal = lock(&self.journal);
+            journal.updated_at = Some(self.clock.now());
+            // An empty log: later records are appended to it.
+            journal.logged = true;
+            journal.header()
+        };
+        let checkpoint = self.checkpoint_of(&header, codec.as_deref())?;
+        Ok(persistence.create_checkpoint(checkpoint).await?)
+    }
+
+    fn checkpoint_of(
+        &self,
+        snapshot: &Journal,
+        codec: Option<&dyn super::codec::PayloadCodec>,
+    ) -> Result<WorkflowCheckpoint, Error> {
         let current_task = snapshot
             .steps
             .values()
             .next_back()
             .map(|record| record.name.clone())
             .unwrap_or_default();
-        let data = serde_json::to_value(&snapshot)
+        let data = serde_json::to_value(snapshot)
             .map_err(|e| Error::Engine(format!("the journal could not be serialized: {e}")))?;
         let data = super::codec::encode(codec, &data)?;
-        let checkpoint = WorkflowCheckpoint {
+        Ok(WorkflowCheckpoint {
             instance_id: self.id.clone(),
             current_task,
             data: json!({ "jackdaw_native": data, "journal_format": JOURNAL_FORMAT }),
             timestamp: Utc::now(),
-        };
-        persistence.save_checkpoint(checkpoint).await?;
-        Ok(())
+        })
     }
 
     // ---- signals, queries and events from outside ----

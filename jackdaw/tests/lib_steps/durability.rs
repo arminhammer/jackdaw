@@ -405,6 +405,14 @@ impl PersistenceProvider for TestStore {
         self.inner.save_checkpoint(checkpoint).await
     }
 
+    async fn create_checkpoint(
+        &self,
+        checkpoint: WorkflowCheckpoint,
+    ) -> jackdaw::persistence::Result<bool> {
+        self.record("checkpoint", &checkpoint);
+        self.inner.create_checkpoint(checkpoint).await
+    }
+
     async fn get_checkpoint(
         &self,
         instance_id: &str,

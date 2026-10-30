@@ -84,6 +84,21 @@ pub trait PersistenceProvider: Send + Sync + std::fmt::Debug {
         .await
     }
 
+    /// Saves `checkpoint` only if there is none for its instance yet, and says whether it did. Built-in stores do this
+    /// atomically, which is what keeps two engines from starting the same instance; the default reads then writes, so
+    /// a store shared by several engines (or one that wraps another) should override it.
+    async fn create_checkpoint(&self, checkpoint: WorkflowCheckpoint) -> Result<bool> {
+        if self
+            .get_checkpoint(&checkpoint.instance_id)
+            .await?
+            .is_some()
+        {
+            return Ok(false);
+        }
+        self.save_checkpoint(checkpoint).await?;
+        Ok(true)
+    }
+
     /// The ids of every instance with a checkpoint, or `None` if this store cannot list them (the engine then keeps an
     /// index of its own).
     async fn list_instances(&self) -> Result<Option<Vec<String>>> {

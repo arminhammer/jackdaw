@@ -13,6 +13,7 @@ mod engine;
 mod error;
 mod event;
 mod runtime;
+mod schedule;
 mod store;
 mod task;
 mod workflow;
@@ -34,6 +35,7 @@ pub use error::{
 };
 pub use event::{Event, EventStream};
 pub use runtime::{Registry, register_workflow};
+pub use schedule::{CatchUp, Cron, Overlap, Schedule};
 pub use store::{Postgres, Redb, Sqlite, Store};
 pub use task::{
     BoxFuture, NativeTask, RegisterTask, Retry, TaskContext, TaskDef, TaskOptions, TaskRef,

@@ -100,6 +100,15 @@ impl PersistenceProvider for InMemoryPersistence {
         Ok(())
     }
 
+    async fn create_checkpoint(&self, checkpoint: WorkflowCheckpoint) -> Result<bool> {
+        let mut checkpoints = lock(&self.checkpoints);
+        if checkpoints.contains_key(&checkpoint.instance_id) {
+            return Ok(false);
+        }
+        checkpoints.insert(checkpoint.instance_id.clone(), checkpoint);
+        Ok(true)
+    }
+
     async fn list_instances(&self) -> Result<Option<Vec<String>>> {
         Ok(Some(lock(&self.checkpoints).keys().cloned().collect()))
     }

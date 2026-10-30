@@ -22,6 +22,7 @@ pub mod ops;
 pub mod parallel;
 pub mod recorded;
 pub mod saga;
+pub mod schedules;
 pub mod signals;
 pub mod subscription;
 pub mod support;
@@ -56,6 +57,7 @@ pub fn harnesses(probe: &Arc<Probe>) -> Harnesses {
     incident::defaults(probe);
     subscription::defaults(probe);
     api::defaults(probe);
+    schedules::defaults(probe);
     let inventory = Arc::new(calling_tasks::Inventory::default());
     let mut sets: Vec<TaskSet> = Vec::new();
     let p = Arc::clone(probe);
@@ -110,6 +112,10 @@ pub fn harnesses(probe: &Arc<Probe>) -> Harnesses {
     sets.extend(api::task_sets(probe));
     let p = Arc::clone(probe);
     sets.push(Box::new(move |b| b.tasks(ops::Lifecycle(Arc::clone(&p)))));
+    let p = Arc::clone(probe);
+    sets.push(Box::new(move |b| {
+        b.tasks(schedules::Scheduled(Arc::clone(&p)))
+    }));
     Harnesses {
         probe: Arc::clone(probe),
         sets,
@@ -139,6 +145,7 @@ pub fn catalog() -> Vec<Fixture> {
     all.extend(subscription::fixtures());
     all.extend(api::fixtures());
     all.extend(ops::fixtures());
+    all.extend(schedules::fixtures());
     all
 }
 

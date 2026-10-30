@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use crate::persistence::{Error, JournalRecord, PersistenceProvider, Result, SerializationSnafu};
 use crate::workflow::{WorkflowCheckpoint, WorkflowEvent};
+use redb::ReadableTable as _;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 #[derive(Debug)]
@@ -302,6 +303,37 @@ impl PersistenceProvider for RedbPersistence {
             write_txn
                 .commit()
                 .map_err(|e| db_error("Failed to commit transaction", e))
+        })
+        .await
+        .map_err(|e| db_error("Task join error", e))?
+    }
+
+    async fn create_checkpoint(&self, checkpoint: WorkflowCheckpoint) -> Result<bool> {
+        let db = self.db.clone();
+        tokio::task::spawn_blocking(move || -> Result<bool> {
+            let write_txn = db
+                .begin_write()
+                .map_err(|e| db_error("Failed to begin write transaction", e))?;
+            let created = {
+                let mut table = write_txn
+                    .open_table(CHECKPOINTS_TABLE)
+                    .map_err(|e| db_error("Failed to open checkpoints table", e))?;
+                let exists = table
+                    .get(checkpoint.instance_id.as_str())
+                    .map_err(|e| db_error("Failed to read a checkpoint", e))?
+                    .is_some();
+                if !exists {
+                    let value = serde_json::to_vec(&checkpoint).context(SerializationSnafu)?;
+                    table
+                        .insert(checkpoint.instance_id.as_str(), value.as_slice())
+                        .map_err(|e| db_error("Failed to insert checkpoint", e))?;
+                }
+                !exists
+            };
+            write_txn
+                .commit()
+                .map_err(|e| db_error("Failed to commit transaction", e))?;
+            Ok(created)
         })
         .await
         .map_err(|e| db_error("Task join error", e))?

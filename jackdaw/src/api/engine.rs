@@ -157,6 +157,7 @@ pub struct EngineBuilder {
     clock: Option<SharedClock>,
     codec: Option<Arc<dyn PayloadCodec>>,
     retention: Option<std::time::Duration>,
+    schedules: Vec<super::schedule::Schedule>,
 }
 
 impl Default for EngineBuilder {
@@ -179,6 +180,7 @@ impl EngineBuilder {
             clock: None,
             codec: None,
             retention: None,
+            schedules: Vec::new(),
         }
     }
 
@@ -244,6 +246,14 @@ impl EngineBuilder {
 
     pub(crate) fn self_replay(mut self, enabled: bool) -> Self {
         self.self_replay = enabled;
+        self
+    }
+
+    /// Starts a workflow on a schedule while the engine runs (see [`Schedule`](super::Schedule)). Schedules start when
+    /// the engine is built inside a tokio runtime.
+    #[must_use]
+    pub fn schedule(mut self, schedule: super::schedule::Schedule) -> Self {
+        self.schedules.push(schedule);
         self
     }
 
@@ -317,9 +327,13 @@ impl EngineBuilder {
             self.codec,
         );
         shared.retention = self.retention;
-        Ok(Engine {
-            shared: Arc::new(shared),
-        })
+        let shared = Arc::new(shared);
+        if tokio::runtime::Handle::try_current().is_ok() {
+            for schedule in self.schedules {
+                shared.spawn_background(super::schedule::drive(schedule, Arc::downgrade(&shared)));
+            }
+        }
+        Ok(Engine { shared })
     }
 }
 
@@ -448,6 +462,9 @@ impl Engine {
             .id
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         if let Some(journal) = self.shared.load_journal(&id).await? {
+            if options.create_only {
+                return Err(Error::invalid(format!("instance `{id}` already exists")));
+            }
             if journal.workflow != info.id {
                 return Err(Error::invalid(format!(
                     "instance `{id}` already exists and belongs to workflow {}, not {}",
@@ -612,6 +629,39 @@ impl Engine {
             parent: journal.parent.clone(),
             workflow: journal.workflow,
         })
+    }
+
+    pub(crate) fn from_shared(shared: Arc<Shared>) -> Self {
+        Self { shared }
+    }
+
+    pub(crate) fn shared(&self) -> &Arc<Shared> {
+        &self.shared
+    }
+
+    /// Stops a schedule from firing until [`resume_schedule`](Self::resume_schedule). Stored, so it holds across
+    /// restarts and for every engine on the store.
+    ///
+    /// # Errors
+    /// If the store cannot be written.
+    pub async fn pause_schedule(&self, name: &str) -> Result<(), Error> {
+        super::schedule::update_state(self, name, |state| state.paused = true).await
+    }
+
+    /// Lets a paused schedule fire again. Fire times that passed while it was paused follow its catch-up policy.
+    ///
+    /// # Errors
+    /// If the store cannot be written.
+    pub async fn resume_schedule(&self, name: &str) -> Result<(), Error> {
+        super::schedule::update_state(self, name, |state| state.paused = false).await
+    }
+
+    /// Removes a schedule for good: it does not fire again, here or after a restart.
+    ///
+    /// # Errors
+    /// If the store cannot be written.
+    pub async fn remove_schedule(&self, name: &str) -> Result<(), Error> {
+        super::schedule::update_state(self, name, |state| state.removed = true).await
     }
 
     /// Removes a finished instance (its journal, history and checkpoint) from the store.
@@ -1076,6 +1126,8 @@ impl ListFilter {
 pub struct ExecuteOptions {
     id: Option<String>,
     timeout: Option<std::time::Duration>,
+    /// Fail with `Error::Invalid` instead of returning an existing instance (used by schedules).
+    pub(crate) create_only: bool,
 }
 
 impl ExecuteOptions {
@@ -1089,6 +1141,13 @@ impl ExecuteOptions {
     #[must_use]
     pub fn id(mut self, id: impl Into<String>) -> Self {
         self.id = Some(id.into());
+        self
+    }
+
+    /// Fails instead of returning an existing instance with the same id.
+    #[must_use]
+    pub(crate) fn create_only(mut self) -> Self {
+        self.create_only = true;
         self
     }
 

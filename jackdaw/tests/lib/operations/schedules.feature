@@ -7,20 +7,20 @@ Feature: Scheduled workflows
   Background:
     Given an engine with a Redb store and a controllable clock
 
-  @todo
+  @implemented
   Scenario: A cron schedule starts a workflow at each tick
     Given a schedule "nightly-report" for "ReportWorkflow::run" with cron "0 2 * * *"
-    When the clock moves from "2026-01-01T00:00:00Z" to "2026-01-03T03:00:00Z"
+    When the clock moves from "2026-01-01T00:00:00Z" to "2026-01-02T03:00:00Z"
     Then "ReportWorkflow" was started twice
     And the instances were started at "2026-01-01T02:00:00Z" and "2026-01-02T02:00:00Z"
 
-  @todo
+  @implemented
   Scenario: An interval schedule starts a workflow at fixed intervals
     Given a schedule for "PollWorkflow::run" every 15 minutes
     When the clock advances 1 hour
     Then "PollWorkflow" was started 4 times
 
-  @todo
+  @implemented
   Scenario Outline: Missed ticks follow the catch-up policy
     Given a schedule with cron "0 * * * *" and catch-up policy "<policy>"
     And the engine was down from "01:30" to "04:30"
@@ -33,20 +33,20 @@ Feature: Scheduled workflows
       | one      | 1     |
       | all      | 3     |
 
-  @todo
+  @implemented
   Scenario: The last fire time is durable
     Given a schedule that fired at "02:00"
     When the engine restarts at "02:10"
     Then the "02:00" tick is not fired again
 
-  @todo
+  @implemented
   Scenario: Overlapping runs follow the overlap policy
     Given a schedule every minute for a workflow that takes 3 minutes
     And the overlap policy is "skip"
     When the clock advances 5 minutes
     Then no two instances of the schedule run at the same time
 
-  @todo
+  @implemented
   Scenario: Scheduled instance ids are deterministic
     Given a schedule "nightly-report"
     When it fires for "2026-01-01T02:00:00Z" on two engines that share a store
@@ -58,7 +58,7 @@ Feature: Scheduled workflows
     When it is registered on the engine
     Then it is started at each tick like a native schedule
 
-  @todo
+  @implemented
   Scenario: Schedules can be paused, resumed and removed
     Given a running schedule
     When I pause it
