@@ -59,7 +59,7 @@ Feature: Batch import with fan-out and fan-in
     And the workflow fails with "too many failed chunks"
     And "Aggregate" never ran
 
-  @todo @crash
+  @implemented @crash
   Scenario: A crash mid-fan-out only re-imports unfinished chunks
     Given the engine is dropped after 25 of 40 chunks finished
     When a new engine resumes the instance
@@ -74,7 +74,7 @@ Feature: Batch import with fan-out and fan-in
     Then the workflow fails with chunk 5's fault
     And "Aggregate" never ran
 
-  @todo @performance
+  @implemented @performance
   Scenario: A large fan-out stays fast
     When I execute "Import" with 5000 chunks and parallelism 64 on a Redb store
     Then it completes in under 30 seconds with no-op chunk tasks

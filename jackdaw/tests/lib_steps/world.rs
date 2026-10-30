@@ -144,6 +144,8 @@ pub struct LibWorld {
     pub extras: Vec<Arc<dyn Fn(EngineBuilder) -> EngineBuilder + Send + Sync>>,
     /// The Postgres database of this scenario, when the store under test is Postgres.
     pub postgres_url: Option<String>,
+    /// The workflow under test runs until cancelled, so "ran N times" checks must not wait for it to end.
+    pub endless: bool,
     /// The recording/failing store of the durability scenarios.
     pub test_store: Option<Arc<super::durability::TestStore>>,
 }
@@ -194,6 +196,7 @@ impl LibWorld {
             persistence: None,
             extras: Vec::new(),
             postgres_url: None,
+            endless: false,
             test_store: None,
         }
     }
@@ -355,8 +358,13 @@ impl LibWorld {
         outcome
     }
 
-    /// Waits for every run, in order.
+    /// Waits for every run, in order. For a scenario about a workflow that never ends on its own (`endless`), lets it
+    /// run without moving the clock instead.
     pub async fn settle(&mut self) {
+        if self.endless {
+            self.quiesce().await;
+            return;
+        }
         for index in 0..self.runs.len() {
             if self.runs[index].handle.is_some() {
                 self.outcome(index).await;
@@ -443,11 +451,22 @@ impl LibWorld {
 
     /// Lets the instances run until nothing changes for a moment, without moving the clock past long timers.
     pub async fn quiesce(&self) {
+        let ceiling = self.clock.now() + chrono::Duration::seconds(60);
+        self.quiesce_until(ceiling).await;
+    }
+
+    /// Like [`quiesce`](Self::quiesce), but never moves the clock past `ceiling`.
+    pub async fn quiesce_until(&self, ceiling: chrono::DateTime<chrono::Utc>) {
         let mut last = usize::MAX;
         let mut stable = 0;
         while stable < 4 {
             tokio::time::sleep(Duration::from_millis(10)).await;
-            self.clock.advance_next(Some(Duration::from_secs(60)));
+            if let Some(next) = self.clock.next_deadline()
+                && next > self.clock.now()
+                && next <= ceiling
+            {
+                self.clock.advance_to(next);
+            }
             let now = self.probe.calls().len();
             if now == last {
                 stable += 1;
@@ -462,7 +481,7 @@ impl LibWorld {
     pub async fn pass(&self, by: Duration) {
         let target = self.clock.now() + chrono::Duration::from_std(by).expect("a duration");
         loop {
-            self.quiesce().await;
+            self.quiesce_until(target).await;
             match self.clock.next_deadline() {
                 Some(next) if next <= target && next > self.clock.now() => {
                     self.clock.advance_to(next)
@@ -471,6 +490,6 @@ impl LibWorld {
             }
         }
         self.clock.advance_to(target);
-        self.quiesce().await;
+        self.quiesce_until(target).await;
     }
 }

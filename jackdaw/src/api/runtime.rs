@@ -2593,8 +2593,17 @@ pub(crate) async fn replay_instance(
         true,
     );
     match entry.runner.spawn(core, journal.input).await {
-        Ok(_) => Ok(None),
         Err(Error::NonDeterminism(divergence)) => Ok(Some(*divergence)),
-        Err(other) => Err(other),
+        // A store failure is a real error; anything else is how the workflow itself ended, which a replay reproduces.
+        Err(error @ (Error::Persistence(_) | Error::Cache(_))) => Err(error),
+        Ok(_)
+        | Err(
+            Error::Faulted(_)
+            | Error::Cancelled
+            | Error::Timeout { .. }
+            | Error::Invalid(_)
+            | Error::Engine(_)
+            | Error::Rejected(_),
+        ) => Ok(None),
     }
 }

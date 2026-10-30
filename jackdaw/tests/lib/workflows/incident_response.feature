@@ -85,7 +85,7 @@ Feature: Incident response
     And 7 days pass without "resolved"
     Then "WritePostmortem" ran with no resolution
 
-  @todo @crash
+  @implemented @crash
   Scenario: Paging resumes on schedule after a restart
     When I execute "Incident" and 10 minutes pass without an "ack"
     And the engine is dropped and a new engine resumes the instance

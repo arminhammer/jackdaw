@@ -81,7 +81,7 @@ Feature: Expense approval with escalation
     Then the workflow completes with "Expired"
     And "RequestApproval" ran 3 times
 
-  @todo @crash
+  @implemented @crash
   Scenario: The escalation deadline survives a restart
     When I execute "ExpenseApproval" for 50000 cents
     And 40 hours pass
@@ -97,7 +97,7 @@ Feature: Expense approval with escalation
     And a new engine resumes the instance
     Then the workflow completes with "Approved"
 
-  @todo
+  @implemented
   Scenario: A second decision after the first is ignored and reported
     Given the manager approved and the workflow completed
     When I signal "decide" with ("cfo", Rejected("late"))

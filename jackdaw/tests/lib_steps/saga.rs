@@ -181,6 +181,12 @@ fn saga_tasks(_world: &mut LibWorld) {}
 #[when(regex = r#"^I execute "OrderSaga"(?: for an order of (\d+) items)?$"#)]
 async fn execute_saga(world: &mut LibWorld, items: String) {
     let items = items.parse().unwrap_or(2);
+    // The compensations take a moment, so running them in parallel is observable.
+    for task in ["refund", "release_stock"] {
+        world.probe.script(task, |s| {
+            s.delay = s.delay.or(Some(Duration::from_millis(10)))
+        });
+    }
     world
         .start_fixture("it", super::fixture("saga.order"), order_json("o-1", items))
         .await;

@@ -151,17 +151,17 @@ macro_rules! subscription {
                 }
 
                 #[signal]
-                fn change_plan(&mut self, _ctx: &mut SyncWorkflowContext<Self>, plan: Plan) {
+                pub fn change_plan(&mut self, _ctx: &mut SyncWorkflowContext<Self>, plan: Plan) {
                     self.plan = Some(plan);
                 }
 
                 #[signal]
-                fn cancel(&mut self, _ctx: &mut SyncWorkflowContext<Self>, _: ()) {
+                pub fn cancel(&mut self, _ctx: &mut SyncWorkflowContext<Self>, _: ()) {
                     self.cancelled = true;
                 }
 
                 #[query]
-                fn plan(&self, _ctx: &WorkflowContextView) -> Option<Plan> {
+                pub fn plan(&self, _ctx: &WorkflowContextView) -> Option<Plan> {
                     self.plan.clone()
                 }
             }
@@ -194,8 +194,10 @@ fn start(plan: &str) -> serde_json::Value {
     json!({ "invoices_so_far": 0, "plan": { "name": plan } })
 }
 
-#[when(regex = r#"^I start a subscription(?: on "(\w+)")? and (\d+) days pass$"#)]
-async fn start_and_pass(world: &mut LibWorld, plan: String, days: u64) {
+#[when(regex = r#"^I start a subscription(?: on "(\w+)")? and (\d+) (days|years) pass$"#)]
+async fn start_and_pass(world: &mut LibWorld, plan: String, n: u64, unit: String) {
+    let days = if unit == "years" { n * 365 } else { n };
+    world.endless = true;
     let plan = if plan.is_empty() {
         "basic".to_string()
     } else {

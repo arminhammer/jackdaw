@@ -73,7 +73,7 @@ Feature: Subscription billing over months
     And "Dunning" ran once
     And "CloseAccount" ran once
 
-  @todo
+  @implemented
   Scenario: History is bounded with continue-as-new
     Given the loop ends each 24th cycle with "return ctx.continue_as_new(Start { invoices_so_far: invoices })"
     When I start a subscription and 3 years pass
@@ -81,7 +81,7 @@ Feature: Subscription billing over months
     And the current run's journal holds no more than 24 billing cycles
     And querying "plan" on the original instance id still works
 
-  @todo @crash
+  @implemented @crash
   Scenario: A restart in the middle of a month does not bill early or twice
     When I start a subscription and 20 days pass
     And the engine is dropped and a new engine resumes the instance
