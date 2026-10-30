@@ -31,7 +31,8 @@ Feature: Listeners registered on the engine
     When the engine is built
     Then "Engine::listener_addr(name)" returns the port the OS assigned
 
-  @implemented @yaml
+  # Covered by tests/listener_tests.rs: the YAML engine's listeners dispatch to Python and TypeScript handlers.
+  @external @yaml
   Scenario: YAML workflows with listen tasks still work through the YAML engine
     Given a YAML workflow with an OpenAPI "listen" task
     When I run it through the YAML engine

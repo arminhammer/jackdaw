@@ -207,6 +207,12 @@ impl EngineBuilder {
         self
     }
 
+    /// A test fake that takes the place of the task with the same name.
+    pub(crate) fn fake_task(mut self, task: super::task::NativeTask) -> Self {
+        self.registry.fakes.push(task);
+        self
+    }
+
     /// Registers a task defined with `#[task]` on a free function.
     #[must_use]
     pub fn task(mut self, task: impl RegisterTask) -> Self {
@@ -287,7 +293,9 @@ impl EngineBuilder {
     /// # Errors
     /// `Error::Invalid` if registrations conflict or refer to something that does not exist.
     pub fn build(self) -> Result<Engine, Error> {
-        self.registry.validate(&self.catalogs)?;
+        let mut registry = self.registry;
+        registry.apply_fakes();
+        registry.validate(&self.catalogs)?;
         self.catalogs.validate()?;
 
         let persistence = self.persistence.unwrap_or_else(|| {
@@ -303,8 +311,7 @@ impl EngineBuilder {
             self.event_buffer,
         )
         .map_err(|e| Error::Engine(e.to_string()))?;
-        let natives: HashMap<String, Box<dyn Executor>> = self
-            .registry
+        let natives: HashMap<String, Box<dyn Executor>> = registry
             .tasks
             .iter()
             .map(|(name, task)| {
@@ -319,7 +326,7 @@ impl EngineBuilder {
         let mut shared = Shared::new(
             persistence,
             cache,
-            self.registry,
+            registry,
             self.catalogs,
             legacy,
             self.self_replay,

@@ -17,6 +17,7 @@ pub mod durability;
 pub mod errors;
 pub mod events;
 pub mod incident;
+pub mod interop;
 pub mod loops;
 pub mod observability;
 pub mod ops;
@@ -27,6 +28,7 @@ pub mod schedules;
 pub mod signals;
 pub mod subscription;
 pub mod support;
+pub mod testing_engine;
 pub mod timers;
 pub mod world;
 
@@ -60,6 +62,7 @@ pub fn harnesses(probe: &Arc<Probe>) -> Harnesses {
     api::defaults(probe);
     schedules::defaults(probe);
     observability::defaults(probe);
+    interop::defaults(probe);
     let inventory = Arc::new(calling_tasks::Inventory::default());
     let mut sets: Vec<TaskSet> = Vec::new();
     let p = Arc::clone(probe);
@@ -153,6 +156,7 @@ pub fn catalog() -> Vec<Fixture> {
     all.extend(ops::fixtures());
     all.extend(schedules::fixtures());
     all.extend(observability::fixtures());
+    all.extend(interop::fixtures());
     all
 }
 

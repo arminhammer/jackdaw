@@ -96,9 +96,18 @@ pub struct Registry {
     pub(crate) tasks: HashMap<&'static str, NativeTask>,
     pub(crate) workflows: HashMap<String, WorkflowEntry>,
     pub(crate) errors: Vec<String>,
+    /// Test fakes that take the place of registered tasks (see `TestEngineBuilder::replace_task`).
+    pub(crate) fakes: Vec<NativeTask>,
 }
 
 impl Registry {
+    /// Puts the fakes in place of the tasks they replace.
+    pub(crate) fn apply_fakes(&mut self) {
+        for fake in self.fakes.drain(..) {
+            self.tasks.insert(fake.name, fake);
+        }
+    }
+
     pub(crate) fn add_task(&mut self, task: NativeTask) {
         let name = task.name;
         if BUILTIN_CALL_TYPES.contains(&name) {
@@ -717,6 +726,8 @@ pub(crate) struct Shared {
     pub shutting_down: std::sync::atomic::AtomicBool,
     /// How long finished instances are kept (see `Engine::sweep`).
     pub retention: Option<Duration>,
+    /// Test hook: after this many more live steps are recorded, every instance is abandoned (a simulated crash).
+    pub crash_after: Mutex<Option<usize>>,
     /// Wakes the schedules when one is paused, resumed or removed.
     pub schedules_changed: Arc<Notify>,
 }
@@ -805,6 +816,7 @@ impl Shared {
             shutting_down: std::sync::atomic::AtomicBool::new(false),
             retention: None,
             schedules_changed: Arc::new(Notify::new()),
+            crash_after: Mutex::new(None),
         }
     }
 
@@ -830,6 +842,27 @@ impl Shared {
 
     fn forget(&self, id: &str) {
         lock(&self.instances).remove(id);
+    }
+
+    /// Test hook: abandons every instance once `steps` more live steps are recorded.
+    pub(crate) fn crash_after_steps(&self, steps: usize) {
+        *lock(&self.crash_after) = Some(steps);
+    }
+
+    /// Test hook: counts down the live steps recorded; true when the count runs out and the engine should "crash".
+    pub(crate) fn step_recorded(&self) -> bool {
+        let mut left = lock(&self.crash_after);
+        match left.as_mut() {
+            Some(n) if *n <= 1 => {
+                *left = None;
+                true
+            }
+            Some(n) => {
+                *n -= 1;
+                false
+            }
+            None => false,
+        }
     }
 
     /// Stops every instance task without ending the instances (their journals stay "running").
@@ -1163,6 +1196,15 @@ impl Shared {
             if !known {
                 unknown.push(call);
             }
+        }
+        let directives = crate::durableengine::unknown_directives(definition);
+        if !directives.is_empty() {
+            return Err(Error::invalid(format!(
+                "workflow {}/{} has `then` directives that name no task in their list: `{}`",
+                definition.document.namespace,
+                definition.document.name,
+                directives.join("`, `")
+            )));
         }
         if unknown.is_empty() {
             Ok(())
@@ -2092,6 +2134,14 @@ impl InstanceCore {
         super::observe::step_finished(&spec.name, spec.kind, started.elapsed());
         self.record(&spec, &key, hash, &outcome);
         self.persist().await?;
+        if let Ok(shared) = self.shared()
+            && shared.step_recorded()
+        {
+            // A simulated crash right after this step was made durable: every instance (this one included) stops.
+            shared.abandon_all();
+            drop(shared);
+            return std::future::pending().await;
+        }
         self.emit_step_events(&spec, &outcome, false).await?;
         outcome.into_result()
     }

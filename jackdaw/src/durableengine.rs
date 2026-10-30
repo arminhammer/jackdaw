@@ -32,7 +32,7 @@ mod listeners;
 mod tasks;
 mod timeout;
 
-pub(crate) use called::called_names;
+pub(crate) use called::{called_names, unknown_directives};
 
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub))]

@@ -63,6 +63,10 @@ async fn execute_it(world: &mut LibWorld) {
         super::timers::run_test_engine(world);
         return;
     }
+    if world.notes.contains_key("te-run") {
+        super::testing_engine::run(world);
+        return;
+    }
     let input = world.input.clone().unwrap_or_else(|| world.fixture().input);
     world.start("it", input).await;
 }
@@ -95,6 +99,11 @@ async fn new_engine_resumes(world: &mut LibWorld) {
 
 #[then("the workflow completes")]
 async fn workflow_completes(world: &mut LibWorld) {
+    if let Some(output) = world.notes.get("te-output") {
+        // A run on a TestEngine of its own (testing_engine.rs).
+        assert!(!output.is_null());
+        return;
+    }
     let last = world.last();
     world.outcome(last).await.value();
 }

@@ -21,4 +21,4 @@ Feature: Typed catalog imports
   Scenario: A catalog entry that does not exist fails the build
     Given a "#[catalog]" that imports "missing@1.0.0"
     When I build an engine with it
-    Then "build" fails with "Error::Invalid" naming "missing@1.0.0"
+    Then "build" fails with "Error::Invalid" naming "missing:1.0.0"

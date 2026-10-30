@@ -191,6 +191,11 @@ async fn no_event_for(world: &mut LibWorld, hours: u64) {
 
 #[then(regex = r#"^the step returns "(.+)"$"#)]
 async fn step_returns(world: &mut LibWorld, expected: String) {
+    if let Some(output) = world.notes.get("te-output") {
+        // A run on a TestEngine of its own (testing_engine.rs).
+        assert_eq!(output, &json!(expected));
+        return;
+    }
     let last = world.last();
     assert_eq!(world.outcome(last).await.value(), &json!(expected));
 }

@@ -1,8 +1,8 @@
 //! BDD runner for the library feature specs in `tests/lib`.
 //!
-//! Scenarios tagged `@todo` describe behavior that is not built yet and are skipped. Every other scenario runs.
-//! Steps without a definition are reported as skipped; add `.fail_on_skipped()` once every `@implemented` scenario
-//! is wired up.
+//! Scenarios tagged `@todo` describe behavior that is not built yet, and `@external` ones are covered by another
+//! suite (named next to the scenario); both are skipped. Every other scenario runs, and a step without a definition
+//! fails the run.
 //!
 //! Pass cucumber options after `--`, for example a tag expression that replaces the default filter:
 //!
@@ -33,14 +33,19 @@ fn has_tag(tags: &[String], tag: &str) -> bool {
     tags.iter().any(|t| t.trim_start_matches('@') == tag)
 }
 
+fn skipped(tags: &[String]) -> bool {
+    has_tag(tags, "todo") || has_tag(tags, "external")
+}
+
 #[tokio::main]
 async fn main() {
     LibWorld::cucumber()
         .max_concurrent_scenarios(8)
+        .fail_on_skipped()
         .filter_run("tests/lib", |feature, rule, scenario| {
-            !(has_tag(&feature.tags, "todo")
-                || rule.is_some_and(|r| has_tag(&r.tags, "todo"))
-                || has_tag(&scenario.tags, "todo"))
+            !(skipped(&feature.tags)
+                || rule.is_some_and(|r| skipped(&r.tags))
+                || skipped(&scenario.tags))
         })
         .await;
 }

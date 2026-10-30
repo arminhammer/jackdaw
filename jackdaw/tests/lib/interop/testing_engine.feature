@@ -30,14 +30,14 @@ Feature: Testing workflows
     When I call "charge(order).await" directly in a test
     Then it returns its result without an engine
 
-  @todo
+  @implemented
   Scenario: A task can be replaced with a fake in tests
     Given a "TestEngine" built with "replace_task(Charge, |order| async { Ok(\"fake\".into()) })"
     When a workflow that calls "Charge" runs
     Then the step returns "fake"
     And the real "charge" function is not called
 
-  @todo
+  @implemented
   Scenario: Tests can simulate a crash
     Given a "TestEngine" with a workflow of three steps
     When I call "TestEngine::crash_after_step(2)" and execute it

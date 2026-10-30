@@ -10,11 +10,15 @@
 //! - [`TokioClock`] follows tokio's (paused) clock, so `ctx.now()` agrees with virtual sleeps. [`TestEngine`] uses it.
 //! - [`ManualClock`] only moves when the test calls [`ManualClock::advance`]. Share one between engines to keep time
 //!   moving across a simulated crash.
+//!
+//! [`TestEngineBuilder::replace_task`] swaps a task for a fake, and [`TestEngine::crash_after_step`] with
+//! [`TestEngine::restart`] simulates a process dying mid-workflow and coming back on the same store.
 use crate::api::{
     BoxFuture, CatalogDef, Clock as EngineClock, Engine, EngineBuilder, Error, IntoTaskSet,
-    RegisterTask, Store, WorkflowDef,
+    NativeTask, Recovery, RegisterTask, Store, TaskDef, TaskError, WorkflowDef,
 };
 use chrono::{DateTime, Utc};
+use std::future::Future;
 use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
@@ -169,6 +173,23 @@ impl TestEngine {
     pub fn clock(&self) -> Clock {
         self.clock
     }
+
+    /// Simulates a crash once `steps` more steps have been recorded: every instance stops where it is, as if the
+    /// process died right after making that step durable. Handles to the stopped instances fail with `Error::Engine`;
+    /// [`restart`](Self::restart) resumes them.
+    pub fn crash_after_step(&self, steps: usize) {
+        self.engine.shared().crash_after_steps(steps);
+    }
+
+    /// Simulates a restart: forgets every running instance and resumes the unfinished ones from the store, the way a
+    /// new engine over the same store would. Steps already recorded are not run again.
+    ///
+    /// # Errors
+    /// If the store cannot be read.
+    pub async fn restart(&self) -> Result<Recovery, Error> {
+        self.engine.shared().abandon_all();
+        self.engine.recover().await
+    }
 }
 
 impl Deref for TestEngine {
@@ -213,6 +234,21 @@ impl TestEngineBuilder {
     #[must_use]
     pub fn store(mut self, store: impl Store) -> Self {
         self.inner = self.inner.store(store);
+        self
+    }
+
+    /// Runs `fake` wherever a workflow calls `task`, in place of the registered task (which need not be registered).
+    #[must_use]
+    pub fn replace_task<T, F, Fut>(mut self, task: T, fake: F) -> Self
+    where
+        T: TaskDef,
+        F: Fn(T::In) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<T::Out, TaskError>> + Send + 'static,
+    {
+        let fake = NativeTask::new(task.task_name(), false, move |_ctx, input: T::In| {
+            fake(input)
+        });
+        self.inner = self.inner.fake_task(fake);
         self
     }
 
