@@ -37,7 +37,12 @@ test-examples:
 test-validate:
     cargo test --test validate_tests
 
-# Run all tests (unit + integration)
+# Run the library BDD feature specs in tests/lib (skips @todo scenarios).
+# Extra arguments go to cucumber, e.g. `just test-lib --tags '@crash and not @todo'`
+test-lib *ARGS:
+    cargo test --test lib_features -- {{ARGS}}
+
+# Run all tests (unit + integration, including the library BDD specs)
 test-all:
     cargo test
 

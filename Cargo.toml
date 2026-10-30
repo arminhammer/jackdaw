@@ -102,6 +102,10 @@ harness = false
 name = "validate_tests"
 
 [[test]]
+name = "lib_features"
+harness = false
+
+[[test]]
 name = "docker_integration_tests"
 required-features = []
 
