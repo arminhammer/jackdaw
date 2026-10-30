@@ -18,6 +18,7 @@ pub mod errors;
 pub mod events;
 pub mod incident;
 pub mod loops;
+pub mod observability;
 pub mod ops;
 pub mod parallel;
 pub mod recorded;
@@ -58,6 +59,7 @@ pub fn harnesses(probe: &Arc<Probe>) -> Harnesses {
     subscription::defaults(probe);
     api::defaults(probe);
     schedules::defaults(probe);
+    observability::defaults(probe);
     let inventory = Arc::new(calling_tasks::Inventory::default());
     let mut sets: Vec<TaskSet> = Vec::new();
     let p = Arc::clone(probe);
@@ -116,6 +118,10 @@ pub fn harnesses(probe: &Arc<Probe>) -> Harnesses {
     sets.push(Box::new(move |b| {
         b.tasks(schedules::Scheduled(Arc::clone(&p)))
     }));
+    let p = Arc::clone(probe);
+    sets.push(Box::new(move |b| {
+        b.tasks(observability::Observed(Arc::clone(&p)))
+    }));
     Harnesses {
         probe: Arc::clone(probe),
         sets,
@@ -146,6 +152,7 @@ pub fn catalog() -> Vec<Fixture> {
     all.extend(api::fixtures());
     all.extend(ops::fixtures());
     all.extend(schedules::fixtures());
+    all.extend(observability::fixtures());
     all
 }
 

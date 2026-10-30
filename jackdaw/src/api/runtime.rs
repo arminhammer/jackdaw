@@ -34,6 +34,7 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
 use std::time::Duration;
 use tokio::sync::{Notify, watch};
 use tokio::task::JoinHandle;
+use tracing::Instrument;
 
 /// Call types the engine provides itself; a native task may not take one of these names.
 pub(crate) const BUILTIN_CALL_TYPES: &[&str] = &[
@@ -841,7 +842,7 @@ impl Shared {
 
     /// Runs a background task (a schedule) that stops with the engine.
     pub(crate) fn spawn_background(&self, task: impl Future<Output = ()> + Send + 'static) {
-        let handle = tokio::spawn(task);
+        let handle = super::observe::spawn(task);
         lock(&self.running).push(handle);
     }
 
@@ -1015,27 +1016,36 @@ impl Shared {
             self.add_to_index(&core.id).await?;
         }
 
+        let span = super::observe::workflow_span(&entry.id, &core.id, !fresh);
+        if fresh {
+            super::observe::workflow_started(&entry.id);
+        }
         let run = entry.runner.spawn(Arc::clone(&core), input);
         let runner = Arc::clone(&entry.runner);
         let weak = Arc::downgrade(self);
         let for_task = Arc::clone(&core);
-        let handle = tokio::spawn(async move {
-            let publish = PublishOnDrop(Arc::clone(&for_task));
-            let mut result = run.await;
-            let self_replay = weak.upgrade().is_some_and(|shared| shared.self_replay);
-            if let Ok(value) = &result
-                && self_replay
-                && let Err(error) = verify_replay(&for_task, runner, value.clone()).await
-            {
-                result = Err(error);
+        let workflow = entry.id.clone();
+        let handle = super::observe::spawn(
+            async move {
+                let publish = PublishOnDrop(Arc::clone(&for_task));
+                let mut result = run.await;
+                let self_replay = weak.upgrade().is_some_and(|shared| shared.self_replay);
+                if let Ok(value) = &result
+                    && self_replay
+                    && let Err(error) = verify_replay(&for_task, runner, value.clone()).await
+                {
+                    result = Err(error);
+                }
+                super::observe::workflow_ended(&workflow, &result);
+                publish.0.publish(result);
+                if let Some(shared) = weak.upgrade()
+                    && publish.0.ended_durably.load(Ordering::SeqCst)
+                {
+                    shared.forget(&publish.0.id);
+                }
             }
-            publish.0.publish(result);
-            if let Some(shared) = weak.upgrade()
-                && publish.0.ended_durably.load(Ordering::SeqCst)
-            {
-                shared.forget(&publish.0.id);
-            }
-        });
+            .instrument(span),
+        );
         self.remember(&core, handle);
         Ok(Launched { core })
     }
@@ -1069,7 +1079,7 @@ impl Shared {
         );
         let for_task = Arc::clone(&core);
         let weak = Arc::downgrade(self);
-        let handle = tokio::spawn(async move {
+        let handle = super::observe::spawn(async move {
             let publish = PublishOnDrop(Arc::clone(&for_task));
             let mut result = Err(Error::Engine(
                 "the workflow ended without producing a result".to_string(),
@@ -2060,7 +2070,10 @@ impl InstanceCore {
         if !spec.shielded && self.cancel_requested() {
             return Err(StepError::Cancelled);
         }
-        let live = self.run_live(&spec, &key);
+        let started = std::time::Instant::now();
+        let live = self
+            .run_live(&spec, &key)
+            .instrument(super::observe::step_span(&spec.name, spec.kind));
         let outcome = if spec.shielded {
             live.await?
         } else {
@@ -2076,6 +2089,7 @@ impl InstanceCore {
                 }
             }
         };
+        super::observe::step_finished(&spec.name, spec.kind, started.elapsed());
         self.record(&spec, &key, hash, &outcome);
         self.persist().await?;
         self.emit_step_events(&spec, &outcome, false).await?;
@@ -2356,6 +2370,7 @@ impl InstanceCore {
         let heartbeat = super::task::Heartbeat::new();
         let mut attempt = 1;
         loop {
+            tracing::Span::current().record("attempt", attempt);
             let context =
                 TaskContext::new(&self.id, name, attempt, format!("{}/{}", self.id, spec.seq))
                     .with_cancel(self.cancel.subscribe())
@@ -2387,6 +2402,7 @@ impl InstanceCore {
                     return Ok(Outcome::Ok(value));
                 }
                 Err(error) if error.retryable && attempt < attempts => {
+                    super::observe::task_retried(name);
                     self.emit(Event::TaskRetried {
                         instance_id: self.id.clone(),
                         task_name: name.to_string(),

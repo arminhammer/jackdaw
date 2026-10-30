@@ -150,6 +150,8 @@ pub struct LibWorld {
     pub endless: bool,
     /// The recording/failing store of the durability scenarios.
     pub test_store: Option<Arc<super::durability::TestStore>>,
+    /// The recording tracing subscriber of the observability scenarios.
+    pub traces: Option<Arc<super::observability::Traces>>,
 }
 
 /// Which durable store the scenarios run on: `JACKDAW_TEST_STORE=redb|sqlite|postgres` (default redb). Postgres needs
@@ -201,6 +203,7 @@ impl LibWorld {
             endless: false,
             store: None,
             test_store: None,
+            traces: None,
         }
     }
 

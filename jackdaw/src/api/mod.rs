@@ -12,6 +12,7 @@ mod duration;
 mod engine;
 mod error;
 mod event;
+mod observe;
 mod runtime;
 mod schedule;
 mod store;

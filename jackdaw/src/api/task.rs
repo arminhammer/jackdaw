@@ -201,7 +201,7 @@ impl NativeTask {
                 let f = Arc::clone(&f);
                 Box::pin(async move {
                     let input: I = serde_json::from_value(input).map_err(|e| invalid_input(&e))?;
-                    let output = tokio::task::spawn_blocking(move || f(ctx, input))
+                    let output = super::observe::spawn_blocking(move || f(ctx, input))
                         .await
                         .map_err(|error| {
                             if error.is_panic() {
