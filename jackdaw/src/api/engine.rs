@@ -634,6 +634,17 @@ pub struct ExecutionHandle<Out> {
     _out: PhantomData<fn() -> Out>,
 }
 
+impl<Out> Clone for ExecutionHandle<Out> {
+    /// Another handle to the same instance. Every clone can be awaited for the result.
+    fn clone(&self) -> Self {
+        Self {
+            shared: Arc::clone(&self.shared),
+            core: Arc::clone(&self.core),
+            _out: PhantomData,
+        }
+    }
+}
+
 impl<Out> fmt::Debug for ExecutionHandle<Out> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ExecutionHandle")

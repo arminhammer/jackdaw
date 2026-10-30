@@ -53,7 +53,7 @@ Feature: Running steps in parallel
     When I replay it with the steps now finishing in the opposite order
     Then no divergence is reported
 
-  @todo @crash
+  @implemented @crash
   Scenario: Only unfinished branches run again after a crash
     Given a try_join of three counting tasks where the first two have finished
     When the engine is dropped and a new engine resumes the instance

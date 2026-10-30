@@ -78,7 +78,7 @@ Feature: Loops in Rust workflows
     Then the workflow completes
     And the counting task ran exactly once for each item
 
-  @todo @crash
+  @implemented @crash
   Scenario: ctx.for_each resumes with only the items that had not finished
     Given "ctx.for_each(&items, Task).concurrency(5)" over 50 items
     When the engine is dropped after 23 items finished

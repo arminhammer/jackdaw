@@ -736,8 +736,9 @@ impl Shared {
         let handle = tokio::spawn(async move {
             let publish = PublishOnDrop(Arc::clone(&for_task));
             let mut result = run.await;
-            if let (Ok(value), Some(shared)) = (&result, weak.upgrade())
-                && shared.self_replay
+            let self_replay = weak.upgrade().is_some_and(|shared| shared.self_replay);
+            if let Ok(value) = &result
+                && self_replay
                 && let Err(error) = verify_replay(&for_task, runner, value.clone()).await
             {
                 result = Err(error);
@@ -817,29 +818,20 @@ impl Shared {
         Ok(Launched { core })
     }
 
-    /// Runs a YAML definition to completion and returns its output.
-    pub(crate) async fn run_definition(
-        self: &Arc<Self>,
-        definition: &WorkflowDefinition,
-        input: Value,
-    ) -> Result<Value, Error> {
-        let launched = self.launch_definition(definition, input).await?;
-        launched.core.outcome().await
-    }
-
-    /// Runs a native child workflow, resuming it if an earlier attempt left a journal.
-    async fn run_native_child(
+    /// Starts a native child workflow, resuming it if an earlier attempt left a journal. Returns the running child,
+    /// or its result if it had already ended.
+    async fn start_native_child(
         self: &Arc<Self>,
         parent: &str,
         id: String,
         target: &WorkflowId,
         input: Value,
-    ) -> Result<Value, Error> {
+    ) -> Result<Child, Error> {
         let entry = self.find_workflow(target)?;
         let journal = match self.load_journal(&id).await? {
             Some(journal) if journal.workflow == *target => {
                 if let Some(ended) = journal.ended() {
-                    return ended;
+                    return Ok(Child::Ended(ended));
                 }
                 journal
             }
@@ -850,7 +842,7 @@ impl Shared {
             }
         };
         let launched = self.launch(id, entry, input, journal).await?;
-        launched.core.outcome().await
+        Ok(Child::Running(launched.core))
     }
 
     /// Fails fast on a YAML workflow that calls something nobody provides.
@@ -883,6 +875,21 @@ impl Shared {
                 definition.document.name,
                 unknown.join("`, `")
             )))
+        }
+    }
+}
+
+/// A child step's instance: still running, or already ended on an earlier attempt.
+enum Child {
+    Running(Arc<InstanceCore>),
+    Ended(Result<Value, Error>),
+}
+
+impl Child {
+    async fn outcome(self) -> Result<Value, Error> {
+        match self {
+            Self::Running(core) => core.outcome().await,
+            Self::Ended(result) => result,
         }
     }
 }
@@ -1291,8 +1298,8 @@ impl InstanceCore {
             && self.replay_only.is_none()
             && let Some(stored) = event.to_stored()
         {
-            let shared = self.shared()?;
-            shared.persistence.save_event(stored).await?;
+            let persistence = Arc::clone(&self.shared()?.persistence);
+            persistence.save_event(stored).await?;
         }
         if self.replay_only.is_none() {
             self.log.push(event);
@@ -1305,7 +1312,7 @@ impl InstanceCore {
         if self.ephemeral || self.replay_only.is_some() {
             return Ok(());
         }
-        let shared = self.shared()?;
+        let persistence = Arc::clone(&self.shared()?.persistence);
         let _guard = self.persist_lock.lock().await;
         let snapshot = {
             let mut journal = lock(&self.journal);
@@ -1326,7 +1333,7 @@ impl InstanceCore {
             data: json!({ "jackdaw_native": data }),
             timestamp: Utc::now(),
         };
-        shared.persistence.save_checkpoint(checkpoint).await?;
+        persistence.save_checkpoint(checkpoint).await?;
         Ok(())
     }
 
@@ -1589,36 +1596,56 @@ impl InstanceCore {
                 target: TaskTarget::Native(name),
                 options,
             } => self.run_native(spec, name, options).await,
+            // The engine's shared state is only borrowed to start things: holding it while a step waits would keep a
+            // dropped engine (and its store) alive for as long as the step runs.
             StepExec::Task {
                 target: TaskTarget::Catalog { name, version },
                 ..
             } => {
-                let shared = self.shared()?;
-                let definition = shared.catalogs.load(name, version).await?;
-                Ok(into_outcome(
-                    shared.run_definition(&definition, spec.input.clone()).await,
-                ))
+                let child = {
+                    let shared = self.shared()?;
+                    let definition = shared.catalogs.load(name, version).await?;
+                    Child::Running(
+                        shared
+                            .launch_definition(&definition, spec.input.clone())
+                            .await?
+                            .core,
+                    )
+                };
+                Ok(into_outcome(child.outcome().await))
             }
             StepExec::Child(target) => {
-                let shared = self.shared()?;
-                let result = match target {
-                    RunTarget::Native(info) => {
-                        shared
-                            .run_native_child(
-                                &self.id,
-                                format!("{}/{}", self.id, spec.seq),
-                                &info.id,
-                                spec.input.clone(),
-                            )
+                let child = {
+                    let shared = self.shared()?;
+                    match target {
+                        RunTarget::Native(info) => {
+                            shared
+                                .start_native_child(
+                                    &self.id,
+                                    format!("{}/{}", self.id, spec.seq),
+                                    &info.id,
+                                    spec.input.clone(),
+                                )
+                                .await
+                        }
+                        RunTarget::Definition(definition) => shared
+                            .launch_definition(definition, spec.input.clone())
                             .await
+                            .map(|launched| Child::Running(launched.core)),
+                        RunTarget::Catalog { name, version } => {
+                            match shared.catalogs.load(name, version).await {
+                                Ok(definition) => shared
+                                    .launch_definition(&definition, spec.input.clone())
+                                    .await
+                                    .map(|launched| Child::Running(launched.core)),
+                                Err(error) => Err(error),
+                            }
+                        }
                     }
-                    RunTarget::Definition(definition) => {
-                        shared.run_definition(definition, spec.input.clone()).await
-                    }
-                    RunTarget::Catalog { name, version } => {
-                        let definition = shared.catalogs.load(name, version).await?;
-                        shared.run_definition(&definition, spec.input.clone()).await
-                    }
+                };
+                let result = match child {
+                    Ok(child) => child.outcome().await,
+                    Err(error) => Err(error),
                 };
                 Ok(into_outcome(result))
             }
@@ -1655,16 +1682,19 @@ impl InstanceCore {
         name: &str,
         options: &TaskOptions,
     ) -> Result<Outcome, Error> {
-        let shared = self.shared()?;
-        let task = shared
-            .registry
-            .tasks
-            .get(name)
-            .ok_or_else(|| Error::invalid(format!("no task named `{name}` is registered")))?
-            .clone();
+        let (task, cache) = {
+            let shared = self.shared()?;
+            let task = shared
+                .registry
+                .tasks
+                .get(name)
+                .ok_or_else(|| Error::invalid(format!("no task named `{name}` is registered")))?
+                .clone();
+            (task, Arc::clone(&shared.cache))
+        };
         let cache_key = compute_cache_key(name, &spec.input);
         if task.cached
-            && let Some(hit) = shared.cache.get(&cache_key).await?
+            && let Some(hit) = cache.get(&cache_key).await?
         {
             return Ok(Outcome::Ok(hit.output));
         }
@@ -1676,8 +1706,7 @@ impl InstanceCore {
             match task.invoke(context, spec.input.clone()).await {
                 Ok(value) => {
                     if task.cached {
-                        shared
-                            .cache
+                        cache
                             .set(CacheEntry {
                                 key: cache_key,
                                 inputs: spec.input.clone(),

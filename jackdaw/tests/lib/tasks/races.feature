@@ -39,7 +39,7 @@ Feature: Racing steps
     When I execute it
     Then the workflow uses the "Fallback" result
 
-  @todo
+  @implemented
   Scenario: The losing task is cancelled
     Given a race between a 100 ms task and a task that waits for cancellation
     When the 100 ms task wins
@@ -51,14 +51,14 @@ Feature: Racing steps
     When I compile it
     Then the error suggests "jackdaw::select!"
 
-  @todo @crash
+  @implemented @crash
   Scenario: A race in progress resumes with the same deadline
     Given the select! of an event and a 24-hour timer has waited 20 hours
     When the engine is dropped and a new engine resumes the instance
     And 4 more hours pass without the event
     Then the workflow completes with "expired"
 
-  @todo @crash
+  @implemented @crash
   Scenario: An event that arrived during the crash still wins
     Given the select! of an event and a 24-hour timer
     When the event is sent and the engine is dropped before the race resolves
