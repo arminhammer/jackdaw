@@ -125,9 +125,39 @@ impl Executor for NativeExecutor {
     fn cacheable(&self) -> bool {
         self.0.cached
     }
+}
 
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
+/// Lets YAML workflows `call:` a custom call type.
+struct CustomExecutor {
+    name: String,
+    executor: Arc<dyn super::executor::Executor>,
+}
+
+#[async_trait::async_trait]
+impl Executor for CustomExecutor {
+    async fn exec(
+        &self,
+        task_name: &str,
+        params: &Value,
+        ctx: &crate::context::Context,
+        _streamer: Option<crate::task_output::TaskOutputStreamer>,
+    ) -> crate::executor::Result<Value> {
+        let call = super::executor::Call {
+            call_type: self.name.clone(),
+            task_name: task_name.to_string(),
+            arguments: params.clone(),
+            instance_id: ctx.metadata.instance_id.clone(),
+        };
+        self.executor
+            .exec(call)
+            .await
+            .map_err(|error| crate::executor::Error::Task {
+                message: error.as_fault().to_string(),
+            })
+    }
+
+    fn cacheable(&self) -> bool {
+        self.executor.cacheable()
     }
 }
 
@@ -204,6 +234,19 @@ impl EngineBuilder {
     #[must_use]
     pub fn cache(mut self, cache: Arc<dyn CacheProvider>) -> Self {
         self.cache = Some(cache);
+        self
+    }
+
+    /// Registers a call type of your own: YAML workflows `call: <name>` it like a built-in protocol.
+    ///
+    /// The build fails with `Error::Invalid` if `name` is registered twice or is a built-in call type.
+    #[must_use]
+    pub fn executor(
+        mut self,
+        name: impl Into<String>,
+        executor: impl super::executor::Executor,
+    ) -> Self {
+        self.registry.add_executor(name.into(), Arc::new(executor));
         self
     }
 
@@ -312,7 +355,7 @@ impl EngineBuilder {
             self.event_buffer,
         )
         .map_err(|e| Error::Engine(e.to_string()))?;
-        let natives: HashMap<String, Box<dyn Executor>> = registry
+        let mut natives: HashMap<String, Box<dyn Executor>> = registry
             .tasks
             .iter()
             .map(|(name, task)| {
@@ -322,6 +365,15 @@ impl EngineBuilder {
                 )
             })
             .collect();
+        for (name, executor) in &registry.executors {
+            natives.insert(
+                name.clone(),
+                Box::new(CustomExecutor {
+                    name: name.clone(),
+                    executor: Arc::clone(executor),
+                }),
+            );
+        }
         legacy.add_executors(natives);
 
         let mut shared = Shared::new(

@@ -12,6 +12,7 @@ mod duration;
 mod engine;
 mod error;
 mod event;
+mod executor;
 mod helpers;
 mod observe;
 mod runtime;
@@ -36,6 +37,7 @@ pub use error::{
     error_types,
 };
 pub use event::{CloudEvent, Event, EventStream};
+pub use executor::{Call, Executor};
 pub use helpers::{Container, ProcessOutput, Request, Response, Script, Shell};
 pub use runtime::{Registry, register_workflow};
 pub use schedule::{CatchUp, Cron, Overlap, Schedule};

@@ -52,6 +52,7 @@ fn docker() -> bool {
 
 #[tokio::main]
 async fn main() {
+    let _interested = lib_steps::observability::keep_callsites_interested();
     LibWorld::cucumber()
         .max_concurrent_scenarios(8)
         .fail_on_skipped()

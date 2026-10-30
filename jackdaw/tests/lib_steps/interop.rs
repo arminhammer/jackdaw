@@ -525,3 +525,207 @@ fn cache_served(world: &mut LibWorld) {
     assert_eq!(cache.lookups.load(Ordering::SeqCst), 2);
     assert_eq!(cache.hits.load(Ordering::SeqCst), 1);
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Custom executors
+// ---------------------------------------------------------------------------------------------------------------
+
+/// A custom call type that records each call and answers with the topic it "published" to.
+#[derive(Debug, Default)]
+pub struct Kafka {
+    calls: Mutex<Vec<jackdaw::api::Call>>,
+    cacheable: bool,
+}
+
+#[async_trait]
+impl jackdaw::Executor for Kafka {
+    async fn exec(&self, call: jackdaw::api::Call) -> Result<Value, TaskError> {
+        let topic = call.arguments["topic"].clone();
+        lock(&self.calls).push(call);
+        Ok(json!({ "published": topic }))
+    }
+
+    fn cacheable(&self) -> bool {
+        self.cacheable
+    }
+}
+
+/// An executor that implements only what it must: it compiles, so the trait asks for nothing else.
+struct Minimal;
+
+#[async_trait]
+impl jackdaw::Executor for Minimal {
+    async fn exec(&self, _call: jackdaw::api::Call) -> Result<Value, TaskError> {
+        Ok(Value::Null)
+    }
+}
+
+/// The executor of each scenario, by the scenario's directory.
+static KAFKAS: Mutex<Vec<(String, Arc<Kafka>)>> = Mutex::new(Vec::new());
+
+/// Registers `kafka` on the scenario's engines (the same instance on each).
+fn with_kafka(world: &mut LibWorld, kafka: Kafka) {
+    let kafka = Arc::new(kafka);
+    lock(&KAFKAS).push((scenario_key(world), Arc::clone(&kafka)));
+    world.extras.push(Arc::new(move |builder: EngineBuilder| {
+        builder.executor("kafka", Arc::clone(&kafka))
+    }));
+}
+
+fn scenario_kafka(world: &LibWorld) -> Arc<Kafka> {
+    let key = scenario_key(world);
+    lock(&KAFKAS)
+        .iter()
+        .find(|(k, _)| *k == key)
+        .map(|(_, kafka)| Arc::clone(kafka))
+        .expect("the scenario's executor")
+}
+
+const KAFKA_YAML: &str = r#"
+document: { dsl: '1.0.3', namespace: interop, name: publishes, version: '1.0.0' }
+do:
+  - publish:
+      call: kafka
+      with:
+        topic: orders
+"#;
+
+async fn publish(world: &mut LibWorld) -> Value {
+    let workflow = Workflow::<Value, Value>::from_yaml(KAFKA_YAML).expect("parses");
+    world
+        .engine()
+        .execute(&workflow, json!({}))
+        .await
+        .expect("starts")
+        .await
+        .expect("finishes")
+}
+
+#[given(regex = r#"^an executor "kafka" that implements "Executor" and records each call$"#)]
+fn kafka_executor(world: &mut LibWorld) {
+    with_kafka(world, Kafka::default());
+}
+
+#[when(regex = r#"^I build an engine with "EngineBuilder::executor\(\\"kafka\\", executor\)"$"#)]
+fn build_with_kafka(world: &mut LibWorld) {
+    world.engine();
+}
+
+#[when(regex = r#"^a YAML workflow with "call: kafka" and arguments "\{ topic: orders \}"$"#)]
+async fn yaml_calls_kafka(world: &mut LibWorld) {
+    let output = publish(world).await;
+    world.notes.insert("kafka-output".into(), output);
+}
+
+#[then("the executor receives the task name and the arguments")]
+fn kafka_received(world: &mut LibWorld) {
+    let kafka = scenario_kafka(world);
+    let calls = lock(&kafka.calls).clone();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].call_type, "kafka");
+    assert_eq!(calls[0].task_name, "publish");
+    assert_eq!(calls[0].arguments, json!({"topic": "orders"}));
+    assert!(!calls[0].instance_id.is_empty());
+}
+
+#[then("its return value is the task's output")]
+fn kafka_output(world: &mut LibWorld) {
+    assert_eq!(world.notes["kafka-output"], json!({"published": "orders"}));
+}
+
+#[when(regex = r#"^I register "kafka" twice$"#)]
+fn kafka_twice(world: &mut LibWorld) {
+    world.build_error = world
+        .builder()
+        .executor("kafka", Minimal)
+        .executor("kafka", Minimal)
+        .build()
+        .err()
+        .map(|e| match e {
+            Error::Invalid(message) => format!("Invalid: {message}"),
+            other => format!("other: {other}"),
+        });
+}
+
+#[when(regex = r#"^I implement "jackdaw::Executor" for a new type$"#)]
+fn implement_executor(world: &mut LibWorld) {
+    // `Minimal` above is that type; building an engine with it shows it is a complete implementation.
+    world.build_error = world
+        .builder()
+        .executor("minimal", Minimal)
+        .build()
+        .err()
+        .map(|e| e.to_string());
+}
+
+#[then(regex = r#"^I implement only "exec" and optionally "cacheable"$"#)]
+fn only_exec(world: &mut LibWorld) {
+    assert_eq!(world.build_error, None);
+    assert!(
+        !jackdaw::Executor::cacheable(&Minimal),
+        "calls are not cached unless the executor says so"
+    );
+}
+
+#[then(regex = r#"^"exec" has no "TaskOutputStreamer" parameter$"#)]
+fn no_streamer(_world: &mut LibWorld) {
+    // `Minimal::exec` takes the call alone, and it compiles.
+}
+
+#[then(regex = r#"^the trait has no "as_any" method$"#)]
+fn no_as_any(_world: &mut LibWorld) {
+    // `Minimal` defines no `as_any`, and it compiles.
+}
+
+#[given(regex = r#"^a custom executor whose "cacheable" returns true$"#)]
+fn cacheable_kafka(world: &mut LibWorld) {
+    with_kafka(
+        world,
+        Kafka {
+            cacheable: true,
+            ..Kafka::default()
+        },
+    );
+}
+
+#[when("two instances call it with the same arguments")]
+async fn two_instances_call(world: &mut LibWorld) {
+    for _ in 0..2 {
+        assert_eq!(publish(world).await, json!({"published": "orders"}));
+    }
+}
+
+#[then("it is invoked once")]
+fn invoked_once(world: &mut LibWorld) {
+    assert_eq!(lock(&scenario_kafka(world).calls).len(), 1);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The documented examples
+// ---------------------------------------------------------------------------------------------------------------
+
+#[when(regex = r#"^I run "cargo run -p jackdaw --example (\w+)"$"#)]
+async fn run_example(world: &mut LibWorld, example: String) {
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(600),
+        tokio::process::Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
+            .args(["run", "-q", "-p", "jackdaw", "--example", &example])
+            .output(),
+    )
+    .await
+    .expect("the example finishes within 10 minutes")
+    .expect("cargo runs");
+    world.notes.insert(
+        "example".into(),
+        json!({
+            "success": output.status.success(),
+            "stderr": String::from_utf8_lossy(&output.stderr),
+        }),
+    );
+}
+
+#[then("it completes successfully")]
+fn example_succeeded(world: &mut LibWorld) {
+    let example = &world.notes["example"];
+    assert_eq!(example["success"], json!(true), "{}", example["stderr"]);
+}

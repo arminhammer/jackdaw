@@ -4,7 +4,7 @@ Feature: Custom executors and persistence providers
   I want to plug in my own call types and storage
   So that jackdaw fits my infrastructure
 
-  @todo
+  @implemented
   Scenario: A custom call type is registered on the builder
     Given an executor "kafka" that implements "Executor" and records each call
     When I build an engine with "EngineBuilder::executor(\"kafka\", executor)"
@@ -12,19 +12,19 @@ Feature: Custom executors and persistence providers
     Then the executor receives the task name and the arguments
     And its return value is the task's output
 
-  @todo
+  @implemented
   Scenario: Registering two executors with the same name fails
     When I register "kafka" twice
     Then "build" fails with "Error::Invalid" naming "kafka"
 
-  @todo
+  @implemented
   Scenario: The Executor trait has no downcasting or console plumbing
     When I implement "jackdaw::Executor" for a new type
     Then I implement only "exec" and optionally "cacheable"
     And "exec" has no "TaskOutputStreamer" parameter
     And the trait has no "as_any" method
 
-  @todo
+  @implemented
   Scenario: A custom executor's results can be cached
     Given a custom executor whose "cacheable" returns true
     When two instances call it with the same arguments
@@ -44,12 +44,12 @@ Feature: Custom executors and persistence providers
     And a cached task runs twice with equal input
     Then the provider served the second result
 
-  @todo
+  @implemented
   Scenario: The documented custom PersistenceProvider example compiles and runs
     When I run "cargo run -p jackdaw --example custom_persistence"
     Then it completes successfully
 
-  @todo
+  @implemented
   Scenario: The documented custom Executor example compiles and runs
     When I run "cargo run -p jackdaw --example custom_executor"
     Then it completes successfully

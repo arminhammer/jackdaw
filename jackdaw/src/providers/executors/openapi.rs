@@ -116,10 +116,6 @@ impl Executor for OpenApiExecutor {
         )
         .await
     }
-
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
 }
 
 async fn execute_swagger_v2_spec(

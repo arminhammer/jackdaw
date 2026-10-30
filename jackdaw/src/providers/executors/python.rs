@@ -370,10 +370,6 @@ impl Executor for PythonExtExecutor {
         )
         .await
     }
-
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
 }
 
 /// Extract the command-line arguments (`sys.argv[1:]`) from the task parameters.

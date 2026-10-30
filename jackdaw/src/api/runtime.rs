@@ -98,9 +98,26 @@ pub struct Registry {
     pub(crate) errors: Vec<String>,
     /// Test fakes that take the place of registered tasks (see `TestEngineBuilder::replace_task`).
     pub(crate) fakes: Vec<NativeTask>,
+    /// Custom call types, by name.
+    pub(crate) executors: HashMap<String, Arc<dyn super::executor::Executor>>,
 }
 
 impl Registry {
+    pub(crate) fn add_executor(
+        &mut self,
+        name: String,
+        executor: Arc<dyn super::executor::Executor>,
+    ) {
+        if BUILTIN_CALL_TYPES.contains(&name.as_str()) {
+            self.errors.push(format!(
+                "an executor cannot be named `{name}`: that is a built-in call type"
+            ));
+        } else if self.executors.insert(name.clone(), executor).is_some() {
+            self.errors
+                .push(format!("executor `{name}` is registered twice"));
+        }
+    }
+
     /// Adds the helper tasks (`jackdaw.shell`, ...) that are not registered already.
     pub(crate) fn add_builtins(&mut self) {
         for task in super::helpers::builtin_tasks() {
@@ -1194,6 +1211,7 @@ impl Shared {
             .unwrap_or_default();
         for call in crate::durableengine::called_names(definition) {
             let known = self.registry.tasks.contains_key(call.as_str())
+                || self.registry.executors.contains_key(&call)
                 || BUILTIN_CALL_TYPES.contains(&call.as_str())
                 || functions.contains(&call)
                 || call.contains(':')

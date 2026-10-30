@@ -191,10 +191,6 @@ impl Executor for RestExecutor {
             }
         }
     }
-
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
 }
 
 async fn apply_authentication(

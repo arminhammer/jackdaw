@@ -187,6 +187,13 @@ impl<S: Subscriber + for<'a> LookupSpan<'a>> Layer<S> for Recording {
     }
 }
 
+/// A recording dispatcher that lives as long as the test binary. Tracing caches each callsite's interest across all
+/// dispatchers: without one that is always interested, a span first hit by a scenario that records nothing could be
+/// cached as uninteresting while a recording scenario needs it.
+pub fn keep_callsites_interested() -> tracing::Dispatch {
+    tracing::Dispatch::new(tracing_subscriber::registry().with(Recording(Arc::default())))
+}
+
 /// The scenario's recording subscriber (installed on first use).
 fn dispatch(world: &mut LibWorld) -> (tracing::Dispatch, Arc<Traces>) {
     let traces = Arc::clone(world.traces.get_or_insert_with(Arc::default));
