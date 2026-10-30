@@ -190,8 +190,20 @@ impl Options {
     }
 }
 
+#[workflow(namespace = "calls", name = "cached", version = "1")]
+pub struct CachedReserve;
+
+#[workflow_methods]
+impl CachedReserve {
+    #[run]
+    async fn run(ctx: &mut WorkflowContext<Self>, sku: String) -> WorkflowResult<u32> {
+        Ok(ctx.call(Calls::reserve, &sku).cached().await?)
+    }
+}
+
 pub fn fixtures() -> Vec<Fixture> {
     vec![
+        Fixture::of::<CachedReserve>("calls.cached").input(json!("A-1")),
         Fixture::of::<One>("calls.one"),
         Fixture::of::<Chain>("calls.chain").input(json!("A-1")),
         Fixture::of::<ChargeOnly>("calls.charge-only"),
@@ -435,4 +447,18 @@ async fn second_fails_once(world: &mut LibWorld) {
         .filter(|c| c.input == json!(2))
         .count();
     assert_eq!(second, 1);
+}
+
+#[given(regex = r#"^two instances that call "Reserve" with the same input using "\.cached\(\)"$"#)]
+fn two_cached(world: &mut LibWorld) {
+    world.set_fixture(super::fixture("calls.cached"));
+}
+
+#[when("both run")]
+async fn both_run(world: &mut LibWorld) {
+    for label in ["first", "second"] {
+        world.start(label, json!("A-1")).await;
+        let index = world.run_index(label);
+        assert_eq!(world.outcome(index).await.value(), &json!(3));
+    }
 }

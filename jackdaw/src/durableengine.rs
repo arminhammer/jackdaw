@@ -308,7 +308,8 @@ impl DurableEngine {
                     | WorkflowEvent::TaskCancelled { .. }
                     | WorkflowEvent::TaskSuspended { .. }
                     | WorkflowEvent::TaskResumed { .. }
-                    | WorkflowEvent::TaskFaulted { .. } => {}
+                    | WorkflowEvent::TaskFaulted { .. }
+                    | WorkflowEvent::WorkflowContinuedAsNew { .. } => {}
                 }
             }
 

@@ -410,6 +410,9 @@ pub enum StepError {
     Cancelled,
     /// An engine-level error (divergence, persistence, ...). Returning it ends the workflow.
     Engine(Error),
+    /// Not a failure: what [`WorkflowContext::continue_as_new`](crate::api::WorkflowContext::continue_as_new) returns.
+    /// Return it from `#[run]` (with `?` or as the result) to start the next run.
+    ContinuedAsNew(Box<serde_json::Value>),
 }
 
 /// Why an `#[update]` handler refused its argument. The caller gets it back as [`Error::Rejected`]; the update is not
@@ -456,6 +459,7 @@ impl fmt::Display for StepError {
             Self::Timeout { detail } => write!(f, "timed out: {detail}"),
             Self::Cancelled => write!(f, "the workflow was cancelled"),
             Self::Engine(error) => write!(f, "{error}"),
+            Self::ContinuedAsNew(_) => write!(f, "the workflow continued as new"),
         }
     }
 }
@@ -498,6 +502,9 @@ impl From<StepError> for Error {
             StepError::Timeout { detail } => Self::Timeout { detail },
             StepError::Cancelled => Self::Cancelled,
             StepError::Engine(error) => error,
+            StepError::ContinuedAsNew(_) => Self::Engine(
+                "continue_as_new must be returned from the workflow's #[run] method".to_string(),
+            ),
         }
     }
 }

@@ -91,7 +91,7 @@ Feature: Loops in Rust workflows
     When I execute it with a store that records bytes written
     Then the total bytes written grow linearly with the iteration count
 
-  @todo
+  @implemented
   Scenario: An unbounded loop continues as new to bound its history
     Given a "loop" that processes one page per iteration and calls "ctx.continue_as_new(cursor)" every 500 pages
     When it processes 2000 pages

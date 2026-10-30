@@ -93,7 +93,7 @@ Feature: Calling tasks from a workflow
     Then the first step succeeds on attempt 2
     And the second step fails after 1 attempt
 
-  @todo
+  @implemented
   Scenario: A single step can opt into caching
     Given two instances that call "Reserve" with the same input using ".cached()"
     When both run

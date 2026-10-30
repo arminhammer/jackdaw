@@ -119,6 +119,13 @@ pub enum WorkflowEvent {
         error: String,
         timestamp: DateTime<Utc>,
     },
+    /// A Rust workflow ended its run with `ctx.continue_as_new(input)` and started run `run` with `input`.
+    WorkflowContinuedAsNew {
+        instance_id: String,
+        run: u32,
+        input: serde_json::Value,
+        timestamp: DateTime<Utc>,
+    },
 }
 
 impl WorkflowEvent {
@@ -141,7 +148,8 @@ impl WorkflowEvent {
             | WorkflowEvent::TaskCancelled { instance_id, .. }
             | WorkflowEvent::TaskSuspended { instance_id, .. }
             | WorkflowEvent::TaskResumed { instance_id, .. }
-            | WorkflowEvent::TaskFaulted { instance_id, .. } => instance_id,
+            | WorkflowEvent::TaskFaulted { instance_id, .. }
+            | WorkflowEvent::WorkflowContinuedAsNew { instance_id, .. } => instance_id,
         }
     }
 }

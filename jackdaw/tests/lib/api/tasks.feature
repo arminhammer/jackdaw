@@ -116,7 +116,7 @@ Feature: Tasks
   @todo
   Scenario: A cached step can bypass the cache
     Given a task declared with "#[task(cached)]"
-    When a workflow calls it with ".cached(false)"
+    When a workflow calls it with ".uncached()"
     Then the task runs even though an equal input was cached
 
   @implemented

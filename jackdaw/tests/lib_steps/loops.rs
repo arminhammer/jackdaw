@@ -189,8 +189,39 @@ impl Count {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct Pages {
+    pub cursor: u32,
+    pub total: u32,
+}
+
+#[workflow(namespace = "loops", name = "pager", version = "1")]
+pub struct Pager;
+
+#[workflow_methods]
+impl Pager {
+    #[run]
+    async fn run(ctx: &mut WorkflowContext<Self>, pages: Pages) -> WorkflowResult<u32> {
+        let mut cursor = pages.cursor;
+        loop {
+            ctx.call(Looping::tick, &cursor).await?;
+            cursor += 1;
+            if cursor == pages.total {
+                return Ok(cursor);
+            }
+            if cursor.is_multiple_of(500) {
+                return ctx.continue_as_new(Pages {
+                    cursor,
+                    total: pages.total,
+                });
+            }
+        }
+    }
+}
+
 pub fn fixtures() -> Vec<Fixture> {
     vec![
+        Fixture::of::<Pager>("loops.pager"),
         Fixture::of::<ForLines>("loops.for"),
         Fixture::of::<Poll>("loops.while").input(json!("export-1")),
         Fixture::of::<BreakContinue>("loops.break-continue"),
@@ -456,4 +487,54 @@ async fn each_item_once(world: &mut LibWorld) {
             .count();
         assert_eq!(completed, 1, "item {item}");
     }
+}
+
+#[given(
+    regex = r#"^a "loop" that processes one page per iteration and calls "ctx\.continue_as_new\(cursor\)" every 500 pages$"#
+)]
+fn pager(world: &mut LibWorld) {
+    world.set_fixture(super::fixture("loops.pager"));
+}
+
+#[when(regex = r"^it processes (\d+) pages$")]
+async fn processes_pages(world: &mut LibWorld, total: u32) {
+    world
+        .start("it", json!({ "cursor": 0, "total": total }))
+        .await;
+    let last = world.last();
+    assert_eq!(world.outcome(last).await.value(), &json!(total));
+}
+
+#[then(regex = r"^no single run's journal holds more than (\d+) iterations$")]
+async fn runs_bounded(world: &mut LibWorld, limit: usize) {
+    let id = world.runs[world.last()].id.clone();
+    let history = world.engine().history(&id).await.expect("history");
+    let mut in_run = 0;
+    let mut runs = 1;
+    for event in history {
+        match event {
+            Event::TaskCompleted { .. } => {
+                in_run += 1;
+                assert!(in_run <= limit, "run {runs} holds more than {limit} steps");
+            }
+            Event::ContinuedAsNew { run, .. } => {
+                runs = run;
+                in_run = 0;
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(runs, 4, "2000 pages in runs of 500");
+}
+
+#[then("all runs share the instance id")]
+fn runs_share_id(world: &mut LibWorld) {
+    let id = world.runs[world.last()].id.clone();
+    assert!(
+        world
+            .probe
+            .calls_of("tick")
+            .iter()
+            .all(|call| call.instance == id)
+    );
 }

@@ -92,6 +92,7 @@ impl PostgresPersistence {
             WorkflowEvent::TaskSuspended { .. } => "TaskSuspended",
             WorkflowEvent::TaskResumed { .. } => "TaskResumed",
             WorkflowEvent::TaskFaulted { .. } => "TaskFaulted",
+            WorkflowEvent::WorkflowContinuedAsNew { .. } => "WorkflowContinuedAsNew",
         }
     }
 }

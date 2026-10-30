@@ -374,6 +374,8 @@ impl Retry {
 pub struct TaskOptions {
     pub(crate) retry: Option<Retry>,
     pub(crate) timeout: Option<Duration>,
+    /// Overrides the task's own `#[task(cached)]` setting for one call.
+    pub(crate) cache: Option<bool>,
 }
 
 impl TaskOptions {
@@ -394,6 +396,20 @@ impl TaskOptions {
     #[must_use]
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
+        self
+    }
+
+    /// Reuse a cached result for equal input (and cache this one), whether or not the task is `#[task(cached)]`.
+    #[must_use]
+    pub fn cached(mut self) -> Self {
+        self.cache = Some(true);
+        self
+    }
+
+    /// Run the task even if it is `#[task(cached)]` and an equal input was cached.
+    #[must_use]
+    pub fn uncached(mut self) -> Self {
+        self.cache = Some(false);
         self
     }
 }

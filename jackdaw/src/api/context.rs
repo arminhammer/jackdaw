@@ -3,10 +3,10 @@
 //! Every method that creates a step (`call`, `run`, `sleep`, `wait_for_event`, ...) fixes the step's identity at the
 //! moment it is called, not when the returned future is first polled. That is what makes `futures::try_join!` and
 //! `join_all` safe to use: replay does not depend on poll order.
-use super::error::{Error, Fault, StepError};
+use super::error::{Error, Fault, StepError, WorkflowResult};
 use super::runtime::{InstanceCore, StepExec, StepSpec};
 use super::task::{BoxFuture, Retry, TaskDef, TaskOptions};
-use super::workflow::{RunTarget, Runnable, Workflow};
+use super::workflow::{RunTarget, Runnable, Workflow, WorkflowDef};
 use chrono::{DateTime, Utc};
 use futures::{StreamExt, TryStreamExt};
 use serde::Serialize;
@@ -37,6 +37,22 @@ fn invalid_output(step: &str, error: &serde_json::Error) -> StepError {
     StepError::Fault(Fault::validation(format!(
         "the output of {step} does not match its type: {error}"
     )))
+}
+
+impl<W: WorkflowDef> WorkflowContext<W> {
+    /// Ends this run and starts a fresh run of the same instance with `input`: same instance id and handles, a new
+    /// journal and new state. Use it to keep the history of a long-lived workflow (a poller, a subscription) small.
+    ///
+    /// Return the result from `#[run]`: `return ctx.continue_as_new(next);`.
+    ///
+    /// # Errors
+    /// Always: the "error" is how the request reaches the engine.
+    pub fn continue_as_new<T>(&self, input: W::In) -> WorkflowResult<T> {
+        match serde_json::to_value(&input) {
+            Ok(value) => Err(StepError::ContinuedAsNew(Box::new(value))),
+            Err(error) => Err(invalid_input(&error)),
+        }
+    }
 }
 
 /// How a step is named in errors: "task `charge`", "event `paid`", ...
@@ -327,6 +343,20 @@ impl<Out> Step<Out> {
     #[must_use]
     pub fn timeout(mut self, limit: Duration) -> Self {
         self.options = self.options.timeout(limit);
+        self
+    }
+
+    /// Reuses a cached result for equal input, and caches this one, even if the task is not `#[task(cached)]`.
+    #[must_use]
+    pub fn cached(mut self) -> Self {
+        self.options = self.options.cached();
+        self
+    }
+
+    /// Runs the task even if it is `#[task(cached)]` and an equal input was cached.
+    #[must_use]
+    pub fn uncached(mut self) -> Self {
+        self.options = self.options.uncached();
         self
     }
 

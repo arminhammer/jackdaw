@@ -103,6 +103,17 @@ pub enum Event {
         /// When it happened.
         timestamp: DateTime<Utc>,
     },
+    /// A run ended with `ctx.continue_as_new(input)`; run `run` of the same instance starts with `input`.
+    ContinuedAsNew {
+        /// The instance.
+        instance_id: String,
+        /// The number of the run that starts (the first run is 1).
+        run: u32,
+        /// The new run's input.
+        input: serde_json::Value,
+        /// When it happened.
+        timestamp: DateTime<Utc>,
+    },
     /// An event of the YAML engine that has no dedicated variant.
     Other(WorkflowEvent),
 }
@@ -121,6 +132,7 @@ impl Event {
             Self::WorkflowCompleted { .. } => "WorkflowCompleted",
             Self::WorkflowFailed { .. } => "WorkflowFailed",
             Self::WorkflowCancelled { .. } => "WorkflowCancelled",
+            Self::ContinuedAsNew { .. } => "ContinuedAsNew",
             Self::Other(event) => other_name(event),
         }
     }
@@ -138,6 +150,7 @@ impl Event {
             | Self::WorkflowCompleted { .. }
             | Self::WorkflowFailed { .. }
             | Self::WorkflowCancelled { .. }
+            | Self::ContinuedAsNew { .. }
             | Self::Other(_) => false,
         }
     }
@@ -154,7 +167,8 @@ impl Event {
             | Self::TaskRetried { instance_id, .. }
             | Self::WorkflowCompleted { instance_id, .. }
             | Self::WorkflowFailed { instance_id, .. }
-            | Self::WorkflowCancelled { instance_id, .. } => instance_id,
+            | Self::WorkflowCancelled { instance_id, .. }
+            | Self::ContinuedAsNew { instance_id, .. } => instance_id,
             Self::Other(event) => event.instance_id(),
         }
     }
@@ -264,6 +278,17 @@ impl Event {
                 reason: None,
                 timestamp: *timestamp,
             },
+            Self::ContinuedAsNew {
+                instance_id,
+                run,
+                input,
+                timestamp,
+            } => WorkflowEvent::WorkflowContinuedAsNew {
+                instance_id: instance_id.clone(),
+                run: *run,
+                input: input.clone(),
+                timestamp: *timestamp,
+            },
             Self::TaskStarted { replayed: true, .. }
             | Self::TaskCompleted { replayed: true, .. }
             | Self::TaskFaulted { replayed: true, .. }
@@ -291,6 +316,17 @@ impl Event {
                 timestamp,
             } => Self::WorkflowResumed {
                 instance_id,
+                timestamp,
+            },
+            WorkflowEvent::WorkflowContinuedAsNew {
+                instance_id,
+                run,
+                input,
+                timestamp,
+            } => Self::ContinuedAsNew {
+                instance_id,
+                run,
+                input,
                 timestamp,
             },
             WorkflowEvent::TaskStarted {
@@ -397,6 +433,7 @@ fn other_name(event: &WorkflowEvent) -> &'static str {
         WorkflowEvent::TaskSuspended { .. } => "TaskSuspended",
         WorkflowEvent::TaskResumed { .. } => "TaskResumed",
         WorkflowEvent::TaskFaulted { .. } => "TaskFaulted",
+        WorkflowEvent::WorkflowContinuedAsNew { .. } => "WorkflowContinuedAsNew",
     }
 }
 

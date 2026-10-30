@@ -453,6 +453,9 @@ pub(crate) struct Journal {
     /// The last history position handed out (see [`StepRecord::order`]).
     #[serde(default)]
     pub history: u64,
+    /// Which run of the instance this journal belongs to (0 or 1: the first; see `continue_as_new`).
+    #[serde(default)]
+    pub run: u32,
     #[serde(default)]
     pub created_at: Option<DateTime<Utc>>,
     #[serde(default)]
@@ -474,6 +477,7 @@ impl Journal {
             deadlines: BTreeMap::new(),
             inbox: BTreeMap::new(),
             history: 0,
+            run: 1,
             created_at: None,
             updated_at: None,
         }
@@ -984,7 +988,7 @@ pub(crate) struct InstanceCore {
     pub replay_only: Option<ReplayOnly>,
     pub clock: SharedClock,
     /// How many steps were already recorded when this run started.
-    pub boundary: usize,
+    boundary: AtomicUsize,
     next_seq: AtomicUsize,
     ordinals: Mutex<HashMap<(String, String), usize>>,
     pub cancel: watch::Sender<bool>,
@@ -1061,7 +1065,7 @@ impl InstanceCore {
             ephemeral,
             replay_only,
             clock,
-            boundary,
+            boundary: AtomicUsize::new(boundary),
             next_seq: AtomicUsize::new(0),
             ordinals: Mutex::new(HashMap::new()),
             cancel,
@@ -1261,8 +1265,9 @@ impl InstanceCore {
         if let Some(known) = journal.patches.get(id) {
             return *known;
         }
+        let boundary = self.boundary.load(Ordering::SeqCst);
         let replaying_old_history =
-            self.boundary > 0 && self.next_seq.load(Ordering::SeqCst) <= self.boundary;
+            boundary > 0 && self.next_seq.load(Ordering::SeqCst) <= boundary;
         let applies = !replaying_old_history;
         journal.patches.insert(id.to_string(), applies);
         applies
@@ -1480,6 +1485,41 @@ impl InstanceCore {
             .push_back(payload);
         self.inbox_changed.notify_waiters();
         self.persist().await
+    }
+
+    /// Starts the next run of this instance (`continue_as_new`): a fresh journal with `input`, keeping the workflow's
+    /// deadline and the events nobody consumed yet.
+    async fn begin_next_run(&self, input: Value) -> Result<(), Error> {
+        let run = {
+            let mut journal = lock(&self.journal);
+            journal.run = journal.run.max(1) + 1;
+            journal.steps.clear();
+            journal.signals.clear();
+            journal.patches.clear();
+            let deadline = journal.deadlines.remove(WORKFLOW_DEADLINE);
+            journal.deadlines.clear();
+            if let Some(deadline) = deadline {
+                journal
+                    .deadlines
+                    .insert(WORKFLOW_DEADLINE.to_string(), deadline);
+            }
+            journal.input = input.clone();
+            journal.result = None;
+            journal.run
+        };
+        self.next_seq.store(0, Ordering::SeqCst);
+        self.boundary.store(0, Ordering::SeqCst);
+        lock(&self.ordinals).clear();
+        lock(&self.pending_signals).clear();
+        lock(&self.claims).clear();
+        self.persist().await?;
+        self.emit(Event::ContinuedAsNew {
+            instance_id: self.id.clone(),
+            run,
+            input,
+            timestamp: self.clock.now(),
+        })
+        .await
     }
 
     pub(crate) fn request_cancel(&self) {
@@ -1841,9 +1881,8 @@ impl InstanceCore {
             (task, Arc::clone(&shared.cache))
         };
         let cache_key = compute_cache_key(name, &spec.input);
-        if task.cached
-            && let Some(hit) = cache.get(&cache_key).await?
-        {
+        let cached = options.cache.unwrap_or(task.cached);
+        if cached && let Some(hit) = cache.get(&cache_key).await? {
             return Ok(Outcome::Ok(hit.output));
         }
         let attempts = options.retry.as_ref().map_or(1, Retry::attempts);
@@ -1854,7 +1893,7 @@ impl InstanceCore {
                     .with_cancel(self.cancel.subscribe());
             match task.invoke(context, spec.input.clone()).await {
                 Ok(value) => {
-                    if task.cached {
+                    if cached {
                         cache
                             .set(CacheEntry {
                                 key: cache_key,
@@ -2005,56 +2044,79 @@ pub(crate) async fn drive<W: WorkflowDef>(
         core.apply_signal(&signal);
     }
 
-    let typed: W::In = serde_json::from_value(input).map_err(|e| {
-        Error::Faulted(Fault::validation(format!(
-            "the workflow's input does not match its type: {e}"
-        )))
-    })?;
+    let mut input = input;
+    let mut first_run = true;
+    let ended = loop {
+        let typed: W::In = serde_json::from_value(input.clone()).map_err(|e| {
+            Error::Faulted(Fault::validation(format!(
+                "the workflow's input does not match its type: {e}"
+            )))
+        })?;
 
-    let resumed = core.boundary > 0;
-    core.emit(if resumed {
-        Event::WorkflowResumed {
-            instance_id: core.id.clone(),
-            timestamp: core.clock.now(),
+        if first_run {
+            let resumed = core.boundary.load(Ordering::SeqCst) > 0;
+            core.emit(if resumed {
+                Event::WorkflowResumed {
+                    instance_id: core.id.clone(),
+                    timestamp: core.clock.now(),
+                }
+            } else {
+                Event::WorkflowStarted {
+                    instance_id: core.id.clone(),
+                    workflow: core.workflow.to_string(),
+                    input: lock(&core.journal).input.clone(),
+                    timestamp: core.clock.now(),
+                }
+            })
+            .await?;
         }
-    } else {
-        Event::WorkflowStarted {
-            instance_id: core.id.clone(),
-            workflow: core.workflow.to_string(),
-            input: lock(&core.journal).input.clone(),
-            timestamp: core.clock.now(),
-        }
-    })
-    .await?;
+        first_run = false;
 
-    let mut context = WorkflowContext::<W>::new(Arc::clone(&core), state);
-    let frontier_possible = core
-        .replay_only
-        .as_ref()
-        .is_some_and(|replay| replay.allow_frontier);
-    let run = W::run(&mut context, typed);
-    tokio::pin!(run);
-    let deadline = lock(&core.journal)
-        .deadlines
-        .get(WORKFLOW_DEADLINE)
-        .copied();
-    let timed_out = async {
-        match deadline {
-            Some(deadline) if core.replay_only.is_none() => core.clock.sleep_until(deadline).await,
-            Some(_) | None => std::future::pending().await,
-        }
-    };
-    let ended = tokio::select! {
-        result = &mut run => Ended::Finished(result),
-        () = timed_out => Ended::TimedOut,
-        () = cancelled(core.cancel.subscribe()) => {
-            // Pending steps now fail with `StepError::Cancelled`; give the workflow the chance to clean up.
-            match tokio::time::timeout(CANCEL_GRACE, &mut run).await {
-                Ok(result) => Ended::Finished(result),
-                Err(_) => Ended::Cancelled,
+        let mut context = WorkflowContext::<W>::new(Arc::clone(&core), Arc::clone(&state));
+        let frontier_possible = core
+            .replay_only
+            .as_ref()
+            .is_some_and(|replay| replay.allow_frontier);
+        let run = W::run(&mut context, typed);
+        tokio::pin!(run);
+        let deadline = lock(&core.journal)
+            .deadlines
+            .get(WORKFLOW_DEADLINE)
+            .copied();
+        let timed_out = async {
+            match deadline {
+                Some(deadline) if core.replay_only.is_none() => {
+                    core.clock.sleep_until(deadline).await
+                }
+                Some(_) | None => std::future::pending().await,
+            }
+        };
+        let ended = tokio::select! {
+            result = &mut run => Ended::Finished(result),
+            () = timed_out => Ended::TimedOut,
+            () = cancelled(core.cancel.subscribe()) => {
+                // Pending steps now fail with `StepError::Cancelled`; give the workflow the chance to clean up.
+                match tokio::time::timeout(CANCEL_GRACE, &mut run).await {
+                    Ok(result) => Ended::Finished(result),
+                    Err(_) => Ended::Cancelled,
+                }
+            }
+            () = core.frontier.notified(), if frontier_possible => Ended::Frontier,
+        };
+        match ended {
+            Ended::Finished(Err(StepError::ContinuedAsNew(next))) => {
+                if core.replay_only.is_some() {
+                    // A replay covers one run; reaching its end is reaching the end of that history.
+                    break Ended::Frontier;
+                }
+                core.begin_next_run((*next).clone()).await?;
+                *lock(&state) = W::init(&view);
+                input = *next;
+            }
+            other @ (Ended::Finished(_) | Ended::Cancelled | Ended::TimedOut | Ended::Frontier) => {
+                break other;
             }
         }
-        () = core.frontier.notified(), if frontier_possible => Ended::Frontier,
     };
 
     let mut result = match ended {
