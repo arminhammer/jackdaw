@@ -5,6 +5,7 @@
 //! task invocation. Workflows under test are [`world::Fixture`]s, registered on every engine the scenario builds.
 #![allow(dead_code)]
 
+pub mod api;
 pub mod approval;
 pub mod batch;
 pub mod calling_tasks;
@@ -53,6 +54,7 @@ pub fn harnesses(probe: &Arc<Probe>) -> Harnesses {
     batch::defaults(probe);
     incident::defaults(probe);
     subscription::defaults(probe);
+    api::defaults(probe);
     let inventory = Arc::new(calling_tasks::Inventory::default());
     let mut sets: Vec<TaskSet> = Vec::new();
     let p = Arc::clone(probe);
@@ -104,6 +106,7 @@ pub fn harnesses(probe: &Arc<Probe>) -> Harnesses {
     sets.push(Box::new(move |b| {
         b.tasks(subscription::Billing(Arc::clone(&p)))
     }));
+    sets.extend(api::task_sets(probe));
     Harnesses {
         probe: Arc::clone(probe),
         sets,
@@ -131,6 +134,7 @@ pub fn catalog() -> Vec<Fixture> {
     all.extend(batch::fixtures());
     all.extend(incident::fixtures());
     all.extend(subscription::fixtures());
+    all.extend(api::fixtures());
     all
 }
 
@@ -140,6 +144,7 @@ pub fn variants() -> Vec<Fixture> {
     all.extend(conditionals::variants());
     all.extend(durability::variants());
     all.extend(subscription::variants());
+    all.extend(api::variants());
     all
 }
 

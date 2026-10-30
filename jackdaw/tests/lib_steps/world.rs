@@ -144,6 +144,8 @@ pub struct LibWorld {
     pub extras: Vec<Arc<dyn Fn(EngineBuilder) -> EngineBuilder + Send + Sync>>,
     /// The Postgres database of this scenario, when the store under test is Postgres.
     pub postgres_url: Option<String>,
+    /// The durable store this scenario asks for (`redb`, `sqlite`, `postgres`), instead of `JACKDAW_TEST_STORE`.
+    pub store: Option<String>,
     /// The workflow under test runs until cancelled, so "ran N times" checks must not wait for it to end.
     pub endless: bool,
     /// The recording/failing store of the durability scenarios.
@@ -197,8 +199,14 @@ impl LibWorld {
             extras: Vec::new(),
             postgres_url: None,
             endless: false,
+            store: None,
             test_store: None,
         }
+    }
+
+    /// The store this scenario runs on.
+    pub fn store_kind(&self) -> String {
+        self.store.clone().unwrap_or_else(store_kind)
     }
 
     /// A builder with this scenario's store, clock, tasks and workflows.
@@ -207,7 +215,7 @@ impl LibWorld {
         if let Some(persistence) = &self.persistence {
             builder = builder.persistence(Arc::clone(persistence));
         } else if self.durable {
-            builder = match store_kind().as_str() {
+            builder = match self.store_kind().as_str() {
                 "sqlite" => {
                     let path = self.dir.path().join("jackdaw.sqlite");
                     let store = tokio::task::block_in_place(|| {
@@ -385,7 +393,7 @@ impl LibWorld {
         }
         // Let the runtime drop the aborted instance tasks; with a durable store, until the file can be opened again.
         tokio::time::sleep(Duration::from_millis(20)).await;
-        if self.durable && self.persistence.is_none() && store_kind() == "redb" {
+        if self.durable && self.persistence.is_none() && self.store_kind() == "redb" {
             let path = self.dir.path().join("jackdaw.redb");
             let started = Instant::now();
             while Redb::open(&path).is_err() {

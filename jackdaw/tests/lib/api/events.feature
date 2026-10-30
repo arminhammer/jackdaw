@@ -16,7 +16,7 @@ Feature: External events and the event stream
     When I send "paid" immediately after starting it
     Then the workflow receives the event once it starts waiting
 
-  @todo @durability
+  @implemented @durability
   Scenario: An event sent before a crash is delivered after resume
     Given an engine with a Redb store
     And a workflow that sleeps 1 hour and then waits for "paid"
@@ -26,7 +26,7 @@ Feature: External events and the event stream
     And the virtual clock advances 1 hour
     Then the workflow receives the event without it being sent again
 
-  @todo @durability
+  @implemented @durability
   Scenario: An event is persisted before send_event returns
     Given an engine with a store that records every write
     When "send_event" returns successfully
@@ -48,9 +48,10 @@ Feature: External events and the event stream
 
   @implemented
   Scenario: Replayed steps are marked as replayed
-    Given a completed instance in a Redb store
+    Given an instance in a Redb store that completed two steps before a crash
     When a new engine resumes it
-    Then every "TaskCompleted" event from the journal reports "replayed() == true"
+    Then every "TaskCompleted" event replayed from the journal reports "replayed() == true"
+    And the step that runs live reports "replayed() == false"
 
   @implemented
   Scenario: Events are persisted to the history

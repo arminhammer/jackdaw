@@ -14,7 +14,7 @@ async fn redb_engine(world: &mut LibWorld) {
 /// Makes the scenario's engines durable, on the store `JACKDAW_TEST_STORE` names.
 pub async fn durable(world: &mut LibWorld) {
     world.durable = true;
-    if super::world::store_kind() == "postgres" && world.postgres_url.is_none() {
+    if world.store_kind() == "postgres" && world.postgres_url.is_none() {
         world.postgres_url = Some(fresh_postgres_database().await);
     }
 }
@@ -162,10 +162,10 @@ fn run_body_uses(world: &mut LibWorld, code: String) {
 
 #[when("I compile it")]
 fn compile_it(world: &mut LibWorld) {
-    // A given step may have chosen the case by name already.
+    // A given step chose the case. Compile-fail cases have expected compiler output; pass cases have none.
     let case = world.notes["ui"].as_str().expect("a case").to_string();
     let path = format!("{}/tests/rust/ui/{case}.stderr", env!("CARGO_MANIFEST_DIR"));
-    let stderr = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
+    let stderr = std::fs::read_to_string(&path).unwrap_or_default();
     world.notes.insert("stderr".into(), json!(stderr));
 }
 

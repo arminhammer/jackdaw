@@ -1,0 +1,18 @@
+error[E0004]: non-exhaustive patterns: `&_` not covered
+  --> tests/rust/ui/misuse_exhaustive_event.rs:5:11
+   |
+ 5 |     match value {
+   |           ^^^^^ pattern `&_` not covered
+   |
+note: `Event` defined here
+  --> src/api/event.rs
+   |
+   | pub enum Event {
+   | ^^^^^^^^^^^^^^
+   = note: the matched value is of type `&Event`
+   = note: `Event` is marked as non-exhaustive, so a wildcard `_` is necessary to match exhaustively
+help: ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown
+   |
+16 ~         Event::Other(_) => "other",
+17 ~         &_ => todo!(),
+   |

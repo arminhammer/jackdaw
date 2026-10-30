@@ -18,7 +18,7 @@ Feature: Building an engine
     And I drop the engine and build a new one on the same path
     Then "Engine::status" of the instance is "Completed"
 
-  @todo
+  @implemented
   Scenario Outline: Typed stores exist for every persistence backend
     Given an engine built with "<store>"
     When I execute a workflow to completion
@@ -30,9 +30,21 @@ Feature: Building an engine
       | store                                   |
       | Redb::open(path)                        |
       | Sqlite::open(path)                      |
+
+  # Needs a Postgres server: run with DATABASE_URL set and `--tags @postgres`.
+  @todo @postgres
+  Scenario Outline: The Postgres store keeps instances across engines
+    Given an engine built with "<store>"
+    When I execute a workflow to completion
+    And I drop the engine and build a new one on the same store
+    Then "Engine::status" of the instance is "Completed"
+    And a task result cached by the first engine is served from the cache by the second
+
+    Examples:
+      | store                                   |
       | Postgres::connect(url)                  |
 
-  @todo
+  @implemented
   Scenario: Third-party stores implement a Store trait
     Given a type that implements "jackdaw::api::Store" using in-memory maps
     When I pass it to "EngineBuilder::store"
@@ -52,11 +64,10 @@ Feature: Building an engine
     And the message names "Charge"
 
   @implemented
-  Scenario: The builder rejects a missing child workflow
-    Given a workflow whose "#[run]" runs the child workflow "Refund"
-    When I build an engine that does not register "Refund"
-    Then "build" fails with "Error::Invalid"
-    And the message names "Refund"
+  Scenario: The builder registers a child workflow with its parent
+    Given a workflow whose "#[run]" runs the child workflow "Payment"
+    When I build an engine that registers only the parent
+    Then the engine builds and can run the parent with its child
 
   @implemented
   Scenario: The builder rejects a catalog entry that does not exist

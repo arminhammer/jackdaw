@@ -81,6 +81,14 @@ impl<W: Send + 'static> WorkflowContext<W> {
         read(&lock(&self.state))
     }
 
+    /// Changes the workflow's fields. Like everything in `#[run]`, the change must follow from the steps' results so a
+    /// replay makes the same change; queries see it immediately and `wait_condition`s are re-checked.
+    pub fn state_mut<R>(&self, change: impl FnOnce(&mut W) -> R) -> R {
+        let result = change(&mut lock(&self.state));
+        self.core.state_changed.notify_waiters();
+        result
+    }
+
     /// Runs a task. Chain `.retry(..)` and `.timeout(..)` before awaiting.
     #[track_caller]
     pub fn call<T: TaskDef>(&self, task: T, input: impl Borrow<T::In>) -> Step<T::Out> {
@@ -357,6 +365,15 @@ impl<Out> Step<Out> {
     #[must_use]
     pub fn uncached(mut self) -> Self {
         self.options = self.options.uncached();
+        self
+    }
+
+    /// Fails an attempt of the task that goes `limit` without a heartbeat (see [`TaskContext::heartbeat`]).
+    ///
+    /// [`TaskContext::heartbeat`]: crate::api::TaskContext::heartbeat
+    #[must_use]
+    pub fn heartbeat_timeout(mut self, limit: Duration) -> Self {
+        self.options = self.options.heartbeat_timeout(limit);
         self
     }
 

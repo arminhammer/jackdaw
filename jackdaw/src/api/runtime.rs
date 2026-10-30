@@ -2234,12 +2234,26 @@ impl InstanceCore {
             return Ok(Outcome::Ok(hit.output));
         }
         let attempts = options.retry.as_ref().map_or(1, Retry::attempts);
+        let heartbeat = super::task::Heartbeat::new();
         let mut attempt = 1;
         loop {
             let context =
                 TaskContext::new(&self.id, name, attempt, format!("{}/{}", self.id, spec.seq))
-                    .with_cancel(self.cancel.subscribe());
-            match task.invoke(context, spec.input.clone()).await {
+                    .with_cancel(self.cancel.subscribe())
+                    .with_heartbeat(Arc::clone(&heartbeat));
+            let call = task.invoke(context, spec.input.clone());
+            let result = match options.heartbeat_timeout {
+                Some(limit) => {
+                    tokio::select! {
+                        result = call => result,
+                        () = self.watch_heartbeats(&heartbeat, limit) => Err(super::error::TaskError::retryable(
+                            format!("task `{name}` sent no heartbeat for {limit:?}"),
+                        )),
+                    }
+                }
+                None => call.await,
+            };
+            match result {
                 Ok(value) => {
                     if cached {
                         cache
@@ -2274,6 +2288,25 @@ impl InstanceCore {
                     attempt += 1;
                 }
                 Err(error) => return Ok(Outcome::Fault(*error.fault)),
+            }
+        }
+    }
+}
+
+impl InstanceCore {
+    /// Resolves when `limit` passes without a heartbeat.
+    async fn watch_heartbeats(&self, heartbeat: &super::task::Heartbeat, limit: Duration) {
+        let mut beats = heartbeat.beats.subscribe();
+        beats.borrow_and_update();
+        loop {
+            let silence = super::clock::sleep(self.clock.as_ref(), limit);
+            tokio::select! {
+                () = silence => return,
+                changed = beats.changed() => {
+                    if changed.is_err() {
+                        return std::future::pending().await;
+                    }
+                }
             }
         }
     }

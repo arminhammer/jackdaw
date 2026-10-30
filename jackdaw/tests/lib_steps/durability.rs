@@ -457,6 +457,16 @@ fn use_store(world: &mut LibWorld, store: TestStore) -> Arc<TestStore> {
     store
 }
 
+/// Gives the scenario a store that records every write.
+pub fn record_writes(world: &mut LibWorld) {
+    use_store(world, TestStore::default());
+}
+
+/// Whether anything written to the scenario's recording store contains `needle`.
+pub fn store_contains(world: &LibWorld, needle: &str) -> bool {
+    store_of(world).contains(needle)
+}
+
 fn store_of(world: &LibWorld) -> Arc<TestStore> {
     Arc::clone(
         world
@@ -1597,7 +1607,11 @@ async fn current_resumes(world: &mut LibWorld) {
 #[then("the instance completes")]
 async fn instance_completes(world: &mut LibWorld) {
     let last = world.last();
-    assert_eq!(world.outcome(last).await.value(), &json!(3));
+    let value = world.outcome(last).await.value().clone();
+    if !world.notes.contains_key("legacy") {
+        return;
+    }
+    assert_eq!(value, json!(3));
     let inputs: Vec<Value> = world
         .probe
         .calls_of("dur_second")

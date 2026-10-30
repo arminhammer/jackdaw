@@ -107,13 +107,13 @@ Feature: Tasks
     When two separate workflow instances call it with the same input
     Then the task ran twice
 
-  @todo
+  @implemented
   Scenario: A single step can opt into the cache
     Given a task declared with "#[task]" that counts its invocations
     When two separate workflow instances call it with the same input using ".cached()"
     Then the task ran once
 
-  @todo
+  @implemented
   Scenario: A cached step can bypass the cache
     Given a task declared with "#[task(cached)]"
     When a workflow calls it with ".uncached()"
@@ -125,7 +125,7 @@ Feature: Tasks
     Then it returns 42
     And no workflow instance is recorded in the store
 
-  @todo
+  @implemented
   Scenario: A long task heartbeats its progress
     Given a task that calls "TaskContext::heartbeat(progress)" every second
     And the step has ".heartbeat_timeout(3.secs())"
@@ -133,7 +133,7 @@ Feature: Tasks
     Then the attempt fails with a heartbeat timeout and is retried
     And the next attempt can read the last progress with "TaskContext::last_heartbeat"
 
-  @todo
+  @implemented
   Scenario: A running task observes cancellation
     Given a task that loops until "TaskContext::cancelled()" resolves
     When the instance is cancelled while the task runs

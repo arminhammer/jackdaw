@@ -159,6 +159,8 @@ pub struct FaultSpec {
     pub title: Option<String>,
     pub detail: Option<String>,
     pub retryable: bool,
+    /// Asks for this delay before the next attempt.
+    pub next_retry_delay: Option<Duration>,
 }
 
 impl FaultSpec {
@@ -169,6 +171,7 @@ impl FaultSpec {
             title: None,
             detail: Some(detail.to_string()),
             retryable: false,
+            next_retry_delay: None,
         }
     }
 
@@ -208,7 +211,11 @@ impl FaultSpec {
         if let Some(detail) = &self.detail {
             error = error.detail(detail);
         }
-        if self.retryable { error.retry() } else { error }
+        let error = if self.retryable { error.retry() } else { error };
+        match self.next_retry_delay {
+            Some(delay) => error.next_retry_delay(delay),
+            None => error,
+        }
     }
 }
 

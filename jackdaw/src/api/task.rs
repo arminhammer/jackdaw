@@ -233,6 +233,23 @@ pub struct TaskContext {
     attempt: u32,
     idempotency_key: String,
     cancel: Option<tokio::sync::watch::Receiver<bool>>,
+    heartbeat: Option<std::sync::Arc<Heartbeat>>,
+}
+
+/// The heartbeats of one step: the latest progress (kept across attempts) and when it last beat.
+#[derive(Debug)]
+pub(crate) struct Heartbeat {
+    pub(crate) beats: tokio::sync::watch::Sender<u64>,
+    pub(crate) progress: std::sync::Mutex<Option<serde_json::Value>>,
+}
+
+impl Heartbeat {
+    pub(crate) fn new() -> std::sync::Arc<Self> {
+        std::sync::Arc::new(Self {
+            beats: tokio::sync::watch::channel(0).0,
+            progress: std::sync::Mutex::new(None),
+        })
+    }
 }
 
 impl TaskContext {
@@ -248,7 +265,40 @@ impl TaskContext {
             attempt,
             idempotency_key,
             cancel: None,
+            heartbeat: None,
         }
+    }
+
+    pub(crate) fn with_heartbeat(mut self, heartbeat: std::sync::Arc<Heartbeat>) -> Self {
+        self.heartbeat = Some(heartbeat);
+        self
+    }
+
+    /// Reports that the task is alive, with how far it got. A step with a
+    /// [`heartbeat_timeout`](crate::api::Step::heartbeat_timeout) fails an attempt that stops heartbeating; the next
+    /// attempt can read the progress with [`last_heartbeat`](Self::last_heartbeat) and continue from there.
+    pub fn heartbeat(&self, progress: impl serde::Serialize) {
+        if let Some(heartbeat) = &self.heartbeat {
+            if let Ok(value) = serde_json::to_value(progress) {
+                *heartbeat
+                    .progress
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(value);
+            }
+            heartbeat.beats.send_modify(|count| *count += 1);
+        }
+    }
+
+    /// The progress of the latest heartbeat of this step, from this attempt or an earlier one.
+    #[must_use]
+    pub fn last_heartbeat<T: serde::de::DeserializeOwned>(&self) -> Option<T> {
+        let heartbeat = self.heartbeat.as_ref()?;
+        let progress = heartbeat
+            .progress
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()?;
+        serde_json::from_value(progress).ok()
     }
 
     pub(crate) fn with_cancel(mut self, cancel: tokio::sync::watch::Receiver<bool>) -> Self {
@@ -376,6 +426,8 @@ pub struct TaskOptions {
     pub(crate) timeout: Option<Duration>,
     /// Overrides the task's own `#[task(cached)]` setting for one call.
     pub(crate) cache: Option<bool>,
+    /// Fails an attempt that goes this long without a heartbeat.
+    pub(crate) heartbeat_timeout: Option<Duration>,
 }
 
 impl TaskOptions {
@@ -410,6 +462,14 @@ impl TaskOptions {
     #[must_use]
     pub fn uncached(mut self) -> Self {
         self.cache = Some(false);
+        self
+    }
+
+    /// Fail an attempt that goes `limit` without calling [`TaskContext::heartbeat`]; the retry policy decides whether
+    /// another attempt follows.
+    #[must_use]
+    pub fn heartbeat_timeout(mut self, limit: Duration) -> Self {
+        self.heartbeat_timeout = Some(limit);
         self
     }
 }

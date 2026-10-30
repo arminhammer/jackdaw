@@ -80,7 +80,7 @@ Feature: Workflows written in Rust
     When the workflow has finished 2 of 3 steps
     Then querying it returns 2
 
-  @todo
+  @implemented
   Scenario: A workflow continues as new to bound its history
     Given a workflow that processes one batch and then calls "ctx.continue_as_new(next_cursor)"
     When it has processed 1000 batches

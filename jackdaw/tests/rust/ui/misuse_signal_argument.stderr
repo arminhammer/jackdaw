@@ -1,0 +1,24 @@
+error[E0308]: mismatched types
+  --> tests/rust/ui/misuse_signal_argument.rs:30:31
+   |
+30 |     handle.signal(W::approve, 42).await
+   |            ------             ^^ expected `String`, found integer
+   |            |
+   |            arguments to this method are incorrect
+   |
+help: the return type of this call is `{integer}` due to the type of the argument passed
+  --> tests/rust/ui/misuse_signal_argument.rs:30:5
+   |
+30 |     handle.signal(W::approve, 42).await
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^--^
+   |                               |
+   |                               this argument influences the return type of `signal`
+note: method defined here
+  --> src/api/engine.rs
+   |
+   |     pub async fn signal<W, A: Serialize>(
+   |                  ^^^^^^
+help: try using a conversion method
+   |
+30 |     handle.signal(W::approve, 42.to_string()).await
+   |                                 ++++++++++++

@@ -129,7 +129,9 @@ pub struct Polling;
 impl Polling {
     #[run]
     async fn run(ctx: &mut WorkflowContext<Self>, _: ()) -> WorkflowResult<()> {
-        Ok(ctx.call(Cancels::poll, &()).shielded().await?)
+        // Shielded, so the task keeps running and sees the cancellation itself; then the workflow ends as cancelled.
+        let _ = ctx.call(Cancels::poll, &()).shielded().await;
+        Err(StepError::Cancelled)
     }
 }
 
@@ -244,9 +246,13 @@ async fn stops_within(world: &mut LibWorld, seconds: u64) {
         "took {:?}",
         started.elapsed()
     );
+    assert!(matches!(outcome, Outcome::Cancelled), "{outcome:?}");
     assert!(
-        matches!(&outcome, Outcome::Faulted(f) if f.detail.as_deref() == Some("stopped: cancelled")),
-        "{outcome:?}"
+        world
+            .probe
+            .calls_of("poll")
+            .iter()
+            .all(|c| c.ended.is_some())
     );
 }
 

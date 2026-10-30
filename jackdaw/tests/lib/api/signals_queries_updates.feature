@@ -37,13 +37,13 @@ Feature: Signals, queries and updates
     And a new engine on the same store resumes the instance
     Then the instance completes without the signal being sent again
 
-  @todo
+  @implemented
   Scenario: A signal to a finished instance is an error
     Given a completed "Approval" instance
     When I send it the signal "approve"
     Then the call fails with an error that says the instance is not running
 
-  @todo
+  @implemented
   Scenario: An update returns a typed result to the caller
     Given a "#[update] set_limit(&mut self, ctx, limit: u64) -> Result<u64, UpdateError>" handler that returns the previous limit
     And a running instance with limit 10
@@ -51,7 +51,7 @@ Feature: Signals, queries and updates
     Then the caller receives 10
     And a query of the limit returns 20
 
-  @todo
+  @implemented
   Scenario: An update can reject its input without changing state
     Given an update handler that rejects limits above 100
     When I send the update "set_limit" with 500
@@ -59,14 +59,14 @@ Feature: Signals, queries and updates
     And the workflow's state is unchanged
     And the journal records no update
 
-  @todo
+  @implemented
   Scenario: An accepted update is replayed, not re-applied
     Given an instance that accepted the update "set_limit" with 20
     When the instance is replayed from its journal
     Then the update handler runs once in the replay at the same point
     And the caller is not sent a second result
 
-  @todo
+  @implemented
   Scenario: An update is idempotent by update id
     When I send the update "set_limit" with 20 and update id "u-1" twice
     Then the handler runs once
