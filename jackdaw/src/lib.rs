@@ -103,35 +103,65 @@
 //! jackdaw validate workflow.yaml
 //! ```
 //!
-//! ## The YAML engine's modules
+//! ## Extending jackdaw
 //!
-//! The modules below ([`durableengine`], [`executor`], [`expressions`], [`persistence`], [`cache`], [`listeners`] and
-//! friends) are the engine that interprets YAML workflows, and the [`api`] is built on them. Programs use [`api`]; reach
-//! for these to implement a custom persistence or cache provider or an executor.
+//! - A store of your own: implement [`PersistenceProvider`] (see the `custom_persistence` example), or [`api::Store`]
+//!   for a typed store. The built-in providers are in [`providers`].
+//! - A cache of your own: implement [`CacheProvider`].
+//! - A call type of your own: implement [`Executor`] (see the `custom_executor` example).
+//!
+//! The other modules of the crate are the YAML interpreter that [`api`] is built on. They are hidden from these docs and
+//! are not part of the API: they change without notice.
+#![warn(missing_docs)]
 
 pub mod api;
-pub mod builder;
 pub mod cache;
-pub mod container;
-pub mod context;
-pub mod descriptors;
-pub mod durableengine;
-pub mod execution_handle;
-pub mod executionhistory;
-pub mod executor;
-pub mod expressions;
 pub mod guide;
-pub mod listeners;
-pub mod output;
 pub mod persistence;
 pub mod prelude;
 pub mod providers;
-pub mod task_ext;
-pub mod task_output;
 pub mod testing;
 pub mod workflow;
 
-// Re-export commonly used types for convenience
-pub use api::{Engine, EngineBuilder, Executor};
-pub use builder::DurableEngineBuilder;
-pub use execution_handle::ExecutionHandle;
+pub use api::{Engine, EngineBuilder, Error, ExecutionHandle, Executor};
+pub use cache::CacheProvider;
+pub use persistence::PersistenceProvider;
+
+// The YAML interpreter. Public for the CLI and the YAML conformance tests; not part of the API.
+#[doc(hidden)]
+pub mod builder;
+#[doc(hidden)]
+pub mod container;
+#[doc(hidden)]
+pub mod context;
+#[doc(hidden)]
+pub mod descriptors;
+#[doc(hidden)]
+pub mod durableengine;
+#[doc(hidden)]
+pub mod execution_handle;
+#[doc(hidden)]
+pub mod executionhistory;
+#[doc(hidden)]
+pub mod executor;
+#[doc(hidden)]
+pub mod expressions;
+#[doc(hidden)]
+pub mod listeners;
+#[doc(hidden)]
+pub mod output;
+#[doc(hidden)]
+pub mod task_ext;
+#[doc(hidden)]
+pub mod task_output;
+
+/// What the macros' generated code refers to. Not part of the API: it changes without notice.
+#[doc(hidden)]
+pub mod __private {
+    pub use crate::api::plumbing::*;
+    pub use crate::api::{
+        CatalogDef, CatalogTaskRef, CatalogWorkflowRef, QueryRef, SignalRef, SyncWorkflowContext,
+        TaskDef, UpdateRef, WorkflowContext, WorkflowContextView, WorkflowDef, WorkflowRef,
+        WorkflowResult,
+    };
+}

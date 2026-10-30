@@ -1,3 +1,4 @@
+//! A store in a SQLite database.
 use crate::persistence::{
     Error, JournalRecord, Lease, PersistenceProvider, Result, SerializationSnafu,
 };
@@ -8,6 +9,7 @@ use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 
 #[derive(Debug)]
 #[allow(dead_code)]
+/// A store in a SQLite database. Several processes can share the file.
 pub struct SqlitePersistence {
     pool: SqlitePool,
 }

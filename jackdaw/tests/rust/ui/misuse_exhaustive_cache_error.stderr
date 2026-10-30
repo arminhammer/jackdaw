@@ -1,0 +1,18 @@
+error[E0004]: non-exhaustive patterns: `&_` not covered
+ --> tests/rust/ui/misuse_exhaustive_cache_error.rs:5:11
+  |
+5 |     match value {
+  |           ^^^^^ pattern `&_` not covered
+  |
+note: `jackdaw::cache::Error` defined here
+ --> src/cache.rs
+  |
+  | pub enum Error {
+  | ^^^^^^^^^^^^^^
+  = note: the matched value is of type `&jackdaw::cache::Error`
+  = note: `jackdaw::cache::Error` is marked as non-exhaustive, so a wildcard `_` is necessary to match exhaustively
+help: ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown
+  |
+8 ~         Error::Database { .. } => "database",
+9 ~         &_ => todo!(),
+  |

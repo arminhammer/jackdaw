@@ -3,7 +3,9 @@ use crate::task_output::TaskOutputStreamer;
 use async_trait::async_trait;
 use snafu::prelude::*;
 
+/// Why a call failed in the YAML engine's executors.
 #[derive(Debug, Snafu)]
+#[non_exhaustive]
 pub enum Error {
     #[snafu(display("Execution error: {message}"))]
     Execution { message: String },

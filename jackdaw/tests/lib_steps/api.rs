@@ -2016,3 +2016,146 @@ async fn handler_runs_once(world: &mut LibWorld) {
 fn same_result(world: &mut LibWorld) {
     assert_eq!(world.notes["updates"][0], world.notes["updates"][1]);
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// api/public_surface.feature: the curated surface
+// ---------------------------------------------------------------------------------------------------------------
+
+#[then("it can name each of these from the crate root:")]
+fn names_from_root(_world: &mut LibWorld, step: &GherkinStep) {
+    // `pass_crate_root.rs` is compiled by the trybuild `pass_*` cases.
+    let source = std::fs::read_to_string(format!(
+        "{}/tests/rust/ui/pass_crate_root.rs",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect("the crate-root case");
+    let imports = source
+        .lines()
+        .find(|line| line.starts_with("use jackdaw::{"))
+        .expect("a crate-root import");
+    for row in step.table.as_ref().expect("a table").rows.iter().skip(1) {
+        let name = &row[0];
+        assert!(
+            imports.contains(&format!("{name},")) || imports.contains(&format!("{name}}}")),
+            "{name} is not imported from the crate root"
+        );
+    }
+}
+
+/// `cargo doc` for jackdaw with warnings denied, run once per test binary: `(succeeded, stderr)`.
+async fn documented() -> &'static (bool, String) {
+    static DOCS: tokio::sync::OnceCell<(bool, String)> = tokio::sync::OnceCell::const_new();
+    DOCS.get_or_init(|| async {
+        let output =
+            tokio::process::Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
+                .args(["doc", "-q", "-p", "jackdaw", "--all-features", "--no-deps"])
+                .env("RUSTDOCFLAGS", "-D warnings")
+                .output()
+                .await
+                .expect("cargo runs");
+        (
+            output.status.success(),
+            String::from_utf8_lossy(&output.stderr).into_owned(),
+        )
+    })
+    .await
+}
+
+fn doc_dir() -> std::path::PathBuf {
+    let target = std::env::var("CARGO_TARGET_DIR").map_or_else(
+        |_| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../target"),
+        Into::into,
+    );
+    target.join("doc/jackdaw")
+}
+
+#[when(regex = r#"^I build the docs for "jackdaw"$"#)]
+async fn build_docs(_world: &mut LibWorld) {
+    let (ok, stderr) = documented().await;
+    assert!(ok, "{stderr}");
+}
+
+#[when(
+    regex = r#"^I run "cargo doc -p jackdaw --all-features --no-deps" with "RUSTDOCFLAGS=-D warnings"$"#
+)]
+async fn doc_with_warnings_denied(world: &mut LibWorld) {
+    let (ok, stderr) = documented().await;
+    world
+        .notes
+        .insert("doc".into(), json!({ "ok": ok, "stderr": stderr }));
+}
+
+#[then("the command succeeds")]
+fn command_succeeds(world: &mut LibWorld) {
+    let doc = &world.notes["doc"];
+    assert_eq!(doc["ok"], json!(true), "{}", doc["stderr"]);
+}
+
+#[then(regex = r#"^"src/lib\.rs" contains "\#!\[warn\(missing_docs\)\]"$"#)]
+fn lib_warns_missing_docs(_world: &mut LibWorld) {
+    let lib = std::fs::read_to_string(format!("{}/src/lib.rs", env!("CARGO_MANIFEST_DIR")))
+        .expect("lib.rs");
+    assert!(lib.contains("#![warn(missing_docs)]"));
+}
+
+#[then(
+    regex = r#"^the items used only by generated macro code are under a "\#\[doc\(hidden\)\]" module named "__private"$"#
+)]
+fn private_module(_world: &mut LibWorld) {
+    let lib = std::fs::read_to_string(format!("{}/src/lib.rs", env!("CARGO_MANIFEST_DIR")))
+        .expect("lib.rs");
+    assert!(
+        lib.contains("#[doc(hidden)]\npub mod __private {"),
+        "no hidden __private module"
+    );
+    assert!(
+        !doc_dir().join("__private/index.html").exists(),
+        "__private has a docs page"
+    );
+}
+
+#[then(regex = r#"^the "api" module page does not list any of:$"#)]
+fn api_page_omits(_world: &mut LibWorld, step: &GherkinStep) {
+    let page =
+        std::fs::read_to_string(doc_dir().join("api/index.html")).expect("the api docs page");
+    for row in step.table.as_ref().expect("a table").rows.iter().skip(1) {
+        let name = &row[0];
+        let linked = ["struct", "trait", "fn", "type", "enum"]
+            .iter()
+            .any(|kind| page.contains(&format!("{kind}.{name}.html")));
+        assert!(!linked, "the api page lists {name}");
+    }
+}
+
+#[then(regex = r#"^the macros still expand and compile against "::jackdaw::__private"$"#)]
+fn macros_use_private(_world: &mut LibWorld) {
+    let dir = format!("{}/../jackdaw-macros/src", env!("CARGO_MANIFEST_DIR"));
+    let sources: String = std::fs::read_dir(dir)
+        .expect("the macro sources")
+        .map(|entry| std::fs::read_to_string(entry.expect("an entry").path()).unwrap_or_default())
+        .collect();
+    assert!(sources.contains("::jackdaw::__private::"));
+    assert!(
+        !sources.contains("::jackdaw::api::"),
+        "the macros still emit `::jackdaw::api` paths"
+    );
+    // Every fixture of this suite is expanded by those macros, and the suite compiled.
+}
+
+#[then(
+    regex = r#"^"jackdaw::(persistence|cache|executor)::Error" is marked "\#\[non_exhaustive\]"$"#
+)]
+fn extension_error_non_exhaustive(_world: &mut LibWorld, module: String) {
+    let source = std::fs::read_to_string(format!("{}/src/{module}.rs", env!("CARGO_MANIFEST_DIR")))
+        .expect("the module");
+    assert!(
+        source.contains("#[non_exhaustive]\npub enum Error {"),
+        "{module}::Error is not #[non_exhaustive]"
+    );
+    let stderr = std::fs::read_to_string(format!(
+        "{}/tests/rust/ui/misuse_exhaustive_{module}_error.stderr",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect("the compile-fail case");
+    assert!(stderr.contains("non-exhaustive patterns"));
+}

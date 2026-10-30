@@ -1,3 +1,4 @@
+//! The built-in stores: in memory, Redb, SQLite and Postgres. All of them support leases.
 pub mod mem;
 pub mod postgres;
 pub mod redb;

@@ -1,27 +1,53 @@
+//! Where workflow state lives: the [`PersistenceProvider`] trait. The built-in stores are in
+//! [`providers::persistence`](crate::providers::persistence); [`api::Store`](crate::api::Store) wraps them for
+//! [`EngineBuilder::store`](crate::api::EngineBuilder::store).
 use crate::workflow::WorkflowCheckpoint;
 use crate::workflow::WorkflowEvent;
 use async_trait::async_trait;
 use snafu::prelude::*;
 
+/// Why a store operation failed.
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub))]
+#[non_exhaustive]
 pub enum Error {
+    /// The store refused the operation (or does not support it).
     #[snafu(display("Persistence error: {message}"))]
-    Persistence { message: String },
+    Persistence {
+        /// What went wrong.
+        message: String,
+    },
 
+    /// The database behind the store failed.
     #[snafu(display("Database error: {message}"))]
-    Database { message: String },
+    Database {
+        /// What went wrong.
+        message: String,
+    },
 
+    /// A record could not be (de)serialized.
     #[snafu(display("Serialization error: {source}"))]
-    Serialization { source: serde_json::Error },
+    Serialization {
+        /// The underlying error.
+        source: serde_json::Error,
+    },
 
+    /// No events exist for the instance.
     #[snafu(display("Event not found: {instance_id}"))]
-    EventNotFound { instance_id: String },
+    EventNotFound {
+        /// The instance.
+        instance_id: String,
+    },
 
+    /// No checkpoint exists for the instance.
     #[snafu(display("Checkpoint not found: {instance_id}"))]
-    CheckpointNotFound { instance_id: String },
+    CheckpointNotFound {
+        /// The instance.
+        instance_id: String,
+    },
 }
 
+/// The result of a store operation.
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Which engine owns an instance, and until when (see [`PersistenceProvider::acquire_lease`]).
@@ -56,9 +82,13 @@ fn journal_key(instance_id: &str) -> String {
 /// [`delete_instance`](Self::delete_instance) to support listing and purging.
 #[async_trait]
 pub trait PersistenceProvider: Send + Sync + std::fmt::Debug {
+    /// Appends an event to the instance's history.
     async fn save_event(&self, event: WorkflowEvent) -> Result<()>;
+    /// The instance's history, oldest first.
     async fn get_events(&self, instance_id: &str) -> Result<Vec<WorkflowEvent>>;
+    /// Stores the instance's latest checkpoint, replacing the previous one.
     async fn save_checkpoint(&self, checkpoint: WorkflowCheckpoint) -> Result<()>;
+    /// The instance's latest checkpoint, if any.
     async fn get_checkpoint(&self, instance_id: &str) -> Result<Option<WorkflowCheckpoint>>;
 
     /// Appends `records` to the instance's journal log, in one write. Positions only grow.

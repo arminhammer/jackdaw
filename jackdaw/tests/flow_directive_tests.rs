@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used)]
 
-use jackdaw::DurableEngineBuilder;
+use jackdaw::builder::DurableEngineBuilder;
 /// Tests for flow control directives (exit, end, continue)
 use jackdaw::cache::CacheProvider;
 use jackdaw::persistence::PersistenceProvider;

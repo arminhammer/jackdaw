@@ -1,3 +1,4 @@
+//! The built-in caches: in memory, Redb, SQLite and Postgres.
 pub mod mem;
 pub mod postgres;
 pub mod redb;

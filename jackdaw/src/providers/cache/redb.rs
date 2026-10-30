@@ -1,3 +1,4 @@
+//! A cache in a Redb file, usually the same file as the [`RedbPersistence`](crate::providers::persistence::RedbPersistence) store.
 use crate::cache::{CacheEntry, CacheProvider, Error, Result, SerializationSnafu};
 use async_trait::async_trait;
 use snafu::prelude::*;
@@ -6,6 +7,7 @@ use std::sync::Arc;
 const CACHE_TABLE: redb::TableDefinition<&str, &[u8]> = redb::TableDefinition::new("cache");
 
 #[derive(Debug)]
+/// A cache in a Redb database.
 pub struct RedbCache {
     db: Arc<redb::Database>,
 }

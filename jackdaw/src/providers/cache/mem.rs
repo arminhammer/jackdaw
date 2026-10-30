@@ -1,9 +1,11 @@
+//! A cache in process memory, lost when the process ends.
 use crate::cache::{CacheEntry, CacheProvider, Result};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug)]
+/// A cache in process memory.
 pub struct InMemoryCache {
     store: Arc<Mutex<HashMap<String, CacheEntry>>>,
 }
@@ -19,6 +21,7 @@ impl Default for InMemoryCache {
 impl InMemoryCache {
     #[allow(dead_code)]
     #[must_use]
+    /// An empty cache.
     pub fn new() -> Self {
         Self::default()
     }

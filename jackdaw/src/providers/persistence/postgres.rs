@@ -1,3 +1,4 @@
+//! A store in a Postgres database, for several engine processes on one database.
 use crate::persistence::{
     Error, JournalRecord, Lease, PersistenceProvider, Result, SerializationSnafu,
 };
@@ -8,6 +9,7 @@ use sqlx::postgres::{PgPool, PgPoolOptions};
 
 #[derive(Debug)]
 #[allow(dead_code)]
+/// A store in a Postgres database.
 pub struct PostgresPersistence {
     pool: PgPool,
 }

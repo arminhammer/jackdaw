@@ -60,12 +60,12 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream> 
 
         let (reference, entry) = match kind {
             Kind::Task => (
-                quote!(::jackdaw::api::CatalogTaskRef),
-                quote!(::jackdaw::api::CatalogEntry::task::<#input, #output>(#name, #version)),
+                quote!(::jackdaw::__private::CatalogTaskRef),
+                quote!(::jackdaw::__private::CatalogEntry::task::<#input, #output>(#name, #version)),
             ),
             Kind::Workflow => (
-                quote!(::jackdaw::api::CatalogWorkflowRef),
-                quote!(::jackdaw::api::CatalogEntry::workflow::<#input, #output>(#name, #version)),
+                quote!(::jackdaw::__private::CatalogWorkflowRef),
+                quote!(::jackdaw::__private::CatalogEntry::workflow::<#input, #output>(#name, #version)),
             ),
         };
         consts.push(quote! {
@@ -83,10 +83,10 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream> 
             #(#consts)*
         }
 
-        impl ::jackdaw::api::CatalogDef for #ident {
+        impl ::jackdaw::__private::CatalogDef for #ident {
             const SOURCE: &'static str = #source;
 
-            fn entries() -> ::std::vec::Vec<::jackdaw::api::CatalogEntry> {
+            fn entries() -> ::std::vec::Vec<::jackdaw::__private::CatalogEntry> {
                 ::std::vec![ #(#entries),* ]
             }
         }

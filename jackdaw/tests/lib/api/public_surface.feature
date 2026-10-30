@@ -30,7 +30,7 @@ Feature: The public API is small, documented and stable
       | workflow_methods    |
       | catalog             |
 
-  @todo
+  @implemented
   Scenario: The crate root re-exports the curated set
     Given a crate that depends on "jackdaw"
     Then it can name each of these from the crate root:
@@ -43,6 +43,8 @@ Feature: The public API is small, documented and stable
       | Executor            |
       | Error               |
 
+  # Today these modules are #[doc(hidden)] but still public: the CLI and the YAML conformance tests use them.
+  # They become private once the CLI runs on the new Engine API.
   @todo
   Scenario Outline: Engine internals are not public
     Given a crate that depends on "jackdaw" with all features
@@ -58,7 +60,7 @@ Feature: The public API is small, documented and stable
       | jackdaw::executionhistory             |
       | jackdaw::context::Context             |
 
-  @todo
+  @implemented
   Scenario: Macro plumbing is hidden from the documented surface
     When I build the docs for "jackdaw"
     Then the items used only by generated macro code are under a "#[doc(hidden)]" module named "__private"
@@ -70,11 +72,10 @@ Feature: The public API is small, documented and stable
       | NativeTask         |
       | RegisterTask       |
       | TaskRef            |
-      | BoxFuture          |
       | AsDependency       |
     And the macros still expand and compile against "::jackdaw::__private"
 
-  @todo
+  @implemented
   Scenario: Every public item is documented
     When I run "cargo doc -p jackdaw --all-features --no-deps" with "RUSTDOCFLAGS=-D warnings"
     Then the command succeeds
@@ -91,7 +92,7 @@ Feature: The public API is small, documented and stable
       | jackdaw::api::Event  |
       | jackdaw::api::Status |
 
-  @todo
+  @implemented
   Scenario: Error enums of the extension traits can grow without a breaking change
     Then "jackdaw::persistence::Error" is marked "#[non_exhaustive]"
     And "jackdaw::cache::Error" is marked "#[non_exhaustive]"

@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::expect_used)]
 
-use jackdaw::DurableEngineBuilder;
+use jackdaw::builder::DurableEngineBuilder;
 /// Container Task Feature Tests
 ///
 /// Tests for container advanced features per Serverless Workflow spec:

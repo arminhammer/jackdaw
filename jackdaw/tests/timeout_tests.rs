@@ -2,7 +2,7 @@
 #![allow(clippy::expect_used)]
 #![allow(clippy::wildcard_enum_match_arm)]
 
-use jackdaw::DurableEngineBuilder;
+use jackdaw::builder::DurableEngineBuilder;
 /// Tests for Timeout Enforcement
 ///
 /// Tests that timeouts are enforced at:

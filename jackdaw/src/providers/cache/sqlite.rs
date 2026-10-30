@@ -1,3 +1,4 @@
+//! A cache in a SQLite database.
 use crate::cache::{CacheEntry, CacheProvider, Error, Result, SerializationSnafu};
 use async_trait::async_trait;
 use snafu::prelude::*;
@@ -5,6 +6,7 @@ use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 
 #[derive(Debug)]
 #[allow(dead_code)]
+/// A cache in a SQLite database.
 pub struct SqliteCache {
     pool: SqlitePool,
 }

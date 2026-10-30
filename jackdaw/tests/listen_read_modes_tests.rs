@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tempfile::TempDir;
 
-use jackdaw::DurableEngineBuilder;
+use jackdaw::builder::DurableEngineBuilder;
 use jackdaw::cache::CacheProvider;
 use jackdaw::durableengine::DurableEngine;
 use jackdaw::persistence::PersistenceProvider;

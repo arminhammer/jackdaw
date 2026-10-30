@@ -1,3 +1,4 @@
+//! A store in process memory, lost when the process ends. Several engines in one process can share it (it supports leases).
 use crate::persistence::{JournalRecord, Lease, PersistenceProvider, Result};
 use crate::workflow::{WorkflowCheckpoint, WorkflowEvent};
 use async_trait::async_trait;
@@ -5,6 +6,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug)]
+/// A store in process memory.
 pub struct InMemoryPersistence {
     events: Arc<Mutex<HashMap<String, Vec<WorkflowEvent>>>>,
     checkpoints: Arc<Mutex<HashMap<String, WorkflowCheckpoint>>>,
@@ -33,6 +35,7 @@ impl Default for InMemoryPersistence {
 
 impl InMemoryPersistence {
     #[must_use]
+    /// An empty store.
     pub fn new() -> Self {
         Self::default()
     }

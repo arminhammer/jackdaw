@@ -22,8 +22,8 @@ pub fn expand_struct(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
     let name = require(&args.name, "name")?;
     let version = require(&args.version, "version")?;
     let replay = match args.replay.as_ref().map(syn::LitStr::value).as_deref() {
-        None | Some("strict") => quote!(::jackdaw::api::ReplayMode::Strict),
-        Some("lenient") => quote!(::jackdaw::api::ReplayMode::Lenient),
+        None | Some("strict") => quote!(::jackdaw::__private::ReplayMode::Strict),
+        Some("lenient") => quote!(::jackdaw::__private::ReplayMode::Lenient),
         Some(_) => {
             return Err(syn::Error::new_spanned(
                 args.replay,
@@ -56,11 +56,11 @@ pub fn expand_struct(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
     Ok(quote! {
         #item
 
-        impl ::jackdaw::api::WorkflowMeta for #ident {
+        impl ::jackdaw::__private::WorkflowMeta for #ident {
             const NAMESPACE: &'static str = #namespace;
             const NAME: &'static str = #name;
             const VERSION: &'static str = #version;
-            const REPLAY: ::jackdaw::api::ReplayMode = #replay;
+            const REPLAY: ::jackdaw::__private::ReplayMode = #replay;
         }
 
         #default_impl
@@ -285,14 +285,14 @@ pub fn expand_methods(attr: TokenStream, item: TokenStream) -> syn::Result<Token
     } = &run;
     let run_const = quote! {
         #[allow(non_upper_case_globals)]
-        #vis const #original: ::jackdaw::api::WorkflowRef<#self_ty, #input, #output> = ::jackdaw::api::WorkflowRef::new();
+        #vis const #original: ::jackdaw::__private::WorkflowRef<#self_ty, #input, #output> = ::jackdaw::__private::WorkflowRef::new();
     };
     let signal_consts = signals.iter().map(|signal| {
         let (name, vis, arg) = (&signal.original, &signal.vis, &signal.arg);
         let label = name.to_string();
         quote! {
             #[allow(non_upper_case_globals)]
-            #vis const #name: ::jackdaw::api::SignalRef<#self_ty, #arg> = ::jackdaw::api::SignalRef::new(#label);
+            #vis const #name: ::jackdaw::__private::SignalRef<#self_ty, #arg> = ::jackdaw::__private::SignalRef::new(#label);
         }
     });
     let update_consts = updates.iter().map(|update| {
@@ -300,16 +300,16 @@ pub fn expand_methods(attr: TokenStream, item: TokenStream) -> syn::Result<Token
         let label = name.to_string();
         quote! {
             #[allow(non_upper_case_globals)]
-            #vis const #name: ::jackdaw::api::UpdateRef<#self_ty, #arg, #output> = ::jackdaw::api::UpdateRef::new(#label);
+            #vis const #name: ::jackdaw::__private::UpdateRef<#self_ty, #arg, #output> = ::jackdaw::__private::UpdateRef::new(#label);
         }
     });
     let update_handlers = updates.iter().map(|update| {
         let (name, hidden, arg, output) = (&update.original, &update.hidden, &update.arg, &update.output);
         let label = name.to_string();
         quote! {
-            ::jackdaw::api::UpdateHandler::new::<#arg, #output, _>(
+            ::jackdaw::__private::UpdateHandler::new::<#arg, #output, _>(
                 #label,
-                |state: &mut #self_ty, ctx: &mut ::jackdaw::api::SyncWorkflowContext<#self_ty>, arg: #arg| {
+                |state: &mut #self_ty, ctx: &mut ::jackdaw::__private::SyncWorkflowContext<#self_ty>, arg: #arg| {
                     state.#hidden(ctx, arg)
                 },
             )
@@ -320,16 +320,16 @@ pub fn expand_methods(attr: TokenStream, item: TokenStream) -> syn::Result<Token
         let label = name.to_string();
         quote! {
             #[allow(non_upper_case_globals)]
-            #vis const #name: ::jackdaw::api::QueryRef<#self_ty, #output> = ::jackdaw::api::QueryRef::new(#label);
+            #vis const #name: ::jackdaw::__private::QueryRef<#self_ty, #output> = ::jackdaw::__private::QueryRef::new(#label);
         }
     });
     let signal_handlers = signals.iter().map(|signal| {
         let (name, hidden, arg) = (&signal.original, &signal.hidden, &signal.arg);
         let label = name.to_string();
         quote! {
-            ::jackdaw::api::SignalHandler::new::<#arg, _>(
+            ::jackdaw::__private::SignalHandler::new::<#arg, _>(
                 #label,
-                |state: &mut #self_ty, ctx: &mut ::jackdaw::api::SyncWorkflowContext<#self_ty>, arg: #arg| {
+                |state: &mut #self_ty, ctx: &mut ::jackdaw::__private::SyncWorkflowContext<#self_ty>, arg: #arg| {
                     state.#hidden(ctx, arg)
                 },
             )
@@ -339,9 +339,9 @@ pub fn expand_methods(attr: TokenStream, item: TokenStream) -> syn::Result<Token
         let (name, hidden, output) = (&query.original, &query.hidden, &query.output);
         let label = name.to_string();
         quote! {
-            ::jackdaw::api::QueryHandler::new::<#output, _>(
+            ::jackdaw::__private::QueryHandler::new::<#output, _>(
                 #label,
-                |state: &#self_ty, ctx: &::jackdaw::api::WorkflowContextView| state.#hidden(ctx),
+                |state: &#self_ty, ctx: &::jackdaw::__private::WorkflowContextView| state.#hidden(ctx),
             )
         }
     });
@@ -352,7 +352,7 @@ pub fn expand_methods(attr: TokenStream, item: TokenStream) -> syn::Result<Token
     let dependencies = scan_state
         .dependencies
         .iter()
-        .map(|path| quote!(::jackdaw::api::AsDependency::dependency(&#path)));
+        .map(|path| quote!(::jackdaw::__private::AsDependency::dependency(&#path)));
 
     Ok(quote! {
         #block
@@ -364,34 +364,34 @@ pub fn expand_methods(attr: TokenStream, item: TokenStream) -> syn::Result<Token
             #(#query_consts)*
         }
 
-        impl ::jackdaw::api::WorkflowDef for #self_ty {
+        impl ::jackdaw::__private::WorkflowDef for #self_ty {
             type In = #input;
             type Out = #output;
 
-            fn init(ctx: &::jackdaw::api::WorkflowContextView) -> Self {
+            fn init(ctx: &::jackdaw::__private::WorkflowContextView) -> Self {
                 #init_expr
             }
 
             fn run<'a>(
-                ctx: &'a mut ::jackdaw::api::WorkflowContext<Self>,
+                ctx: &'a mut ::jackdaw::__private::WorkflowContext<Self>,
                 input: #input,
-            ) -> ::jackdaw::api::BoxFuture<'a, ::jackdaw::api::WorkflowResult<#output>> {
+            ) -> ::jackdaw::__private::BoxFuture<'a, ::jackdaw::__private::WorkflowResult<#output>> {
                 ::std::boxed::Box::pin(<#self_ty>::#hidden_run(ctx, input))
             }
 
-            fn signals() -> ::std::vec::Vec<::jackdaw::api::SignalHandler<Self>> {
+            fn signals() -> ::std::vec::Vec<::jackdaw::__private::SignalHandler<Self>> {
                 ::std::vec![ #(#signal_handlers),* ]
             }
 
-            fn queries() -> ::std::vec::Vec<::jackdaw::api::QueryHandler<Self>> {
+            fn queries() -> ::std::vec::Vec<::jackdaw::__private::QueryHandler<Self>> {
                 ::std::vec![ #(#query_handlers),* ]
             }
 
-            fn updates() -> ::std::vec::Vec<::jackdaw::api::UpdateHandler<Self>> {
+            fn updates() -> ::std::vec::Vec<::jackdaw::__private::UpdateHandler<Self>> {
                 ::std::vec![ #(#update_handlers),* ]
             }
 
-            fn dependencies() -> ::std::vec::Vec<::jackdaw::api::Dependency> {
+            fn dependencies() -> ::std::vec::Vec<::jackdaw::__private::Dependency> {
                 ::std::vec![ #(#dependencies),* ]
             }
         }

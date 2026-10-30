@@ -20,7 +20,7 @@ use std::sync::Arc;
 ///
 /// ## Default configuration (in-memory)
 /// ```
-/// use jackdaw::DurableEngineBuilder;
+/// use jackdaw::builder::DurableEngineBuilder;
 ///
 /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let engine = DurableEngineBuilder::new().build()?;
@@ -30,7 +30,7 @@ use std::sync::Arc;
 ///
 /// ## Custom persistence and cache
 /// ```
-/// use jackdaw::DurableEngineBuilder;
+/// use jackdaw::builder::DurableEngineBuilder;
 /// use jackdaw::providers::persistence::RedbPersistence;
 /// use jackdaw::providers::cache::RedbCache;
 /// use std::sync::Arc;
@@ -77,7 +77,7 @@ impl DurableEngineBuilder {
     /// # Examples
     ///
     /// ```
-    /// use jackdaw::DurableEngineBuilder;
+    /// use jackdaw::builder::DurableEngineBuilder;
     /// use jackdaw::providers::persistence::RedbPersistence;
     /// use std::sync::Arc;
     ///
@@ -103,7 +103,7 @@ impl DurableEngineBuilder {
     /// # Examples
     ///
     /// ```
-    /// use jackdaw::DurableEngineBuilder;
+    /// use jackdaw::builder::DurableEngineBuilder;
     /// use jackdaw::providers::cache::mem::InMemoryCache;
     /// use std::sync::Arc;
     ///
@@ -133,7 +133,7 @@ impl DurableEngineBuilder {
     /// # Examples
     ///
     /// ```
-    /// use jackdaw::DurableEngineBuilder;
+    /// use jackdaw::builder::DurableEngineBuilder;
     ///
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let engine = DurableEngineBuilder::new()
@@ -160,7 +160,7 @@ impl DurableEngineBuilder {
     /// # Examples
     ///
     /// ```
-    /// use jackdaw::DurableEngineBuilder;
+    /// use jackdaw::builder::DurableEngineBuilder;
     ///
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let engine = DurableEngineBuilder::new().build()?;

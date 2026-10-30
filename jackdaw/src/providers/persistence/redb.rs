@@ -1,3 +1,4 @@
+//! A store in a single Redb file: embedded, no server.
 use async_trait::async_trait;
 use chrono::Utc;
 use snafu::prelude::*;
@@ -11,11 +12,15 @@ use redb::ReadableTable as _;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 #[derive(Debug)]
+/// A store in a Redb database file.
 pub struct RedbPersistence {
+    /// The database.
     pub db: Arc<redb::Database>,
 }
 
+/// Workflow history events, keyed `"{instance}:{time}:{counter}"`.
 pub const EVENTS_TABLE: redb::TableDefinition<&str, &[u8]> = redb::TableDefinition::new("events");
+/// The latest checkpoint per instance.
 pub const CHECKPOINTS_TABLE: redb::TableDefinition<&str, &[u8]> =
     redb::TableDefinition::new("checkpoints");
 /// Journal logs, keyed `"{instance}\u{1f}{position:020}"` so one instance's records are one ordered range.

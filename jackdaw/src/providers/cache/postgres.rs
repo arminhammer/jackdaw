@@ -1,8 +1,10 @@
+//! A cache in a Postgres database.
 use crate::cache::{CacheEntry, CacheProvider, Error, Result};
 use async_trait::async_trait;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 
 #[derive(Debug)]
+/// A cache in a Postgres database.
 pub struct PostgresCache {
     pool: PgPool,
 }

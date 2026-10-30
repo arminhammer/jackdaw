@@ -7,7 +7,7 @@ mod common;
 mod example_steps;
 use crate::common::{WorkflowStatus, parse_docstring};
 use cucumber::{World, given, then, when};
-use jackdaw::DurableEngineBuilder;
+use jackdaw::builder::DurableEngineBuilder;
 use jackdaw::cache::CacheProvider;
 use jackdaw::durableengine::DurableEngine;
 use jackdaw::persistence::PersistenceProvider;

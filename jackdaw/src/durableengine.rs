@@ -350,7 +350,7 @@ impl DurableEngine {
     /// # Examples
     ///
     /// ```no_run
-    /// # use jackdaw::DurableEngineBuilder;
+    /// # use jackdaw::builder::DurableEngineBuilder;
     /// # use serverless_workflow_core::models::workflow::WorkflowDefinition;
     /// # use std::time::Duration;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {

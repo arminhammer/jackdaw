@@ -13,9 +13,10 @@
 //!
 //! [`TestEngineBuilder::replace_task`] swaps a task for a fake, and [`TestEngine::crash_after_step`] with
 //! [`TestEngine::restart`] simulates a process dying mid-workflow and coming back on the same store.
+use crate::api::plumbing::{BoxFuture, NativeTask, RegisterTask};
 use crate::api::{
-    BoxFuture, CatalogDef, Clock as EngineClock, Engine, EngineBuilder, Error, IntoTaskSet,
-    NativeTask, Recovery, RegisterTask, Store, TaskDef, TaskError, WorkflowDef,
+    CatalogDef, Clock as EngineClock, Engine, EngineBuilder, Error, IntoTaskSet, Recovery, Store,
+    TaskDef, TaskError, WorkflowDef,
 };
 use chrono::{DateTime, Utc};
 use std::future::Future;
@@ -60,7 +61,7 @@ impl Default for TokioClock {
 impl EngineClock for TokioClock {
     fn now(&self) -> DateTime<Utc> {
         let elapsed = tokio::time::Instant::now().saturating_duration_since(self.instant);
-        crate::api::clock_after(self.wall, elapsed)
+        crate::api::plumbing::clock_after(self.wall, elapsed)
     }
 
     fn sleep_until(&self, deadline: DateTime<Utc>) -> BoxFuture<'static, ()> {
@@ -108,7 +109,7 @@ impl ManualClock {
     /// Moves time forward, waking every sleep whose deadline has passed.
     pub fn advance(&self, by: Duration) {
         self.now
-            .send_modify(|now| *now = crate::api::clock_after(*now, by));
+            .send_modify(|now| *now = crate::api::plumbing::clock_after(*now, by));
     }
 
     /// Sets the time. Moving it backwards does not wake anything.
@@ -147,6 +148,7 @@ pub struct Clock {
 }
 
 impl Clock {
+    /// How much virtual time has passed since the engine was built.
     #[must_use]
     pub fn elapsed(&self) -> Duration {
         tokio::time::Instant::now().saturating_duration_since(self.started)
@@ -161,6 +163,7 @@ pub struct TestEngine {
 }
 
 impl TestEngine {
+    /// A builder; register tasks and workflows as on [`EngineBuilder`].
     #[must_use]
     pub fn builder() -> TestEngineBuilder {
         TestEngineBuilder {
@@ -169,6 +172,7 @@ impl TestEngine {
         }
     }
 
+    /// The engine's virtual clock.
     #[must_use]
     pub fn clock(&self) -> Clock {
         self.clock
@@ -207,30 +211,35 @@ pub struct TestEngineBuilder {
 }
 
 impl TestEngineBuilder {
+    /// As [`EngineBuilder::task`].
     #[must_use]
     pub fn task(mut self, task: impl RegisterTask) -> Self {
         self.inner = self.inner.task(task);
         self
     }
 
+    /// As [`EngineBuilder::tasks`].
     #[must_use]
     pub fn tasks(mut self, set: impl IntoTaskSet) -> Self {
         self.inner = self.inner.tasks(set);
         self
     }
 
+    /// As [`EngineBuilder::workflow`].
     #[must_use]
     pub fn workflow<W: WorkflowDef>(mut self) -> Self {
         self.inner = self.inner.workflow::<W>();
         self
     }
 
+    /// As [`EngineBuilder::catalog`].
     #[must_use]
     pub fn catalog<C: CatalogDef>(mut self) -> Self {
         self.inner = self.inner.catalog::<C>();
         self
     }
 
+    /// As [`EngineBuilder::store`] (the default is in memory).
     #[must_use]
     pub fn store(mut self, store: impl Store) -> Self {
         self.inner = self.inner.store(store);

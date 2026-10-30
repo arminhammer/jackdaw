@@ -1,37 +1,63 @@
+//! Caching task results by input: the [`CacheProvider`] trait. The built-in caches are in
+//! [`providers::cache`](crate::providers::cache).
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use snafu::prelude::*;
 
+/// Why a cache operation failed.
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub))]
+#[non_exhaustive]
 pub enum Error {
+    /// The cache refused the operation.
     #[snafu(display("Cache error: {message}"))]
-    Cache { message: String },
+    Cache {
+        /// What went wrong.
+        message: String,
+    },
 
+    /// An entry could not be (de)serialized.
     #[snafu(display("Serialization error: {source}"))]
-    Serialization { source: serde_json::Error },
+    Serialization {
+        /// The underlying error.
+        source: serde_json::Error,
+    },
 
+    /// The database behind the cache failed.
     #[snafu(display("Database error: {message}"))]
-    Database { message: String },
+    Database {
+        /// What went wrong.
+        message: String,
+    },
 }
 
+/// The result of a cache operation.
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// A cached task result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheEntry {
+    /// The key: a hash of the task's name and input.
     pub key: String,
+    /// The input the result was computed from.
     pub inputs: serde_json::Value,
+    /// The task's output.
     pub output: serde_json::Value,
+    /// When the entry was written.
     pub timestamp: DateTime<Utc>,
 }
 
-/// Pluggable cache provider for idempotent task execution
+/// Where cached task results live. Tasks opt in with `#[task(cached)]` or `.cached()` on a step; equal input then
+/// returns the stored output instead of running the task again.
 #[async_trait]
 #[allow(dead_code)]
 pub trait CacheProvider: Send + Sync + std::fmt::Debug {
+    /// The entry under `key`, if any.
     async fn get(&self, key: &str) -> Result<Option<CacheEntry>>;
+    /// Stores `entry`, replacing an entry with the same key.
     async fn set(&self, entry: CacheEntry) -> Result<()>;
+    /// Removes the entry under `key`.
     async fn invalidate(&self, key: &str) -> Result<()>;
 }
 
@@ -61,6 +87,7 @@ fn filter_internal_fields(value: &serde_json::Value) -> serde_json::Value {
 // Note: Filters out internal descriptor fields (__workflow, __runtime, __task)
 // so they don't affect caching
 // Uses SHA-256 for deterministic hashing across runs
+/// The cache key of a call: a SHA-256 hash of the task name and its input, ignoring fields that start with `__`.
 #[must_use]
 pub fn compute_cache_key(task_name: &str, inputs: &serde_json::Value) -> String {
     use sha2::{Digest, Sha256};

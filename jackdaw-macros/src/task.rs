@@ -87,11 +87,11 @@ pub fn expand_fn(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStrea
     };
     let native = if args.blocking {
         quote! {
-            ::jackdaw::api::NativeTask::blocking::<#input, #output, _>(#name, #cached, |#ctx_param, input| #call)
+            ::jackdaw::__private::NativeTask::blocking::<#input, #output, _>(#name, #cached, |#ctx_param, input| #call)
         }
     } else {
         quote! {
-            ::jackdaw::api::NativeTask::new::<#input, #output, _, _>(
+            ::jackdaw::__private::NativeTask::new::<#input, #output, _, _>(
                 #name, #cached, |#ctx_param, input| async move { #call.await },
             )
         }
@@ -108,15 +108,15 @@ pub fn expand_fn(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStrea
         #[derive(Debug, Clone, Copy)]
         #vis struct #marker;
 
-        impl ::jackdaw::api::TaskDef for #marker {
+        impl ::jackdaw::__private::TaskDef for #marker {
             type In = #input;
             type Out = #output;
             fn task_name(&self) -> &'static str { #name }
             fn cacheable(&self) -> bool { #cached }
         }
 
-        impl ::jackdaw::api::RegisterTask for #marker {
-            fn native(self) -> ::jackdaw::api::NativeTask {
+        impl ::jackdaw::__private::RegisterTask for #marker {
+            fn native(self) -> ::jackdaw::__private::NativeTask {
                 #native
             }
         }
@@ -195,7 +195,7 @@ pub fn expand_impl(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStr
         registrations.push(quote! {
             {
                 let this = ::std::sync::Arc::clone(&self);
-                ::jackdaw::api::NativeTask::new::<#input, #output, _, _>(
+                ::jackdaw::__private::NativeTask::new::<#input, #output, _, _>(
                     #name, #cached,
                     move |#ctx_param, input| {
                         let this = ::std::sync::Arc::clone(&this);
@@ -206,8 +206,8 @@ pub fn expand_impl(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStr
         });
         consts.push(quote! {
             #[allow(non_upper_case_globals)]
-            #vis const #original: ::jackdaw::api::TaskRef<#self_ty, #input, #output> =
-                ::jackdaw::api::TaskRef::new(#name, #cached);
+            #vis const #original: ::jackdaw::__private::TaskRef<#self_ty, #input, #output> =
+                ::jackdaw::__private::TaskRef::new(#name, #cached);
         });
 
         let mut renamed: ImplItemFn = method;
@@ -225,8 +225,8 @@ pub fn expand_impl(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStr
             #(#consts)*
         }
 
-        impl #impl_generics ::jackdaw::api::TaskSet for #self_ty #where_clause {
-            fn native_tasks(self: ::std::sync::Arc<Self>) -> ::std::vec::Vec<::jackdaw::api::NativeTask> {
+        impl #impl_generics ::jackdaw::__private::TaskSet for #self_ty #where_clause {
+            fn native_tasks(self: ::std::sync::Arc<Self>) -> ::std::vec::Vec<::jackdaw::__private::NativeTask> {
                 ::std::vec![ #(#registrations),* ]
             }
         }

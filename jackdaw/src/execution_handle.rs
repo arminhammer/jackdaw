@@ -30,7 +30,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 ///
 /// ## One-shot workflow - wait for result
 /// ```no_run
-/// # use jackdaw::DurableEngineBuilder;
+/// # use jackdaw::builder::DurableEngineBuilder;
 /// # use serverless_workflow_core::models::workflow::WorkflowDefinition;
 /// # use std::time::Duration;
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -46,7 +46,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 ///
 /// ## Stream events from execution
 /// ```no_run
-/// # use jackdaw::{DurableEngineBuilder, workflow::WorkflowEvent};
+/// # use jackdaw::{builder::DurableEngineBuilder, workflow::WorkflowEvent};
 /// # use serverless_workflow_core::models::workflow::WorkflowDefinition;
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// # let engine = DurableEngineBuilder::new().build()?;
@@ -74,7 +74,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 ///
 /// ## Perpetual workflow - process indefinitely
 /// ```no_run
-/// # use jackdaw::{DurableEngineBuilder, workflow::WorkflowEvent};
+/// # use jackdaw::{builder::DurableEngineBuilder, workflow::WorkflowEvent};
 /// # use serverless_workflow_core::models::workflow::WorkflowDefinition;
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// # let engine = DurableEngineBuilder::new().build()?;
@@ -124,7 +124,7 @@ impl ExecutionHandle {
     /// # Examples
     ///
     /// ```no_run
-    /// # use jackdaw::DurableEngineBuilder;
+    /// # use jackdaw::builder::DurableEngineBuilder;
     /// # use serverless_workflow_core::models::workflow::WorkflowDefinition;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// # let engine = DurableEngineBuilder::new().build()?;
@@ -154,7 +154,7 @@ impl ExecutionHandle {
     /// # Examples
     ///
     /// ```no_run
-    /// # use jackdaw::{DurableEngineBuilder, workflow::WorkflowEvent};
+    /// # use jackdaw::{builder::DurableEngineBuilder, workflow::WorkflowEvent};
     /// # use serverless_workflow_core::models::workflow::WorkflowDefinition;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// # let engine = DurableEngineBuilder::new().build()?;
@@ -186,7 +186,7 @@ impl ExecutionHandle {
     /// # Examples
     ///
     /// ```no_run
-    /// # use jackdaw::DurableEngineBuilder;
+    /// # use jackdaw::builder::DurableEngineBuilder;
     /// # use serverless_workflow_core::models::workflow::WorkflowDefinition;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// # let engine = DurableEngineBuilder::new().build()?;
@@ -229,7 +229,7 @@ impl ExecutionHandle {
     /// # Examples
     ///
     /// ```no_run
-    /// # use jackdaw::DurableEngineBuilder;
+    /// # use jackdaw::builder::DurableEngineBuilder;
     /// # use serverless_workflow_core::models::workflow::WorkflowDefinition;
     /// # use std::time::Duration;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
