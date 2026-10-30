@@ -58,20 +58,6 @@ impl TaskOutputStreamer {
         eprintln!("{formatted}");
     }
 
-    /// Print multiple lines to stdout
-    pub async fn print_stdout_lines(&self, lines: &[String]) {
-        for line in lines {
-            self.print_stdout(line).await;
-        }
-    }
-
-    /// Print multiple lines to stderr
-    pub async fn print_stderr_lines(&self, lines: &[String]) {
-        for line in lines {
-            self.print_stderr(line).await;
-        }
-    }
-
     /// Stream from a reader line by line
     async fn stream_reader<R: AsyncRead + Unpin>(
         &self,

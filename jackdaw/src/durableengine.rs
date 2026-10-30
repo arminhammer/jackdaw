@@ -14,10 +14,7 @@ use crate::{
     listeners::grpc::GrpcListener,
     output,
     persistence::PersistenceProvider,
-    providers::{
-        executors::{OpenApiExecutor, PythonExecutor, RestExecutor, TypeScriptExecutor},
-        visualization::{D2Provider, ExecutionState, GraphvizProvider, VisualizationProvider},
-    },
+    providers::executors::{OpenApiExecutor, PythonExecutor, RestExecutor, TypeScriptExecutor},
     workflow::WorkflowEvent,
 };
 
@@ -83,11 +80,6 @@ pub enum Error {
     ProtobufDescriptor {
         source: prost_reflect::DescriptorError,
     },
-
-    #[snafu(display("Visualization error: {source}"))]
-    Visualization {
-        source: crate::providers::visualization::Error,
-    },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -144,12 +136,6 @@ impl From<protox::Error> for Error {
 impl From<prost_reflect::DescriptorError> for Error {
     fn from(source: prost_reflect::DescriptorError) -> Self {
         Error::ProtobufDescriptor { source }
-    }
-}
-
-impl From<crate::providers::visualization::Error> for Error {
-    fn from(source: crate::providers::visualization::Error) -> Self {
-        Error::Visualization { source }
     }
 }
 
@@ -233,6 +219,20 @@ impl DurableEngine {
         if let Some(executors) = Arc::get_mut(&mut self.executors) {
             for (name, executor) in extra {
                 executors.entry(name).or_insert(executor);
+            }
+        }
+    }
+
+    /// Registers YAML workflows that others run by name (`run: workflow:`). Only valid before the engine is shared.
+    pub(crate) fn add_workflows(&mut self, workflows: Vec<WorkflowDefinition>) {
+        if let Some(registry) = Arc::get_mut(&mut self.workflow_registry) {
+            let registry = registry.get_mut();
+            for workflow in workflows {
+                let key = format!(
+                    "{}/{}/{}",
+                    workflow.document.namespace, workflow.document.name, workflow.document.version
+                );
+                registry.insert(key, workflow);
             }
         }
     }
@@ -349,7 +349,7 @@ impl DurableEngine {
     ///
     /// # Examples
     ///
-    /// ```no_run
+    /// ```text
     /// # use jackdaw::builder::DurableEngineBuilder;
     /// # use serverless_workflow_core::models::workflow::WorkflowDefinition;
     /// # use std::time::Duration;
@@ -486,8 +486,7 @@ impl DurableEngine {
                         | Error::Serialization { .. }
                         | Error::ListenerSetup { .. }
                         | Error::Protobuf { .. }
-                        | Error::ProtobufDescriptor { .. }
-                        | Error::Visualization { .. } => e.to_string(),
+                        | Error::ProtobufDescriptor { .. } => e.to_string(),
                     };
                     let _ = event_tx
                         .send(WorkflowEvent::WorkflowFailed {
@@ -764,56 +763,5 @@ impl DurableEngine {
         output::format_workflow_output(&final_data, workflow_duration_ms);
 
         Ok(final_data)
-    }
-}
-
-impl DurableEngine {
-    /// Visualize workflow execution after completion
-    ///
-    /// # Arguments
-    /// * `workflow` - The workflow definition
-    /// * `instance_id` - The workflow instance to visualize
-    /// * `output_path` - Optional output path (None for stdout/ASCII)
-    /// * `format` - Output format
-    /// * `tool` - Visualization tool to use ("graphviz" or "d2")
-    ///
-    /// # Errors
-    /// Returns an error if the visualization tool is not available, not installed, or if rendering fails
-    pub async fn visualize_execution(
-        &self,
-        workflow: &WorkflowDefinition,
-        instance_id: &str,
-        output_path: Option<&std::path::Path>,
-        format: crate::providers::visualization::DiagramFormat,
-        tool: &str,
-    ) -> Result<()> {
-        // Get execution events
-        let _events = self.persistence.get_events(instance_id).await?;
-
-        // Build execution state from events
-        let execution_state = ExecutionState::new();
-
-        // Select provider
-        let provider: Box<dyn VisualizationProvider> = match tool {
-            "graphviz" => Box::new(GraphvizProvider::new()),
-            "d2" => Box::new(D2Provider::new()),
-            _ => {
-                return Err(Error::Configuration {
-                    message: format!("Unknown visualization tool: {tool}"),
-                });
-            }
-        };
-
-        // Check availability
-        if !provider.is_available()? {
-            return Err(Error::Configuration {
-                message: format!("{} is not installed or not available", provider.name()),
-            });
-        }
-
-        // Render diagram with execution state
-        provider.render(workflow, output_path, format, Some(&execution_state))?;
-
-        Ok(())
     }
 }

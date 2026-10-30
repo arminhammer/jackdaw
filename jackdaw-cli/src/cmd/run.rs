@@ -7,15 +7,14 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::config::JackdawConfig;
-use jackdaw::cache::CacheProvider;
-use jackdaw::durableengine::DurableEngine;
-use jackdaw::output::filter_internal_fields;
-use jackdaw::persistence::PersistenceProvider;
+use crate::visualization::{self, DiagramFormat, ExecutionState};
+use jackdaw::api::{Workflow, set_yaml_trace};
 use jackdaw::providers::cache::{PostgresCache, RedbCache, SqliteCache, mem::InMemoryCache};
 use jackdaw::providers::persistence::{
     InMemoryPersistence, PostgresPersistence, RedbPersistence, SqlitePersistence,
 };
-use jackdaw::providers::visualization::DiagramFormat;
+use jackdaw::{CacheProvider, Engine, PersistenceProvider};
+use serde_json::Value;
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -34,15 +33,14 @@ pub enum Error {
     #[snafu(display("JSON serialization error: {source}"))]
     Json { source: serde_json::Error },
 
-    #[snafu(display("Engine error: {source}"))]
-    Engine {
-        source: jackdaw::durableengine::Error,
-    },
+    #[snafu(display("{source}"))]
+    Engine { source: jackdaw::Error },
 
-    #[snafu(display("Execution error: {source}"))]
-    Execution {
-        source: jackdaw::execution_handle::Error,
-    },
+    #[snafu(display("Workflow did not finish within {seconds}s"))]
+    Timeout { seconds: u64 },
+
+    #[snafu(display("Visualization error: {source}"))]
+    Visualization { source: visualization::Error },
 
     #[snafu(display("Cache error: {source}"))]
     Cache { source: jackdaw::cache::Error },
@@ -56,17 +54,47 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-impl From<jackdaw::durableengine::Error> for Error {
-    fn from(source: jackdaw::durableengine::Error) -> Self {
+impl From<jackdaw::Error> for Error {
+    fn from(source: jackdaw::Error) -> Self {
         Error::Engine { source }
     }
 }
 
-impl From<jackdaw::execution_handle::Error> for Error {
-    fn from(source: jackdaw::execution_handle::Error) -> Self {
-        Error::Execution { source }
+impl From<visualization::Error> for Error {
+    fn from(source: visualization::Error) -> Self {
+        Error::Visualization { source }
     }
 }
+
+/// The output without the engine's internal descriptor fields (those starting with `__`).
+fn filter_internal_fields(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .filter(|(key, _)| !key.starts_with("__"))
+                .map(|(key, value)| (key.clone(), filter_internal_fields(value)))
+                .collect(),
+        ),
+        Value::Array(items) => Value::Array(items.iter().map(filter_internal_fields).collect()),
+        other @ (Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_)) => {
+            other.clone()
+        }
+    }
+}
+
+/// Prints a line above the progress bars, or plainly when they are hidden (output is not a terminal): indicatif drops
+/// `println` on a hidden target, which would lose the results of `jackdaw run ... | jq`.
+fn say(progress: &MultiProgress, line: impl AsRef<str>) -> std::io::Result<()> {
+    if progress.is_hidden() {
+        println!("{}", line.as_ref());
+        Ok(())
+    } else {
+        progress.println(line)
+    }
+}
+
+/// How long a run may take before the CLI gives up on it.
+const RUN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
 
 impl From<jackdaw::cache::Error> for Error {
     fn from(source: jackdaw::cache::Error) -> Self {
@@ -253,13 +281,11 @@ fn is_workflow_file(path: &Path) -> bool {
 /// Execute a single workflow with progress indication
 async fn execute_workflow(
     workflow_path: &PathBuf,
-    engine: Arc<DurableEngine>,
+    engine: Engine,
     progress: Option<&ProgressBar>,
     _verbose: bool,
     input: Option<&String>,
 ) -> Result<(String, serde_json::Value, WorkflowDefinition)> {
-    use std::time::Duration;
-
     if let Some(pb) = progress {
         pb.set_message(format!("Loading {}", workflow_path.display()));
     }
@@ -297,11 +323,16 @@ async fn execute_workflow(
     };
 
     // Execute workflow
-    let handle = engine.execute(workflow.clone(), input_data).await?;
-    let instance_id = handle.instance_id().to_string();
+    let runnable = Workflow::<Value, Value>::from_definition(workflow.clone());
+    let handle = engine.execute(&runnable, input_data).await?;
+    let instance_id = handle.id().to_string();
 
     // Wait for completion with a generous timeout for CLI use
-    let result = handle.wait_for_completion(Duration::from_secs(300)).await?;
+    let result = tokio::time::timeout(RUN_TIMEOUT, handle)
+        .await
+        .map_err(|_| Error::Timeout {
+            seconds: RUN_TIMEOUT.as_secs(),
+        })??;
 
     if let Some(pb) = progress {
         pb.finish_with_message(format!("Completed {}", workflow_path.display()));
@@ -443,8 +474,8 @@ async fn run_workflows_internal(
     postgres_password: Option<String>,
     postgres_hostname: Option<String>,
 ) -> Result<()> {
-    // Set debug mode
-    jackdaw::output::set_debug_mode(debug);
+    // The YAML engine's task-by-task trace
+    set_yaml_trace(debug);
 
     // Print banner (only in debug mode)
     if debug {
@@ -559,7 +590,9 @@ async fn run_workflows_internal(
         }
     };
 
-    let engine = Arc::new(DurableEngine::new(persistence.clone(), cache.clone())?);
+    let mut builder = Engine::builder()
+        .persistence(Arc::clone(&persistence))
+        .cache(Arc::clone(&cache));
 
     // Register workflows from registry paths (if provided)
     if let Some(registry_paths) = registry {
@@ -573,7 +606,7 @@ async fn run_workflows_internal(
         for workflow_path in &registry_files {
             let workflow_yaml = std::fs::read_to_string(workflow_path)?;
             let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml)?;
-            engine.register_workflow(workflow).await?;
+            builder = builder.yaml_workflow(&Workflow::<Value, Value>::from_definition(workflow));
             if config.verbose {
                 println!("  • Registered workflow from {}", workflow_path.display());
             }
@@ -583,15 +616,20 @@ async fn run_workflows_internal(
         }
     }
 
+    let engine = builder.build()?;
+
     // Execute workflows
     if config.parallel && workflow_files.len() > 1 {
         // Parallel execution using futures::join_all
         if debug || config.verbose {
-            multi_progress.println(format!(
-                "{} Executing {} workflows in parallel...\n",
-                style("→").cyan(),
-                workflow_files.len()
-            ))?;
+            say(
+                &multi_progress,
+                format!(
+                    "{} Executing {} workflows in parallel...\n",
+                    style("→").cyan(),
+                    workflow_files.len()
+                ),
+            )?;
         }
 
         let futures: Vec<_> = workflow_files
@@ -634,22 +672,24 @@ async fn run_workflows_internal(
 
         // Print results
         if debug || config.verbose {
-            multi_progress.println(format!("\n{}", style("Results:").bold().green()))?;
+            say(
+                &multi_progress,
+                format!("\n{}", style("Results:").bold().green()),
+            )?;
         }
         for (path, result) in results {
             match result {
                 Ok((instance_id, output, workflow)) => {
                     if debug || config.verbose {
-                        multi_progress.println(format!(
-                            "\n{} {}",
-                            style("✓").green(),
-                            style(path.display()).bold()
-                        ))?;
+                        say(
+                            &multi_progress,
+                            format!("\n{} {}", style("✓").green(), style(path.display()).bold()),
+                        )?;
                     }
 
                     // Always output the final result as JSON (even in non-debug mode)
                     let filtered = filter_internal_fields(&output);
-                    multi_progress.println(serde_json::to_string_pretty(&filtered)?)?;
+                    say(&multi_progress, serde_json::to_string_pretty(&filtered)?)?;
 
                     // Visualization if requested
                     if config.visualize {
@@ -657,39 +697,44 @@ async fn run_workflows_internal(
                         let format = parse_diagram_format(viz_format)?;
                         let output_path = config.viz_output.as_deref();
 
-                        multi_progress.println(format!(
-                            "\n{} Generating visualization...",
-                            style("→").cyan()
-                        ))?;
+                        say(
+                            &multi_progress,
+                            format!("\n{} Generating visualization...", style("→").cyan()),
+                        )?;
 
                         let viz_tool = config.viz_tool.as_deref().unwrap_or("d2");
-                        engine
-                            .visualize_execution(
-                                &workflow,
-                                &instance_id,
-                                output_path,
-                                format,
-                                viz_tool,
-                            )
-                            .await?;
+                        let history = engine.history(&instance_id).await?;
+                        visualization::render(
+                            viz_tool,
+                            &workflow,
+                            output_path,
+                            format,
+                            Some(&ExecutionState::from_history(&history)),
+                        )?;
 
                         if let Some(output_path) = output_path {
-                            multi_progress.println(format!(
-                                "{} Visualization saved to: {}",
-                                style("✓").green(),
-                                output_path.display()
-                            ))?;
+                            say(
+                                &multi_progress,
+                                format!(
+                                    "{} Visualization saved to: {}",
+                                    style("✓").green(),
+                                    output_path.display()
+                                ),
+                            )?;
                         }
                     }
                 }
                 Err(e) => {
                     let error_msg = format!("{e}");
-                    multi_progress.println(format!(
-                        "\n{} {} - {}",
-                        style("✗").red(),
-                        style(path.display()).bold(),
-                        style(&error_msg).red()
-                    ))?;
+                    say(
+                        &multi_progress,
+                        format!(
+                            "\n{} {} - {}",
+                            style("✗").red(),
+                            style(path.display()).bold(),
+                            style(&error_msg).red()
+                        ),
+                    )?;
                     return Err(e);
                 }
             }
@@ -697,11 +742,14 @@ async fn run_workflows_internal(
     } else {
         // Sequential execution with progress
         if debug || config.verbose {
-            multi_progress.println(format!(
-                "{} Executing {} workflow(s)...\n",
-                style("→").cyan(),
-                workflow_files.len()
-            ))?;
+            say(
+                &multi_progress,
+                format!(
+                    "{} Executing {} workflow(s)...\n",
+                    style("→").cyan(),
+                    workflow_files.len()
+                ),
+            )?;
         }
 
         // Only show progress bars in debug/verbose mode
@@ -733,7 +781,7 @@ async fn run_workflows_internal(
                 Ok((instance_id, result, workflow)) => {
                     // Always output the final result as JSON (even in non-debug mode)
                     let filtered = filter_internal_fields(&result);
-                    multi_progress.println(serde_json::to_string_pretty(&filtered)?)?;
+                    say(&multi_progress, serde_json::to_string_pretty(&filtered)?)?;
 
                     // Visualization if requested
                     if config.visualize {
@@ -741,38 +789,43 @@ async fn run_workflows_internal(
                         let format = parse_diagram_format(viz_format)?;
                         let output_path = config.viz_output.as_deref();
 
-                        multi_progress.println(format!(
-                            "\n{} Generating visualization...",
-                            style("→").cyan()
-                        ))?;
+                        say(
+                            &multi_progress,
+                            format!("\n{} Generating visualization...", style("→").cyan()),
+                        )?;
 
                         let viz_tool = config.viz_tool.as_deref().unwrap_or("d2");
-                        engine
-                            .visualize_execution(
-                                &workflow,
-                                &instance_id,
-                                output_path,
-                                format,
-                                viz_tool,
-                            )
-                            .await?;
+                        let history = engine.history(&instance_id).await?;
+                        visualization::render(
+                            viz_tool,
+                            &workflow,
+                            output_path,
+                            format,
+                            Some(&ExecutionState::from_history(&history)),
+                        )?;
 
                         if let Some(output_path) = output_path {
-                            multi_progress.println(format!(
-                                "{} Visualization saved to: {}",
-                                style("✓").green(),
-                                output_path.display()
-                            ))?;
+                            say(
+                                &multi_progress,
+                                format!(
+                                    "{} Visualization saved to: {}",
+                                    style("✓").green(),
+                                    output_path.display()
+                                ),
+                            )?;
                         }
                     }
                 }
                 Err(e) => {
-                    multi_progress.println(format!(
-                        "{} Failed: {} - {}",
-                        style("✗").red(),
-                        style(workflow_path.display()).bold(),
-                        style(&e).red()
-                    ))?;
+                    say(
+                        &multi_progress,
+                        format!(
+                            "{} Failed: {} - {}",
+                            style("✗").red(),
+                            style(workflow_path.display()).bold(),
+                            style(&e).red()
+                        ),
+                    )?;
                     return Err(e);
                 }
             }

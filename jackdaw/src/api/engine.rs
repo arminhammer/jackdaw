@@ -190,6 +190,7 @@ pub struct EngineBuilder {
     schedules: Vec<super::schedule::Schedule>,
     lease: Option<std::time::Duration>,
     engine_id: Option<String>,
+    yaml_workflows: Vec<serverless_workflow_core::models::workflow::WorkflowDefinition>,
     poll: std::time::Duration,
 }
 
@@ -216,6 +217,7 @@ impl EngineBuilder {
             schedules: Vec::new(),
             lease: None,
             engine_id: None,
+            yaml_workflows: Vec::new(),
             poll: std::time::Duration::from_secs(1),
         }
     }
@@ -240,6 +242,14 @@ impl EngineBuilder {
     #[must_use]
     pub fn cache(mut self, cache: Arc<dyn CacheProvider>) -> Self {
         self.cache = Some(cache);
+        self
+    }
+
+    /// Registers a YAML workflow that other YAML workflows run by name (`run: workflow: { namespace, name, version }`).
+    /// Workflows you execute directly need no registration.
+    #[must_use]
+    pub fn yaml_workflow<I, O>(mut self, workflow: &super::workflow::Workflow<I, O>) -> Self {
+        self.yaml_workflows.push(workflow.definition().clone());
         self
     }
 
@@ -410,6 +420,7 @@ impl EngineBuilder {
             );
         }
         legacy.add_executors(natives);
+        legacy.add_workflows(self.yaml_workflows);
 
         let mut shared = Shared::new(
             persistence,
@@ -894,6 +905,17 @@ impl Engine {
         }
         // Task steps count as in flight until their result is recorded, so nothing finished is lost here.
         self.shared.abandon_all();
+    }
+
+    /// Registers a YAML workflow that other YAML workflows run by name (`run: workflow:`), on a running engine. See
+    /// [`EngineBuilder::yaml_workflow`].
+    pub async fn register_yaml_workflow<I, O>(&self, workflow: &super::workflow::Workflow<I, O>) {
+        // Registration only inserts into a map; the YAML engine reports no error for it.
+        let _ = self
+            .shared
+            .legacy
+            .register_workflow(workflow.definition().clone())
+            .await;
     }
 
     /// Cancels an instance running in this engine, and its child workflows.
@@ -1395,4 +1417,11 @@ pub struct PendingTimer {
     pub key: String,
     /// When it fires.
     pub fires_at: DateTime<Utc>,
+}
+
+/// Prints the YAML interpreter's task-by-task trace (inputs, outputs, timings) to the terminal, for every engine in the
+/// process. Off by default; the `jackdaw` CLI turns it on with `--debug`. Rust workflows report through
+/// [`tracing`](https://docs.rs/tracing) instead.
+pub fn set_yaml_trace(enabled: bool) {
+    crate::output::set_debug_mode(enabled);
 }

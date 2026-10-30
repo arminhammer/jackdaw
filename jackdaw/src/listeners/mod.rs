@@ -14,12 +14,6 @@ pub enum Error {
     #[snafu(display("Listener error: {message}"))]
     Listener { message: String },
 
-    #[snafu(display("Failed to bind to {address}: {source}"))]
-    BindFailed {
-        address: String,
-        source: std::io::Error,
-    },
-
     #[snafu(display("Server error: {message}"))]
     Server { message: String },
 

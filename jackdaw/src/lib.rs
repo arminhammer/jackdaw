@@ -110,8 +110,7 @@
 //! - A cache of your own: implement [`CacheProvider`].
 //! - A call type of your own: implement [`Executor`] (see the `custom_executor` example).
 //!
-//! The other modules of the crate are the YAML interpreter that [`api`] is built on. They are hidden from these docs and
-//! are not part of the API: they change without notice.
+//! The YAML interpreter that [`api`] is built on is private to the crate.
 #![warn(missing_docs)]
 
 pub mod api;
@@ -127,33 +126,19 @@ pub use api::{Engine, EngineBuilder, Error, ExecutionHandle, Executor};
 pub use cache::CacheProvider;
 pub use persistence::PersistenceProvider;
 
-// The YAML interpreter. Public for the CLI and the YAML conformance tests; not part of the API.
-#[doc(hidden)]
-pub mod builder;
-#[doc(hidden)]
-pub mod container;
-#[doc(hidden)]
-pub mod context;
-#[doc(hidden)]
-pub mod descriptors;
-#[doc(hidden)]
-pub mod durableengine;
-#[doc(hidden)]
-pub mod execution_handle;
-#[doc(hidden)]
-pub mod executionhistory;
-#[doc(hidden)]
-pub mod executor;
-#[doc(hidden)]
-pub mod expressions;
-#[doc(hidden)]
-pub mod listeners;
-#[doc(hidden)]
-pub mod output;
-#[doc(hidden)]
-pub mod task_ext;
-#[doc(hidden)]
-pub mod task_output;
+// The YAML interpreter that `api` is built on.
+mod container;
+mod context;
+mod descriptors;
+mod durableengine;
+mod execution_handle;
+mod executionhistory;
+mod executor;
+mod expressions;
+mod listeners;
+mod output;
+mod task_ext;
+mod task_output;
 
 /// What the macros' generated code refers to. Not part of the API: it changes without notice.
 #[doc(hidden)]

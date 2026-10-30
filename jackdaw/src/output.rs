@@ -19,26 +19,6 @@ pub fn is_debug_mode() -> bool {
     DEBUG_MODE.load(Ordering::Relaxed)
 }
 
-/// Format a workflow start message
-pub fn format_workflow_start(workflow_name: &str, instance_id: &str) {
-    if !is_debug_mode() {
-        return;
-    }
-    println!("\n{}", "═".repeat(80));
-    println!(
-        "{} {} {}",
-        style("▶").cyan().bold(),
-        style("Workflow:").bold(),
-        style(workflow_name).cyan().bold()
-    );
-    println!(
-        "  {} {}",
-        style("Instance ID:").dim(),
-        style(instance_id).dim()
-    );
-    println!("{}", "─".repeat(80));
-}
-
 /// Format workflow resumption message
 pub fn format_workflow_resume(instance_id: &str, from_task: Option<&str>) {
     if !is_debug_mode() {
@@ -59,35 +39,6 @@ pub fn format_workflow_resume(instance_id: &str, from_task: Option<&str>) {
         println!("  {} {}", style("From task:").dim(), style(task).yellow());
     }
     println!("{}", "─".repeat(80));
-}
-
-/// Format workflow context
-pub fn format_context(title: &str, context: &Value) {
-    if !is_debug_mode() {
-        return;
-    }
-    println!("\n{}", style(title).bold());
-    println!("{}", "┄".repeat(80));
-    if let Some(obj) = context.as_object() {
-        if obj.is_empty() {
-            println!("  {}", style("(empty)").dim());
-        } else {
-            for (key, value) in obj {
-                println!("  {}", style(format!("{key}:")));
-                println!("{}", indent_json(value, 4));
-            }
-        }
-    } else {
-        println!("{}", indent_json(context, 2));
-    }
-}
-
-/// Format workflow input
-pub fn format_workflow_input(input: &Value) {
-    if !is_debug_mode() {
-        return;
-    }
-    format_context("Workflow Input", input);
 }
 
 /// Format workflow output
@@ -387,78 +338,6 @@ pub fn format_task_output(output: &Value, duration_ms: i64) {
     } else {
         println!("{}", colorize_json(&filtered, 4, "green"));
     }
-}
-
-/// Format task stdout/stderr
-pub fn format_task_logs(stdout: Option<&str>, stderr: Option<&str>) {
-    if !is_debug_mode() {
-        return;
-    }
-    if let Some(out) = stdout.filter(|s| !s.trim().is_empty()) {
-        println!("  {}", style("Stdout").dim());
-        for line in out.lines() {
-            println!("    {}", style(line).dim());
-        }
-    }
-
-    if let Some(err) = stderr.filter(|e| !e.trim().is_empty()) {
-        println!("  {}", style("Stderr").yellow());
-        for line in err.lines() {
-            println!("    {}", style(line).yellow());
-        }
-    }
-}
-
-/// Format task completion
-pub fn format_task_complete(task_name: &str) {
-    if !is_debug_mode() {
-        return;
-    }
-    println!(
-        "  {} {}",
-        style("✓").green(),
-        style(format!("Completed '{task_name}'")).green()
-    );
-}
-
-/// Format task error
-pub fn format_task_error(task_name: &str, error: &str) {
-    if !is_debug_mode() {
-        return;
-    }
-    println!(
-        "  {} {}",
-        style("✗").red().bold(),
-        style(format!("Failed '{task_name}'")).red().bold()
-    );
-    println!("    {} {}", style("Error:").red(), style(error).red());
-}
-
-/// Format fork branch execution
-pub fn format_fork_start(fork_name: &str, branch_count: usize) {
-    if !is_debug_mode() {
-        return;
-    }
-    println!(
-        "\n{} {} {} {}",
-        style("⋔").cyan(),
-        style("Fork:").bold(),
-        style(fork_name).cyan(),
-        style(format!("[{branch_count} branches]")).dim()
-    );
-}
-
-/// Format branch execution
-pub fn format_branch_start(branch_name: &str, task_type: &str) {
-    if !is_debug_mode() {
-        return;
-    }
-    println!(
-        "  {} {} {}",
-        style("├─").dim(),
-        style(branch_name).cyan(),
-        style(format!("[{task_type}]")).dim()
-    );
 }
 
 /// Helper: Indent JSON output

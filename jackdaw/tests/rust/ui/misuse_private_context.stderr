@@ -1,0 +1,13 @@
+error[E0603]: module `context` is private
+ --> tests/rust/ui/misuse_private_context.rs:3:14
+  |
+3 | use jackdaw::context::Context;
+  |              ^^^^^^^  ------- struct `Context` is not publicly re-exported
+  |              |
+  |              private module
+  |
+note: the module `context` is defined here
+ --> src/lib.rs
+  |
+  | mod context;
+  | ^^^^^^^^^^^

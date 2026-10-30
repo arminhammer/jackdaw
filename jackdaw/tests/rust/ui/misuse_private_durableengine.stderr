@@ -1,0 +1,13 @@
+error[E0603]: module `durableengine` is private
+ --> tests/rust/ui/misuse_private_durableengine.rs:3:14
+  |
+3 | use jackdaw::durableengine::DurableEngine;
+  |              ^^^^^^^^^^^^^  ------------- struct `DurableEngine` is not publicly re-exported
+  |              |
+  |              private module
+  |
+note: the module `durableengine` is defined here
+ --> src/lib.rs
+  |
+  | mod durableengine;
+  | ^^^^^^^^^^^^^^^^^

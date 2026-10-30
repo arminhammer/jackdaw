@@ -1,8 +1,11 @@
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::expect_used)]
 
+#[path = "yaml_engine/mod.rs"]
+mod yaml_engine;
+
+use crate::yaml_engine::YamlEngine;
 use jackdaw::cache::CacheProvider;
-use jackdaw::durableengine::DurableEngine;
 use jackdaw::persistence::PersistenceProvider;
 use jackdaw::providers::cache::RedbCache;
 use jackdaw::providers::persistence::RedbPersistence;
@@ -13,14 +16,14 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// Helper to set up test infrastructure
-async fn setup_test_engine() -> (Arc<DurableEngine>, tempfile::TempDir) {
+async fn setup_test_engine() -> (Arc<YamlEngine>, tempfile::TempDir) {
     let temp_dir = tempfile::tempdir().unwrap();
     let db_path = temp_dir.path().join("test.db");
     let persistence = Arc::new(RedbPersistence::new(db_path.to_str().unwrap()).unwrap());
     let cache =
         Arc::new(RedbCache::new(Arc::clone(&persistence.db)).unwrap()) as Arc<dyn CacheProvider>;
     let engine = Arc::new(
-        DurableEngine::new(
+        YamlEngine::new(
             Arc::clone(&persistence) as Arc<dyn PersistenceProvider>,
             Arc::clone(&cache),
         )

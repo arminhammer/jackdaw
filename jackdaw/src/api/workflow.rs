@@ -584,6 +584,28 @@ impl<In, Out> Workflow<In, Out> {
         &self.definition
     }
 
+    /// Checks the workflow without running it: its task graph, the syntax of every `${ }` expression, and that each
+    /// `call` names something it can resolve. [`Engine::execute`](super::Engine::execute) does its own checks too.
+    ///
+    /// ```
+    /// use jackdaw::api::Workflow;
+    ///
+    /// let workflow = Workflow::<serde_json::Value, serde_json::Value>::from_yaml(r#"
+    /// document: { dsl: '1.0.3', namespace: docs, name: broken, version: '1.0.0' }
+    /// do:
+    ///   - total:
+    ///       set:
+    ///         sum: '${ .a + }'
+    /// "#)?;
+    /// let validation = workflow.validate();
+    /// assert!(!validation.is_valid());
+    /// # Ok::<(), jackdaw::Error>(())
+    /// ```
+    #[must_use]
+    pub fn validate(&self) -> super::validate::Validation {
+        super::validate::validate(self.definition())
+    }
+
     /// The document's namespace.
     #[must_use]
     pub fn namespace(&self) -> &str {

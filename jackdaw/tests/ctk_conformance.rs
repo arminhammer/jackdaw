@@ -5,11 +5,14 @@
 
 mod common;
 mod steps;
+#[path = "yaml_engine/mod.rs"]
+mod yaml_engine;
+
 use crate::common::{WorkflowStatus, parse_docstring};
+use crate::yaml_engine::YamlEngine;
+use crate::yaml_engine::YamlEngineBuilder;
 use cucumber::{World, given, then, when};
-use jackdaw::builder::DurableEngineBuilder;
 use jackdaw::cache::CacheProvider;
-use jackdaw::durableengine::DurableEngine;
 use jackdaw::persistence::PersistenceProvider;
 use jackdaw::providers::cache::RedbCache;
 use jackdaw::providers::persistence::RedbPersistence;
@@ -31,9 +34,7 @@ pub enum TestError {
     Cache { source: jackdaw::cache::Error },
 
     #[snafu(display("Engine error: {source}"))]
-    Engine {
-        source: jackdaw::durableengine::Error,
-    },
+    Engine { source: jackdaw::Error },
 
     #[snafu(display("I/O error: {source}"))]
     Io { source: std::io::Error },
@@ -58,8 +59,8 @@ impl From<jackdaw::cache::Error> for TestError {
     }
 }
 
-impl From<jackdaw::durableengine::Error> for TestError {
-    fn from(source: jackdaw::durableengine::Error) -> Self {
+impl From<jackdaw::Error> for TestError {
+    fn from(source: jackdaw::Error) -> Self {
         TestError::Engine { source }
     }
 }
@@ -74,7 +75,7 @@ pub struct CtKWorld {
     pub workflow_input: Option<Value>,
     pub workflow_output: Option<Value>,
     pub workflow_status: Option<WorkflowStatus>,
-    pub engine: Option<Arc<DurableEngine>>,
+    pub engine: Option<Arc<YamlEngine>>,
     pub persistence: Option<Arc<RedbPersistence>>,
     pub instance_id: Option<String>,
     pub workflow_events: Vec<jackdaw::workflow::WorkflowEvent>,
@@ -88,7 +89,7 @@ impl CtKWorld {
         let cache =
             Arc::new(RedbCache::new(Arc::clone(&persistence.db))?) as Arc<dyn CacheProvider>;
         let engine = Arc::new(
-            DurableEngineBuilder::new()
+            YamlEngineBuilder::new()
                 .with_persistence(Arc::clone(&persistence) as Arc<dyn PersistenceProvider>)
                 .with_cache(Arc::clone(&cache))
                 .build()?,

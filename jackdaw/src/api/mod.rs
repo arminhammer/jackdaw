@@ -19,6 +19,7 @@ mod runtime;
 mod schedule;
 mod store;
 mod task;
+mod validate;
 mod workflow;
 
 pub use catalog::{CatalogDef, CatalogTaskRef, CatalogWorkflowRef};
@@ -28,7 +29,7 @@ pub use context::{Branch, Condition, Either, ForEach, Step, WorkflowContext, rac
 pub use duration::DurationExt;
 pub use engine::{
     Engine, EngineBuilder, ExecuteOptions, ExecutionHandle, InstanceDetails, InstanceInfo,
-    IntoTaskSet, ListFilter, PendingTimer, Recovery, Status, Unrecoverable,
+    IntoTaskSet, ListFilter, PendingTimer, Recovery, Status, Unrecoverable, set_yaml_trace,
 };
 pub use error::{
     Divergence, Error, Fault, StepError, TaskError, UpdateError, WorkflowError, WorkflowResult,
@@ -40,6 +41,7 @@ pub use helpers::{Container, ProcessOutput, Request, Response, Script, Shell};
 pub use schedule::{CatchUp, Cron, Overlap, Schedule};
 pub use store::{Postgres, Redb, Sqlite, Store};
 pub use task::{BoxFuture, Retry, TaskContext, TaskDef, TaskOptions, TaskTarget};
+pub use validate::{Issue, Severity, Validation};
 pub use workflow::{
     QueryRef, RunTarget, Runnable, SignalRef, SyncWorkflowContext, UpdateRef, Workflow,
     WorkflowContextView, WorkflowDef, WorkflowId, WorkflowInfo, WorkflowRef,

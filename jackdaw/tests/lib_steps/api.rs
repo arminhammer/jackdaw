@@ -2159,3 +2159,18 @@ fn extension_error_non_exhaustive(_world: &mut LibWorld, module: String) {
     .expect("the compile-fail case");
     assert!(stderr.contains("non-exhaustive patterns"));
 }
+
+#[given(regex = r#"^a crate that depends on "jackdaw" with all features$"#)]
+fn a_crate_all_features(_world: &mut LibWorld) {}
+
+#[when(regex = r#"^it refers to "jackdaw::(\w+)(?:::\w+)*"$"#)]
+fn refers_to(world: &mut LibWorld, module: String) {
+    // `misuse_private_<module>.rs` names the path; trybuild's `misuse_*` cases compile it and check the error.
+    ui(world, &format!("misuse_private_{module}"));
+}
+
+#[then("it fails to compile because the item is private")]
+fn fails_private(world: &mut LibWorld) {
+    let stderr = stderr(world);
+    assert!(stderr.contains("is private"), "{stderr}");
+}

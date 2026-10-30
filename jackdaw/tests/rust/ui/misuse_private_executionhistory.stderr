@@ -1,0 +1,11 @@
+error[E0603]: module `executionhistory` is private
+ --> tests/rust/ui/misuse_private_executionhistory.rs:3:14
+  |
+3 | use jackdaw::executionhistory;
+  |              ^^^^^^^^^^^^^^^^ private module
+  |
+note: the module `executionhistory` is defined here
+ --> src/lib.rs
+  |
+  | mod executionhistory;
+  | ^^^^^^^^^^^^^^^^^^^^

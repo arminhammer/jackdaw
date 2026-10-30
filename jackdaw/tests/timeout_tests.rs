@@ -2,7 +2,11 @@
 #![allow(clippy::expect_used)]
 #![allow(clippy::wildcard_enum_match_arm)]
 
-use jackdaw::builder::DurableEngineBuilder;
+#[path = "yaml_engine/mod.rs"]
+mod yaml_engine;
+
+use crate::yaml_engine::YamlEngine;
+use crate::yaml_engine::YamlEngineBuilder;
 /// Tests for Timeout Enforcement
 ///
 /// Tests that timeouts are enforced at:
@@ -11,7 +15,6 @@ use jackdaw::builder::DurableEngineBuilder;
 /// 3. Error format - RFC 7807 compliant errors
 /// 4. Event emission - task.faulted.v1 and workflow.faulted.v1 events
 use jackdaw::cache::CacheProvider;
-use jackdaw::durableengine::DurableEngine;
 use jackdaw::persistence::PersistenceProvider;
 use jackdaw::providers::cache::RedbCache;
 use jackdaw::providers::persistence::RedbPersistence;
@@ -22,13 +25,13 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// Helper to set up test infrastructure
-async fn setup_test_engine() -> (DurableEngine, tempfile::TempDir) {
+async fn setup_test_engine() -> (YamlEngine, tempfile::TempDir) {
     let temp_dir = tempfile::tempdir().unwrap();
     let db_path = temp_dir.path().join("test.db");
     let persistence = Arc::new(RedbPersistence::new(db_path.to_str().unwrap()).unwrap());
     let cache =
         Arc::new(RedbCache::new(Arc::clone(&persistence.db)).unwrap()) as Arc<dyn CacheProvider>;
-    let engine = DurableEngineBuilder::new()
+    let engine = YamlEngineBuilder::new()
         .with_persistence(Arc::clone(&persistence) as Arc<dyn PersistenceProvider>)
         .with_cache(Arc::clone(&cache))
         .build()

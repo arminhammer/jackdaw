@@ -22,9 +22,7 @@ pub enum Error {
     WorkflowYaml { source: serde_yaml::Error },
 
     #[snafu(display("Engine error: {source}"))]
-    Engine {
-        source: jackdaw::durableengine::Error,
-    },
+    Engine { source: jackdaw::Error },
 
     #[snafu(display("Protobuf compilation error: {source}"))]
     Protobuf { source: protox::Error },
@@ -52,8 +50,8 @@ impl From<serde_yaml::Error> for Error {
     }
 }
 
-impl From<jackdaw::durableengine::Error> for Error {
-    fn from(source: jackdaw::durableengine::Error) -> Self {
+impl From<jackdaw::Error> for Error {
+    fn from(source: jackdaw::Error) -> Self {
         Error::Engine { source }
     }
 }

@@ -27,11 +27,14 @@ pub enum Error {
     ))]
     MissingOutputPath { format: String },
 
-    #[snafu(display("{message}"))]
-    NotImplemented { message: String },
+    #[snafu(display("Could not read the run's history: {source}"))]
+    History { source: jackdaw::Error },
+
+    #[snafu(display("{source}"))]
+    Render { source: crate::visualization::Error },
 }
 
-use jackdaw::providers::visualization::DiagramFormat;
+use crate::visualization::{self, DiagramFormat, ExecutionState};
 
 #[derive(Parser, Debug)]
 pub struct VisualizeArgs {
@@ -111,39 +114,38 @@ pub async fn handle_visualize(args: VisualizeArgs) -> Result<(), Error> {
         });
     }
 
-    // // Initialize persistence and engine
-    // let persistence = Arc::new(RedbPersistence::new(
-    //     args.durable_db.to_str().unwrap_or("workflow.db"),
-    // )?);
-    // let cache = Arc::new(RedbCache::new(persistence.db.clone())?);
-    // let engine = Arc::new(DurableEngine::new(persistence, cache)?);
+    // The run's history marks each task as completed, failed or running.
+    let state = match &args.instance_id {
+        Some(id) => {
+            let store = jackdaw::api::Redb::open(&args.durable_db).context(HistorySnafu)?;
+            let engine = jackdaw::Engine::builder()
+                .store(store)
+                .build()
+                .context(HistorySnafu)?;
+            let history = engine.history(id).await.context(HistorySnafu)?;
+            Some(ExecutionState::from_history(&history))
+        }
+        None => None,
+    };
 
-    // Generate visualization
-    // if args.verbose {
-    //     println!(
-    //         "{} Generating {} visualization using {}...",
-    //         style("→").cyan(),
-    //         args.format,
-    //         args.tool
-    //     );
-    // }
+    if args.verbose {
+        println!(
+            "{} Generating {} visualization using {}...",
+            style("→").cyan(),
+            args.format,
+            args.tool
+        );
+    }
+    let output_path = args.output.as_deref();
+    visualization::render(&args.tool, &workflow, output_path, format, state.as_ref())
+        .context(RenderSnafu)?;
 
-    // let output_path = args.output.as_deref();
-    // let instance_id = args.instance_id.as_deref().unwrap_or("");
-
-    // engine
-    //     .visualize_execution(&workflow, instance_id, output_path, format, &args.tool)
-    //     .await?;
-
-    // if let Some(output_path) = output_path {
-    //     println!(
-    //         "{} Visualization saved to: {}",
-    //         style("✓").green(),
-    //         output_path.display()
-    //     );
-    // }
-
-    Err(Error::NotImplemented {
-        message: "Error handling not yet implemented in visualize command".to_string(),
-    })
+    if let Some(output_path) = output_path {
+        println!(
+            "{} Visualization saved to: {}",
+            style("✓").green(),
+            output_path.display()
+        );
+    }
+    Ok(())
 }

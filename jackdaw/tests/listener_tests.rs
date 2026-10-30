@@ -4,9 +4,12 @@
 mod common;
 mod listener_steps;
 
+#[path = "yaml_engine/mod.rs"]
+mod yaml_engine;
+
+use crate::yaml_engine::YamlEngine;
 use cucumber::World;
 use jackdaw::cache::CacheProvider;
-use jackdaw::durableengine::DurableEngine;
 use jackdaw::persistence::PersistenceProvider;
 use jackdaw::providers::cache::RedbCache;
 use jackdaw::providers::persistence::RedbPersistence;
@@ -28,9 +31,7 @@ pub enum Error {
     Cache { source: jackdaw::cache::Error },
 
     #[snafu(display("Engine error: {source}"))]
-    Engine {
-        source: jackdaw::durableengine::Error,
-    },
+    Engine { source: jackdaw::Error },
 
     #[snafu(display("I/O error: {source}"))]
     Io { source: std::io::Error },
@@ -56,17 +57,9 @@ impl From<jackdaw::cache::Error> for Error {
     }
 }
 
-impl From<jackdaw::durableengine::Error> for Error {
-    fn from(source: jackdaw::durableengine::Error) -> Self {
+impl From<jackdaw::Error> for Error {
+    fn from(source: jackdaw::Error) -> Self {
         Error::Engine { source }
-    }
-}
-
-impl From<jackdaw::executor::Error> for Error {
-    fn from(source: jackdaw::executor::Error) -> Self {
-        Error::TestSetup {
-            message: format!("Executor error: {}", source),
-        }
     }
 }
 
@@ -78,7 +71,7 @@ pub struct ListenerWorld {
     pub workflow_input: Option<Value>,
     pub workflow_output: Option<Value>,
     pub workflow_status: Option<WorkflowStatus>,
-    pub engine: Option<Arc<DurableEngine>>,
+    pub engine: Option<Arc<YamlEngine>>,
     pub persistence: Option<Arc<RedbPersistence>>,
     pub instance_id: Option<String>,
     pub workflow_events: Vec<jackdaw::workflow::WorkflowEvent>,
@@ -89,8 +82,6 @@ pub struct ListenerWorld {
     pub http_requests: std::collections::HashMap<String, Value>,
     pub http_responses: std::collections::HashMap<String, Value>,
 
-    // Active listeners
-    pub http_listener: Option<Arc<jackdaw::listeners::http::HttpListener>>,
     pub http_response_status: Option<u16>,
 
     // Workflow abort handle for cleanup
@@ -99,17 +90,12 @@ pub struct ListenerWorld {
 
 impl ListenerWorld {
     async fn new() -> Result<Self> {
-        // Configure Python path for test fixtures
-        use jackdaw::providers::executors::PythonExecutor;
-        let python_executor = PythonExecutor::new();
-        python_executor.add_python_path("tests/fixtures/listeners/handlers/python-handlers")?;
-
         let temp_dir = tempfile::tempdir()?;
         let db_path = temp_dir.path().join("test.db");
         let persistence = Arc::new(RedbPersistence::new(db_path.to_str().unwrap())?);
         let cache =
             Arc::new(RedbCache::new(Arc::clone(&persistence.db))?) as Arc<dyn CacheProvider>;
-        let engine = Arc::new(DurableEngine::new(
+        let engine = Arc::new(YamlEngine::new(
             Arc::clone(&persistence) as Arc<dyn PersistenceProvider>,
             Arc::clone(&cache),
         )?);
@@ -127,7 +113,6 @@ impl ListenerWorld {
             grpc_responses: std::collections::HashMap::new(),
             http_requests: std::collections::HashMap::new(),
             http_responses: std::collections::HashMap::new(),
-            http_listener: None,
             http_response_status: None,
             abort_handle: None,
         })

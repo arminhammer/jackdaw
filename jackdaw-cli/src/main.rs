@@ -6,6 +6,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 mod cmd;
 mod config;
+mod visualization;
 
 use cmd::{RunArgs, ValidateArgs, VisualizeArgs, handle_run, handle_validate, handle_visualize};
 use config::JackdawConfig;

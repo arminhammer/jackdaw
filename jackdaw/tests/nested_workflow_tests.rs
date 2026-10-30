@@ -4,9 +4,12 @@
 mod common;
 mod nested_workflow_steps;
 
+#[path = "yaml_engine/mod.rs"]
+mod yaml_engine;
+
+use crate::yaml_engine::YamlEngine;
 use cucumber::World;
 use jackdaw::cache::CacheProvider;
-use jackdaw::durableengine::DurableEngine;
 use jackdaw::persistence::PersistenceProvider;
 use jackdaw::providers::cache::RedbCache;
 use jackdaw::providers::persistence::RedbPersistence;
@@ -29,9 +32,7 @@ pub enum Error {
     Cache { source: jackdaw::cache::Error },
 
     #[snafu(display("Engine error: {source}"))]
-    Engine {
-        source: jackdaw::durableengine::Error,
-    },
+    Engine { source: jackdaw::Error },
 
     #[snafu(display("I/O error: {source}"))]
     Io { source: std::io::Error },
@@ -57,8 +58,8 @@ impl From<jackdaw::cache::Error> for Error {
     }
 }
 
-impl From<jackdaw::durableengine::Error> for Error {
-    fn from(source: jackdaw::durableengine::Error) -> Self {
+impl From<jackdaw::Error> for Error {
+    fn from(source: jackdaw::Error) -> Self {
         Error::Engine { source }
     }
 }
@@ -71,7 +72,7 @@ pub struct NestedWorkflowWorld {
     pub workflow_input: Option<Value>,
     pub workflow_output: Option<Value>,
     pub workflow_status: Option<WorkflowStatus>,
-    pub engine: Option<Arc<DurableEngine>>,
+    pub engine: Option<Arc<YamlEngine>>,
     pub persistence: Option<Arc<RedbPersistence>>,
     pub instance_id: Option<String>,
     pub workflow_events: Vec<jackdaw::workflow::WorkflowEvent>,
@@ -85,7 +86,7 @@ impl NestedWorkflowWorld {
         let persistence = Arc::new(RedbPersistence::new(db_path.to_str().unwrap())?);
         let cache =
             Arc::new(RedbCache::new(Arc::clone(&persistence.db))?) as Arc<dyn CacheProvider>;
-        let engine = Arc::new(DurableEngine::new(
+        let engine = Arc::new(YamlEngine::new(
             Arc::clone(&persistence) as Arc<dyn PersistenceProvider>,
             Arc::clone(&cache),
         )?);

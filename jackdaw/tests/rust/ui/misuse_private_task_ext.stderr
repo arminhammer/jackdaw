@@ -1,0 +1,11 @@
+error[E0603]: module `task_ext` is private
+ --> tests/rust/ui/misuse_private_task_ext.rs:3:14
+  |
+3 | use jackdaw::task_ext;
+  |              ^^^^^^^^ private module
+  |
+note: the module `task_ext` is defined here
+ --> src/lib.rs
+  |
+  | mod task_ext;
+  | ^^^^^^^^^^^^

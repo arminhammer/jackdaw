@@ -3,7 +3,7 @@
 #![allow(clippy::panic)]
 #![allow(clippy::collapsible_if)]
 
-use jackdaw::durableengine::DurableEngine;
+use jackdaw::api::Workflow;
 use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use std::path::PathBuf;
 
@@ -18,8 +18,19 @@ fn validate_workflow_file(path: &PathBuf) -> Result<(), String> {
         .map_err(|e| format!("Failed to parse {}: {}", path.display(), e))?;
 
     // Validate graph structure
-    DurableEngine::validate_workflow_graph(&workflow)
-        .map_err(|e| format!("Graph validation failed for {}: {}", path.display(), e))?;
+    let validation =
+        Workflow::<serde_json::Value, serde_json::Value>::from_definition(workflow).validate();
+    if let Some(issue) = validation
+        .issues
+        .iter()
+        .find(|issue| issue.location == "graph")
+    {
+        return Err(format!(
+            "Graph validation failed for {}: {}",
+            path.display(),
+            issue.message
+        ));
+    }
 
     Ok(())
 }

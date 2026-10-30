@@ -5,7 +5,6 @@
 
 use crate::workflow::WorkflowEvent;
 use snafu::prelude::*;
-use std::time::Duration;
 use tokio::sync::mpsc;
 
 #[derive(Debug, Snafu)]
@@ -29,7 +28,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// # Examples
 ///
 /// ## One-shot workflow - wait for result
-/// ```no_run
+/// ```text
 /// # use jackdaw::builder::DurableEngineBuilder;
 /// # use serverless_workflow_core::models::workflow::WorkflowDefinition;
 /// # use std::time::Duration;
@@ -45,7 +44,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// ```
 ///
 /// ## Stream events from execution
-/// ```no_run
+/// ```text
 /// # use jackdaw::{builder::DurableEngineBuilder, workflow::WorkflowEvent};
 /// # use serverless_workflow_core::models::workflow::WorkflowDefinition;
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -73,7 +72,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// ```
 ///
 /// ## Perpetual workflow - process indefinitely
-/// ```no_run
+/// ```text
 /// # use jackdaw::{builder::DurableEngineBuilder, workflow::WorkflowEvent};
 /// # use serverless_workflow_core::models::workflow::WorkflowDefinition;
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -123,7 +122,7 @@ impl ExecutionHandle {
     ///
     /// # Examples
     ///
-    /// ```no_run
+    /// ```text
     /// # use jackdaw::builder::DurableEngineBuilder;
     /// # use serverless_workflow_core::models::workflow::WorkflowDefinition;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -153,7 +152,7 @@ impl ExecutionHandle {
     ///
     /// # Examples
     ///
-    /// ```no_run
+    /// ```text
     /// # use jackdaw::{builder::DurableEngineBuilder, workflow::WorkflowEvent};
     /// # use serverless_workflow_core::models::workflow::WorkflowDefinition;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -185,7 +184,7 @@ impl ExecutionHandle {
     ///
     /// # Examples
     ///
-    /// ```no_run
+    /// ```text
     /// # use jackdaw::builder::DurableEngineBuilder;
     /// # use serverless_workflow_core::models::workflow::WorkflowDefinition;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -207,85 +206,5 @@ impl ExecutionHandle {
             .map_err(|_| Error::WorkflowExecution {
                 message: "Failed to send cancellation signal".into(),
             })
-    }
-
-    /// Wait for the workflow to complete and return the final result
-    ///
-    /// This method waits for a `WorkflowCompleted` event and returns the final data.
-    ///
-    /// **Important**: This method is only suitable for one-shot workflows.
-    /// For perpetual workflows (e.g., with listeners that never complete),
-    /// this will timeout as they never emit `WorkflowCompleted`.
-    ///
-    /// Use [`next_event()`](Self::next_event) for perpetual workflows instead.
-    ///
-    /// # Errors
-    /// Returns an error if:
-    /// - The workflow fails
-    /// - The workflow is cancelled
-    /// - The timeout is exceeded
-    /// - The event stream closes unexpectedly
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// # use jackdaw::builder::DurableEngineBuilder;
-    /// # use serverless_workflow_core::models::workflow::WorkflowDefinition;
-    /// # use std::time::Duration;
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let engine = DurableEngineBuilder::new().build()?;
-    /// # let workflow_yaml = "document:\n  dsl: '1.0.2'\n  namespace: test\n  name: test\n  version: 1.0.0\ndo: []";
-    /// # let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml)?;
-    /// let mut handle = engine.execute(workflow, serde_json::json!({})).await?;
-    /// let result = handle.wait_for_completion(Duration::from_secs(60)).await?;
-    /// println!("Result: {}", result);
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub async fn wait_for_completion(mut self, timeout: Duration) -> Result<serde_json::Value> {
-        let start = std::time::Instant::now();
-
-        while let Some(event) = self.next_event().await {
-            match event {
-                WorkflowEvent::WorkflowCompleted { final_data, .. } => {
-                    return Ok(final_data);
-                }
-                WorkflowEvent::WorkflowFailed { error, .. } => {
-                    return Err(Error::WorkflowExecution { message: error });
-                }
-                WorkflowEvent::WorkflowCancelled { reason, .. } => {
-                    return Err(Error::WorkflowExecution {
-                        message: format!("Workflow cancelled: {}", reason.unwrap_or_default()),
-                    });
-                }
-                WorkflowEvent::WorkflowStarted { .. }
-                | WorkflowEvent::WorkflowCorrelationStarted { .. }
-                | WorkflowEvent::WorkflowCorrelationCompleted { .. }
-                | WorkflowEvent::TaskStarted { .. }
-                | WorkflowEvent::TaskCompleted { .. } => {}
-                // Ignore all other events during wait
-                WorkflowEvent::TaskEntered { .. }
-                | WorkflowEvent::TaskCreated { .. }
-                | WorkflowEvent::TaskRetried { .. }
-                | WorkflowEvent::WorkflowSuspended { .. }
-                | WorkflowEvent::WorkflowResumed { .. }
-                | WorkflowEvent::TaskCancelled { .. }
-                | WorkflowEvent::TaskSuspended { .. }
-                | WorkflowEvent::TaskResumed { .. }
-                | WorkflowEvent::TaskFaulted { .. }
-                | WorkflowEvent::WorkflowContinuedAsNew { .. }
-                | WorkflowEvent::EventEmitted { .. } => {}
-            }
-
-            if start.elapsed() > timeout {
-                return Err(Error::Timeout {
-                    message: format!("Workflow execution timed out after {timeout:?}"),
-                });
-            }
-        }
-
-        Err(Error::WorkflowExecution {
-            message: "Event stream closed unexpectedly".into(),
-        })
     }
 }

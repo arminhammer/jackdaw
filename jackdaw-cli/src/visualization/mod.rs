@@ -194,3 +194,50 @@ pub trait VisualizationProvider: Send + Sync + std::fmt::Debug {
     #[allow(dead_code)]
     fn version(&self) -> Result<String>;
 }
+
+impl ExecutionState {
+    /// The state of each task as a run's history records it.
+    #[must_use]
+    pub fn from_history(events: &[jackdaw::api::Event]) -> Self {
+        use jackdaw::api::Event;
+        let mut state = Self::new();
+        for event in events {
+            if let Event::TaskStarted { task_name, .. } = event {
+                state.mark_running(task_name);
+            } else if let Event::TaskCompleted { task_name, .. } = event {
+                state.mark_success(task_name);
+            } else if let Event::TaskFaulted { task_name, .. } = event {
+                state.mark_failed(task_name);
+            }
+        }
+        state
+    }
+}
+
+/// Renders `workflow` with `tool` (`graphviz` or `d2`).
+///
+/// # Errors
+/// If the tool is unknown or not installed, or rendering fails.
+pub fn render(
+    tool: &str,
+    workflow: &WorkflowDefinition,
+    output_path: Option<&Path>,
+    format: DiagramFormat,
+    execution_state: Option<&ExecutionState>,
+) -> Result<()> {
+    let provider: Box<dyn VisualizationProvider> = match tool {
+        "graphviz" => Box::new(GraphvizProvider::new()),
+        "d2" => Box::new(D2Provider::new()),
+        other => {
+            return Err(Error::Visualization {
+                message: format!("Unknown visualization tool: {other} (use graphviz or d2)"),
+            });
+        }
+    };
+    if !provider.is_available()? {
+        return Err(Error::Visualization {
+            message: format!("{} is not installed or not available", provider.name()),
+        });
+    }
+    provider.render(workflow, output_path, format, execution_state)
+}

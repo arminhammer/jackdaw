@@ -21,7 +21,7 @@ metrics = { version = "0.24", optional = true }
 snafu = "0.8.9"
 serverless_workflow_core = { workspace = true }
 console = "0.15"
-tempfile = "3"
+
 chrono = { version = "0.4", features = ["serde"] }
 async-trait = "0.1"
 jaq-core = "2.2.1"
@@ -64,6 +64,7 @@ default = []
 metrics = ["dep:metrics"]
 
 [dev-dependencies]
+tempfile = "3"
 jackdaw = { path = ".", features = ["metrics"] }
 metrics = "0.24"
 metrics-util = { version = "0.20", default-features = false, features = ["debugging"] }

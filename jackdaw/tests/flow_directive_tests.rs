@@ -1,6 +1,9 @@
 #![allow(clippy::unwrap_used)]
 
-use jackdaw::builder::DurableEngineBuilder;
+#[path = "yaml_engine/mod.rs"]
+mod yaml_engine;
+
+use crate::yaml_engine::YamlEngineBuilder;
 /// Tests for flow control directives (exit, end, continue)
 use jackdaw::cache::CacheProvider;
 use jackdaw::persistence::PersistenceProvider;
@@ -19,7 +22,7 @@ async fn test_exit_directive_terminates_workflow() {
     let persistence = Arc::new(RedbPersistence::new(db_path.to_str().unwrap()).unwrap());
     let cache =
         Arc::new(RedbCache::new(Arc::clone(&persistence.db)).unwrap()) as Arc<dyn CacheProvider>;
-    let engine = DurableEngineBuilder::new()
+    let engine = YamlEngineBuilder::new()
         .with_persistence(Arc::clone(&persistence) as Arc<dyn PersistenceProvider>)
         .with_cache(Arc::clone(&cache))
         .build()
@@ -87,7 +90,7 @@ async fn test_end_directive_terminates_workflow() {
     let persistence = Arc::new(RedbPersistence::new(db_path.to_str().unwrap()).unwrap());
     let cache =
         Arc::new(RedbCache::new(Arc::clone(&persistence.db)).unwrap()) as Arc<dyn CacheProvider>;
-    let engine = DurableEngineBuilder::new()
+    let engine = YamlEngineBuilder::new()
         .with_persistence(Arc::clone(&persistence) as Arc<dyn PersistenceProvider>)
         .with_cache(Arc::clone(&cache))
         .build()
@@ -158,7 +161,7 @@ async fn test_exit_vs_end_behavior_identical_in_main_scope() {
     let persistence_exit = Arc::new(RedbPersistence::new(db_path_exit.to_str().unwrap()).unwrap());
     let cache_exit = Arc::new(RedbCache::new(Arc::clone(&persistence_exit.db)).unwrap())
         as Arc<dyn CacheProvider>;
-    let engine_exit = DurableEngineBuilder::new()
+    let engine_exit = YamlEngineBuilder::new()
         .with_persistence(Arc::clone(&persistence_exit) as Arc<dyn PersistenceProvider>)
         .with_cache(Arc::clone(&cache_exit))
         .build()
@@ -170,7 +173,7 @@ async fn test_exit_vs_end_behavior_identical_in_main_scope() {
     let persistence_end = Arc::new(RedbPersistence::new(db_path_end.to_str().unwrap()).unwrap());
     let cache_end = Arc::new(RedbCache::new(Arc::clone(&persistence_end.db)).unwrap())
         as Arc<dyn CacheProvider>;
-    let engine_end = DurableEngineBuilder::new()
+    let engine_end = YamlEngineBuilder::new()
         .with_persistence(Arc::clone(&persistence_end) as Arc<dyn PersistenceProvider>)
         .with_cache(Arc::clone(&cache_end))
         .build()

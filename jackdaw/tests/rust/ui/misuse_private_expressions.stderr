@@ -1,0 +1,11 @@
+error[E0603]: module `expressions` is private
+ --> tests/rust/ui/misuse_private_expressions.rs:3:14
+  |
+3 | use jackdaw::expressions;
+  |              ^^^^^^^^^^^ private module
+  |
+note: the module `expressions` is defined here
+ --> src/lib.rs
+  |
+  | mod expressions;
+  | ^^^^^^^^^^^^^^^

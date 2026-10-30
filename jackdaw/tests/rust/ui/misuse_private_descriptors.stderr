@@ -1,0 +1,11 @@
+error[E0603]: module `descriptors` is private
+ --> tests/rust/ui/misuse_private_descriptors.rs:3:14
+  |
+3 | use jackdaw::descriptors;
+  |              ^^^^^^^^^^^ private module
+  |
+note: the module `descriptors` is defined here
+ --> src/lib.rs
+  |
+  | mod descriptors;
+  | ^^^^^^^^^^^^^^^

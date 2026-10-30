@@ -43,9 +43,7 @@ Feature: The public API is small, documented and stable
       | Executor            |
       | Error               |
 
-  # Today these modules are #[doc(hidden)] but still public: the CLI and the YAML conformance tests use them.
-  # They become private once the CLI runs on the new Engine API.
-  @todo
+  @implemented
   Scenario Outline: Engine internals are not public
     Given a crate that depends on "jackdaw" with all features
     When it refers to "<path>"
@@ -96,7 +94,6 @@ Feature: The public API is small, documented and stable
   Scenario: Error enums of the extension traits can grow without a breaking change
     Then "jackdaw::persistence::Error" is marked "#[non_exhaustive]"
     And "jackdaw::cache::Error" is marked "#[non_exhaustive]"
-    And "jackdaw::executor::Error" is marked "#[non_exhaustive]"
 
   @todo
   Scenario: The public API is checked for semver breaks

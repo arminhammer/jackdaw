@@ -9,8 +9,11 @@
 /// 1. When a task is scheduled/created (before execution starts)
 /// 2. Before the task.started.v1 event
 /// 3. Should include task name, task type, and timestamp
+#[path = "yaml_engine/mod.rs"]
+mod yaml_engine;
+
+use crate::yaml_engine::YamlEngine;
 use jackdaw::cache::CacheProvider;
-use jackdaw::durableengine::DurableEngine;
 use jackdaw::persistence::PersistenceProvider;
 use jackdaw::providers::cache::RedbCache;
 use jackdaw::providers::persistence::RedbPersistence;
@@ -23,7 +26,7 @@ use std::time::Duration;
 
 /// Helper to set up test infrastructure
 async fn setup_test_engine() -> (
-    Arc<DurableEngine>,
+    Arc<YamlEngine>,
     Arc<dyn PersistenceProvider>,
     tempfile::TempDir,
 ) {
@@ -33,7 +36,7 @@ async fn setup_test_engine() -> (
     let cache =
         Arc::new(RedbCache::new(Arc::clone(&persistence.db)).unwrap()) as Arc<dyn CacheProvider>;
     let engine = Arc::new(
-        DurableEngine::new(
+        YamlEngine::new(
             Arc::clone(&persistence) as Arc<dyn PersistenceProvider>,
             Arc::clone(&cache),
         )

@@ -1,6 +1,9 @@
 #![allow(clippy::unwrap_used)]
 
-use jackdaw::builder::DurableEngineBuilder;
+#[path = "yaml_engine/mod.rs"]
+mod yaml_engine;
+
+use crate::yaml_engine::YamlEngineBuilder;
 /// Tests for HTTP redirect handling
 use jackdaw::cache::CacheProvider;
 use jackdaw::persistence::PersistenceProvider;
@@ -40,7 +43,7 @@ async fn test_http_redirect_follow_enabled() {
     let persistence = Arc::new(RedbPersistence::new(db_path.to_str().unwrap()).unwrap());
     let cache =
         Arc::new(RedbCache::new(Arc::clone(&persistence.db)).unwrap()) as Arc<dyn CacheProvider>;
-    let engine = DurableEngineBuilder::new()
+    let engine = YamlEngineBuilder::new()
         .with_persistence(Arc::clone(&persistence) as Arc<dyn PersistenceProvider>)
         .with_cache(Arc::clone(&cache))
         .build()
@@ -111,7 +114,7 @@ async fn test_http_redirect_follow_disabled() {
     let persistence = Arc::new(RedbPersistence::new(db_path.to_str().unwrap()).unwrap());
     let cache =
         Arc::new(RedbCache::new(Arc::clone(&persistence.db)).unwrap()) as Arc<dyn CacheProvider>;
-    let engine = DurableEngineBuilder::new()
+    let engine = YamlEngineBuilder::new()
         .with_persistence(Arc::clone(&persistence) as Arc<dyn PersistenceProvider>)
         .with_cache(Arc::clone(&cache))
         .build()
@@ -203,7 +206,7 @@ async fn test_http_redirect_multiple_hops() {
     let persistence = Arc::new(RedbPersistence::new(db_path.to_str().unwrap()).unwrap());
     let cache =
         Arc::new(RedbCache::new(Arc::clone(&persistence.db)).unwrap()) as Arc<dyn CacheProvider>;
-    let engine = DurableEngineBuilder::new()
+    let engine = YamlEngineBuilder::new()
         .with_persistence(Arc::clone(&persistence) as Arc<dyn PersistenceProvider>)
         .with_cache(Arc::clone(&cache))
         .build()

@@ -1893,6 +1893,7 @@ dependencies = [
  "serde_yaml",
  "serverless_workflow_core",
  "snafu",
+ "tempfile",
  "tokio",
  "tracing-indicatif",
  "tracing-subscriber",

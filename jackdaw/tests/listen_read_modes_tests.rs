@@ -7,27 +7,30 @@
 /// - "data": Return only the event data field
 /// - "envelope": Return the full CloudEvent structure
 /// - "raw": Return the raw HTTP body (before CloudEvent parsing)
+#[path = "yaml_engine/mod.rs"]
+mod yaml_engine;
+
 use serde_json::json;
 use std::env;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tempfile::TempDir;
 
-use jackdaw::builder::DurableEngineBuilder;
+use crate::yaml_engine::YamlEngine;
+use crate::yaml_engine::YamlEngineBuilder;
 use jackdaw::cache::CacheProvider;
-use jackdaw::durableengine::DurableEngine;
 use jackdaw::persistence::PersistenceProvider;
 use jackdaw::providers::cache::RedbCache;
 use jackdaw::providers::persistence::RedbPersistence;
 use serverless_workflow_core::models::workflow::WorkflowDefinition;
 
 /// Helper to set up test infrastructure
-async fn setup_test_engine(temp_dir: &TempDir) -> DurableEngine {
+async fn setup_test_engine(temp_dir: &TempDir) -> YamlEngine {
     let db_path = temp_dir.path().join("test.db");
     let persistence = Arc::new(RedbPersistence::new(db_path.to_str().unwrap()).unwrap());
     let cache =
         Arc::new(RedbCache::new(Arc::clone(&persistence.db)).unwrap()) as Arc<dyn CacheProvider>;
-    DurableEngineBuilder::new()
+    YamlEngineBuilder::new()
         .with_persistence(Arc::clone(&persistence) as Arc<dyn PersistenceProvider>)
         .with_cache(Arc::clone(&cache))
         .build()
