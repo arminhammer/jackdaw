@@ -248,3 +248,7 @@
 //!   that runs the instance.
 //! - Without `lease`, building a second engine on a store another engine in the process uses fails, so a store cannot
 //!   be shared by accident.
+//!
+//! ---
+//!
+//! **Next:** [Catalogs](super::catalogs), importing versioned tasks and workflows with types.

@@ -281,6 +281,10 @@
 //! [`Error::Cancelled`](crate::api::Error::Cancelled). A deadline on the whole run is plain
 //! `tokio::time::timeout(limit, handle)` outside the workflow.
 //!
+//! ---
+//!
+//! **Next:** [Durability](super::durability), what replay is and how to change a running workflow.
+//!
 //! [`StepError`]: crate::api::StepError
 //! [`WorkflowContext`]: crate::api::WorkflowContext
 //! [`WorkflowResult`]: crate::api::WorkflowResult

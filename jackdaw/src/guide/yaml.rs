@@ -80,3 +80,7 @@
 //! ```
 //!
 //! A Rust workflow, by contrast, cannot be exported to YAML: it is code.
+//!
+//! ---
+//!
+//! **Next:** [Testing](super::testing), testing workflows without waiting.

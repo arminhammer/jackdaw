@@ -75,6 +75,10 @@
 //! | `NonDeterminism(..)` | A replay did not match its history, see [durability](super::durability). |
 //! | `Persistence(..)`, `Cache(..)`, `Engine(..)` | Infrastructure failures, with a source. |
 //!
+//! ---
+//!
+//! **Next:** [Events](super::events), watching a run.
+//!
 //! [`Error`]: crate::api::Error
 //! [`Fault`]: crate::api::Fault
 //! [`StepError`]: crate::api::StepError

@@ -58,5 +58,9 @@
 //! [`Engine::history`](crate::api::Engine::history) returns the stored events of an instance, including after a
 //! restart.
 //!
+//! ---
+//!
+//! That is the last chapter. Back to the [guide](super) for the list of chapters.
+//!
 //! [`Event`]: crate::api::Event
 //! [`EventStream`]: crate::api::EventStream

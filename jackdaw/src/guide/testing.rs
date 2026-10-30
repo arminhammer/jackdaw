@@ -76,3 +76,7 @@
 //! To test that a change keeps running instances alive, run the old code against a store, stop it part-way, then open
 //! the same store with the new code and call [`resume`](crate::api::Engine::resume) or
 //! [`replay_all`](crate::api::Engine::replay_all). See [durability](super::durability).
+//!
+//! ---
+//!
+//! **Next:** [Errors](super::errors), the error types and how to match them.

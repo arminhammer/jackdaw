@@ -87,4 +87,8 @@
 //! If an entry carries no schema, the binding is trusted, and a mismatch at run time is a `validation`
 //! [`Fault`](crate::api::Fault), the same guarantee as `serde_json::from_str::<T>`.
 //!
+//! ---
+//!
+//! **Next:** [YAML workflows](super::yaml), running Serverless Workflow YAML from Rust.
+//!
 //! [`JsonSchema`]: crate::prelude::JsonSchema

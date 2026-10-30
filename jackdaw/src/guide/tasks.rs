@@ -185,6 +185,10 @@
 //!
 //! Every registered task can be called from a YAML workflow by name, with `call: charge`; see [`yaml`](super::yaml).
 //!
+//! ---
+//!
+//! **Next:** [Workflows](super::workflows), writing workflows in Rust.
+//!
 //! [`TaskContext`]: crate::api::TaskContext
 //! [`TaskError`]: crate::api::TaskError
 //! [`TaskError::next_retry_delay`]: crate::api::TaskError::next_retry_delay
