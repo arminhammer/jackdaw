@@ -164,25 +164,24 @@ impl<W: Send + 'static> WorkflowContext<W> {
     }
 
     /// Waits until `condition` is true of the workflow's state (it is re-checked after every signal).
-    pub fn wait_condition<F>(
-        &self,
-        condition: F,
-    ) -> impl Future<Output = Result<(), StepError>> + Send + use<W, F>
+    ///
+    /// The returned [`Condition`] can be raced with [`select!`](crate::select), for example against a timer.
+    #[track_caller]
+    #[must_use]
+    pub fn wait_condition<F>(&self, condition: F) -> Condition
     where
-        F: Fn(&W) -> bool + Send + 'static,
+        F: Fn(&W) -> bool + Send + Sync + 'static,
     {
         let core = Arc::clone(&self.core);
         let state = Arc::clone(&self.state);
-        async move {
-            loop {
-                let changed = core.state_changed.notified();
-                tokio::pin!(changed);
-                changed.as_mut().enable();
-                if condition(&lock(&state)) {
-                    return Ok(());
-                }
-                changed.await;
-            }
+        let location = Location::caller();
+        let waiting = Arc::clone(&core);
+        Condition {
+            core,
+            waiting: Box::pin(async move {
+                let check = move || condition(&lock(&state));
+                waiting.wait_until(&check, location).await
+            }),
         }
     }
 
@@ -192,8 +191,8 @@ impl<W: Send + 'static> WorkflowContext<W> {
     pub fn now(&self) -> DateTime<Utc> {
         let value = self
             .core
-            .recorded_value("now", Location::caller(), || json!(Utc::now()));
-        serde_json::from_value(value).unwrap_or_else(|_| Utc::now())
+            .recorded_value("now", Location::caller(), || json!(self.core.clock.now()));
+        serde_json::from_value(value).unwrap_or_else(|_| self.core.clock.now())
     }
 
     /// A number in `[0, 1)`, recorded.
@@ -310,6 +309,7 @@ impl<Out: DeserializeOwned> Future for Step<Out> {
             if let StepExec::Task { options, .. } = &mut spec.exec {
                 *options = this.options.clone();
             }
+            spec.timeout = this.options.timeout;
             let core = Arc::clone(&this.core);
             this.running = Some(Box::pin(async move { core.run_step(spec).await }));
         }
@@ -423,6 +423,27 @@ pub trait Branch {
 }
 
 impl<Out> Branch for Step<Out> {
+    fn core(&self) -> CoreRef {
+        CoreRef(Arc::clone(&self.core))
+    }
+}
+
+/// `ctx.wait_condition(..)` in progress: a future that resolves once the condition holds. It can be raced with
+/// [`select!`](crate::select).
+pub struct Condition {
+    core: Arc<InstanceCore>,
+    waiting: BoxFuture<'static, Result<(), StepError>>,
+}
+
+impl Future for Condition {
+    type Output = Result<(), StepError>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        self.get_mut().waiting.as_mut().poll(cx)
+    }
+}
+
+impl Branch for Condition {
     fn core(&self) -> CoreRef {
         CoreRef(Arc::clone(&self.core))
     }

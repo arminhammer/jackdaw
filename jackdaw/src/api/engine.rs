@@ -17,6 +17,7 @@
 //! # }
 //! ```
 use super::catalog::CatalogDef;
+use super::clock::{Clock, SharedClock, SystemClock};
 use super::error::{Divergence, Error};
 use super::event::{Event, EventStream};
 use super::runtime::{
@@ -34,6 +35,7 @@ use crate::executor::Executor;
 use crate::persistence::PersistenceProvider;
 use crate::providers::cache::mem::InMemoryCache;
 use crate::providers::persistence::InMemoryPersistence;
+use chrono::{DateTime, Utc};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -43,7 +45,6 @@ use std::future::IntoFuture;
 use std::marker::PhantomData;
 use std::panic::Location;
 use std::sync::Arc;
-use tokio::sync::oneshot;
 
 /// Where an instance is in its life.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -150,6 +151,7 @@ pub struct EngineBuilder {
     catalogs: CatalogSet,
     event_buffer: usize,
     self_replay: bool,
+    clock: Option<SharedClock>,
 }
 
 impl Default for EngineBuilder {
@@ -169,6 +171,7 @@ impl EngineBuilder {
             catalogs: CatalogSet::default(),
             event_buffer: 1000,
             self_replay: false,
+            clock: None,
         }
     }
 
@@ -236,6 +239,16 @@ impl EngineBuilder {
         self
     }
 
+    /// The time source for `ctx.now()`, durable sleeps, step timeouts and retry delays. Defaults to [`SystemClock`].
+    ///
+    /// Tests pass a clock from [`crate::testing`]; sharing one clock between engines keeps time moving across a
+    /// simulated crash.
+    #[must_use]
+    pub fn clock(mut self, clock: impl Clock) -> Self {
+        self.clock = Some(Arc::new(clock));
+        self
+    }
+
     /// Checks the registrations and creates the engine.
     ///
     /// # Errors
@@ -278,6 +291,7 @@ impl EngineBuilder {
                 self.catalogs,
                 legacy,
                 self.self_replay,
+                self.clock.unwrap_or_else(|| Arc::new(SystemClock)),
             )),
         })
     }
@@ -331,7 +345,7 @@ impl Engine {
                 self.shared.launch_definition(&definition, value).await?
             }
         };
-        Ok(self.handle(launched))
+        Ok(self.wrap(launched))
     }
 
     /// Continues an instance that was stopped (for example because its process died) from its journal.
@@ -351,13 +365,165 @@ impl Engine {
                 journal.workflow
             )));
         }
-        let entry = self.shared.find_workflow(&wanted)?;
+        self.attach(id, journal).await
+    }
+
+    /// A handle to an instance that has a journal: the running instance if it runs here, the stored result if it has
+    /// ended, and otherwise the instance resumed from its journal.
+    async fn attach<Out>(&self, id: &str, journal: Journal) -> Result<ExecutionHandle<Out>, Error> {
+        if let Some(core) = self.shared.instance(id) {
+            return Ok(self.wrap(Launched { core }));
+        }
+        if let Some(ended) = journal.ended() {
+            let core = InstanceCore::new(
+                id.to_string(),
+                journal.workflow.clone(),
+                super::workflow::ReplayMode::Strict,
+                Arc::downgrade(&self.shared),
+                journal,
+                None,
+                true,
+            );
+            core.log.close();
+            core.publish(ended);
+            return Ok(self.wrap(Launched { core }));
+        }
+        let entry = self.shared.find_workflow(&journal.workflow)?;
         let input = journal.input.clone();
         let launched = self
             .shared
             .launch(id.to_string(), entry, input, journal)
             .await?;
-        Ok(self.handle(launched))
+        Ok(self.wrap(launched))
+    }
+
+    /// Starts a workflow under an id you choose. Starting the same id again returns the existing instance instead of a
+    /// second one, so a retried request cannot start the work twice.
+    ///
+    /// # Errors
+    /// `Error::Invalid` if an instance with this id exists and belongs to a different workflow, or if `runnable` is not
+    /// a Rust workflow.
+    pub async fn execute_with_id<R: Runnable>(
+        &self,
+        id: impl Into<String>,
+        runnable: R,
+        input: R::In,
+    ) -> Result<ExecutionHandle<R::Out>, Error> {
+        let id = id.into();
+        let RunTarget::Native(info) = runnable.target() else {
+            return Err(Error::invalid(
+                "execute_with_id starts Rust workflows; run YAML workflows with `execute`",
+            ));
+        };
+        let value = serde_json::to_value(&input)
+            .map_err(|e| Error::invalid(format!("the input could not be serialized: {e}")))?;
+        let _starting = self.shared.starts.lock().await;
+        if let Some(journal) = self.shared.load_journal(&id).await? {
+            if journal.workflow != info.id {
+                return Err(Error::invalid(format!(
+                    "instance `{id}` already exists and belongs to workflow {}, not {}",
+                    journal.workflow, info.id
+                )));
+            }
+            return self.attach(&id, journal).await;
+        }
+        let entry = self.shared.find_workflow(&info.id)?;
+        let journal = Journal::new(info.id.clone(), value.clone());
+        let launched = self.shared.launch(id, entry, value, journal).await?;
+        Ok(self.wrap(launched))
+    }
+
+    /// A handle to an existing instance of `W`, for signalling, querying, cancelling or awaiting it. An instance that
+    /// is not running in this engine but has not ended is resumed from its journal.
+    ///
+    /// # Errors
+    /// If there is no such instance, or it belongs to a different workflow than `W`.
+    pub async fn handle<W: WorkflowDef>(&self, id: &str) -> Result<ExecutionHandle<W::Out>, Error> {
+        let journal = self
+            .shared
+            .load_journal(id)
+            .await?
+            .ok_or_else(|| Error::Engine(format!("no workflow instance `{id}` was found")))?;
+        let wanted = WorkflowId::of::<W>();
+        if journal.workflow != wanted {
+            return Err(Error::invalid(format!(
+                "instance {id} belongs to workflow {}, not {wanted}",
+                journal.workflow
+            )));
+        }
+        self.attach(id, journal).await
+    }
+
+    /// Resumes every instance in the store that was running when its engine stopped. Call it once after building an
+    /// engine over a durable store.
+    ///
+    /// Child workflows are resumed by their parents. Instances of workflows this engine does not register are left as
+    /// they are and reported in [`Recovery::unrecoverable`].
+    ///
+    /// # Errors
+    /// If the store cannot be read.
+    pub async fn recover(&self) -> Result<Recovery, Error> {
+        let mut recovery = Recovery::default();
+        for summary in self.shared.summaries().await? {
+            let journal = summary.journal;
+            if journal.status != JournalStatus::Running
+                || journal.parent.is_some()
+                || self.shared.instance(&summary.id).is_some()
+            {
+                continue;
+            }
+            match self.shared.find_workflow(&journal.workflow) {
+                Ok(entry) => {
+                    let input = journal.input.clone();
+                    self.shared
+                        .launch(summary.id.clone(), entry, input, journal)
+                        .await?;
+                    recovery.resumed.push(summary.id);
+                }
+                Err(_) => recovery.unrecoverable.push(Unrecoverable {
+                    workflow: journal.workflow.to_string(),
+                    reason: format!(
+                        "workflow {} is not registered on this engine",
+                        journal.workflow
+                    ),
+                    id: summary.id,
+                }),
+            }
+        }
+        Ok(recovery)
+    }
+
+    /// The instances in the store that match `filter`, oldest first.
+    ///
+    /// # Errors
+    /// If the store cannot be read.
+    pub async fn list(&self, filter: &ListFilter) -> Result<Vec<InstanceInfo>, Error> {
+        let mut found: Vec<InstanceInfo> = self
+            .shared
+            .summaries()
+            .await?
+            .into_iter()
+            .map(|summary| InstanceInfo {
+                status: summary.journal.status.into(),
+                started_at: summary.journal.created_at,
+                updated_at: summary.journal.updated_at,
+                parent: summary.journal.parent.clone(),
+                workflow: summary.journal.workflow,
+                id: summary.id,
+            })
+            .filter(|info| filter.matches(info))
+            .collect();
+        found.sort_by(|a, b| a.started_at.cmp(&b.started_at).then(a.id.cmp(&b.id)));
+        Ok(found
+            .into_iter()
+            .skip(filter.offset)
+            .take(filter.limit.unwrap_or(usize::MAX))
+            .collect())
+    }
+
+    /// Cancels an instance running in this engine, and its child workflows.
+    pub fn cancel(&self, id: &str) {
+        self.shared.cancel(id);
     }
 
     /// Runs one task through the same retry, timeout and fault handling a workflow step gets.
@@ -386,7 +552,8 @@ impl Engine {
             None,
             true,
         );
-        let spec = core.spec(
+        let timeout = options.timeout;
+        let mut spec = core.spec(
             "call",
             task.task_name().to_string(),
             value,
@@ -396,6 +563,7 @@ impl Engine {
                 options,
             },
         );
+        spec.timeout = timeout;
         let output = core.run_step(spec).await?;
         serde_json::from_value(output).map_err(|e| {
             Error::Faulted(super::error::Fault::validation(format!(
@@ -442,7 +610,7 @@ impl Engine {
     /// If the store cannot be read.
     pub async fn replay_all(&self) -> Result<Vec<Divergence>, Error> {
         let mut divergences = Vec::new();
-        for id in self.shared.indexed().await {
+        for id in self.shared.indexed().await? {
             if let Some(divergence) = replay_instance(&self.shared, &id).await? {
                 divergences.push(divergence);
             }
@@ -450,11 +618,10 @@ impl Engine {
         Ok(divergences)
     }
 
-    fn handle<Out>(&self, launched: Launched) -> ExecutionHandle<Out> {
+    fn wrap<Out>(&self, launched: Launched) -> ExecutionHandle<Out> {
         ExecutionHandle {
             shared: Arc::clone(&self.shared),
             core: launched.core,
-            done: launched.done,
             _out: PhantomData,
         }
     }
@@ -464,7 +631,6 @@ impl Engine {
 pub struct ExecutionHandle<Out> {
     shared: Arc<Shared>,
     core: Arc<InstanceCore>,
-    done: oneshot::Receiver<Result<Value, Error>>,
     _out: PhantomData<fn() -> Out>,
 }
 
@@ -483,6 +649,16 @@ impl<Out> ExecutionHandle<Out> {
         &self.core.id
     }
 
+    /// The same handle with the output as JSON, for keeping handles to different workflows in one collection.
+    #[must_use]
+    pub fn erase(self) -> ExecutionHandle<Value> {
+        ExecutionHandle {
+            shared: self.shared,
+            core: self.core,
+            _out: PhantomData,
+        }
+    }
+
     /// A stream of this run's events from the beginning. Call it as often as you like.
     #[must_use]
     pub fn events(&self) -> EventStream {
@@ -495,6 +671,7 @@ impl<Out> ExecutionHandle<Out> {
     /// Never, currently; reserved for engines that cancel remotely.
     pub async fn cancel(&self) -> Result<(), Error> {
         self.core.request_cancel();
+        self.shared.cancel(&self.core.id);
         Ok(())
     }
 
@@ -525,13 +702,15 @@ impl<Out> ExecutionHandle<Out> {
 
     /// Sends an event that a `ctx.wait_for_event(name)` is waiting for (or will wait for).
     ///
+    /// The event is stored with the instance before this returns, so it is not lost if the process stops before the
+    /// workflow consumes it.
+    ///
     /// # Errors
-    /// If the payload cannot be serialized.
+    /// If the payload cannot be serialized, the instance is not running, or the store cannot be written.
     pub async fn send_event(&self, name: &str, payload: impl Serialize) -> Result<(), Error> {
         let value = serde_json::to_value(payload)
             .map_err(|e| Error::invalid(format!("the event could not be serialized: {e}")))?;
-        self.core.deliver_event(name, value);
-        Ok(())
+        self.core.deliver_event(name, value).await
     }
 }
 
@@ -542,14 +721,137 @@ impl<Out: DeserializeOwned + Send + 'static> IntoFuture for ExecutionHandle<Out>
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
             let _engine = self.shared; // keep the engine alive while someone waits
-            let value = self.done.await.map_err(|_| {
-                Error::Engine("the engine stopped before the workflow finished".to_string())
-            })??;
+            let value = self.core.outcome().await?;
             serde_json::from_value(value).map_err(|e| {
                 Error::Faulted(super::error::Fault::validation(format!(
                     "the workflow's output does not match its type: {e}"
                 )))
             })
         })
+    }
+}
+
+/// What [`Engine::recover`] did.
+#[derive(Debug, Clone, Default)]
+#[non_exhaustive]
+pub struct Recovery {
+    /// Instances that were resumed.
+    pub resumed: Vec<String>,
+    /// Running instances this engine cannot resume, left untouched in the store.
+    pub unrecoverable: Vec<Unrecoverable>,
+}
+
+/// A running instance [`Engine::recover`] could not resume.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct Unrecoverable {
+    /// The instance id.
+    pub id: String,
+    /// The workflow identity recorded for the instance.
+    pub workflow: String,
+    /// Why it was not resumed.
+    pub reason: String,
+}
+
+/// One stored instance, as [`Engine::list`] reports it.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct InstanceInfo {
+    /// The instance id.
+    pub id: String,
+    /// The workflow it runs.
+    pub workflow: WorkflowId,
+    /// Where it is in its life.
+    pub status: Status,
+    /// When it started.
+    pub started_at: Option<DateTime<Utc>>,
+    /// When its journal last changed.
+    pub updated_at: Option<DateTime<Utc>>,
+    /// The instance that runs it as a child workflow.
+    pub parent: Option<String>,
+}
+
+/// Which instances [`Engine::list`] returns. The default lists every top-level instance.
+#[derive(Debug, Clone, Default)]
+pub struct ListFilter {
+    status: Option<Status>,
+    workflow: Option<String>,
+    started_after: Option<DateTime<Utc>>,
+    started_before: Option<DateTime<Utc>>,
+    include_children: bool,
+    offset: usize,
+    limit: Option<usize>,
+}
+
+impl ListFilter {
+    /// Every top-level instance.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Only instances with this status.
+    #[must_use]
+    pub fn status(mut self, status: Status) -> Self {
+        self.status = Some(status);
+        self
+    }
+
+    /// Only instances of this workflow: `"namespace/name"` matches every version, `"namespace/name/version"` one.
+    #[must_use]
+    pub fn workflow(mut self, workflow: impl Into<String>) -> Self {
+        self.workflow = Some(workflow.into());
+        self
+    }
+
+    /// Only instances started after this time.
+    #[must_use]
+    pub fn started_after(mut self, time: DateTime<Utc>) -> Self {
+        self.started_after = Some(time);
+        self
+    }
+
+    /// Only instances started before this time.
+    #[must_use]
+    pub fn started_before(mut self, time: DateTime<Utc>) -> Self {
+        self.started_before = Some(time);
+        self
+    }
+
+    /// Also list child workflow instances.
+    #[must_use]
+    pub fn include_children(mut self, include: bool) -> Self {
+        self.include_children = include;
+        self
+    }
+
+    /// Skips the first `offset` matches (for paging).
+    #[must_use]
+    pub fn offset(mut self, offset: usize) -> Self {
+        self.offset = offset;
+        self
+    }
+
+    /// Returns at most `limit` matches (for paging).
+    #[must_use]
+    pub fn limit(mut self, limit: usize) -> Self {
+        self.limit = Some(limit);
+        self
+    }
+
+    fn matches(&self, info: &InstanceInfo) -> bool {
+        let workflow_matches = self.workflow.as_ref().is_none_or(|wanted| {
+            let name = format!("{}/{}", info.workflow.namespace, info.workflow.name);
+            *wanted == name || *wanted == format!("{name}/{}", info.workflow.version)
+        });
+        (self.include_children || info.parent.is_none())
+            && self.status.is_none_or(|status| status == info.status)
+            && workflow_matches
+            && self
+                .started_after
+                .is_none_or(|after| info.started_at.is_some_and(|at| at > after))
+            && self
+                .started_before
+                .is_none_or(|before| info.started_at.is_some_and(|at| at < before))
     }
 }

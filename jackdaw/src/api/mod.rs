@@ -5,6 +5,7 @@
 #![warn(missing_docs)]
 
 mod catalog;
+mod clock;
 mod context;
 mod duration;
 mod engine;
@@ -16,9 +17,15 @@ mod task;
 mod workflow;
 
 pub use catalog::{CatalogDef, CatalogEntry, CatalogTaskRef, CatalogWorkflowRef, EntryKind};
-pub use context::{Branch, CoreRef, Either, ForEach, Step, WorkflowContext, race};
+#[doc(hidden)]
+pub use clock::after as clock_after;
+pub use clock::{Clock, SystemClock};
+pub use context::{Branch, Condition, CoreRef, Either, ForEach, Step, WorkflowContext, race};
 pub use duration::DurationExt;
-pub use engine::{Engine, EngineBuilder, ExecutionHandle, IntoTaskSet, Status};
+pub use engine::{
+    Engine, EngineBuilder, ExecutionHandle, InstanceInfo, IntoTaskSet, ListFilter, Recovery,
+    Status, Unrecoverable,
+};
 pub use error::{
     Divergence, Error, Fault, StepError, TaskError, WorkflowError, WorkflowResult, error_types,
 };
