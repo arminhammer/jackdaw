@@ -365,3 +365,53 @@ async fn none_after_restart(world: &mut LibWorld) {
     world.pass(Duration::from_secs(3600)).await;
     assert_eq!(json!(fired(world, "pausable").len()), world.notes["before"]);
 }
+
+#[given(regex = r#"^a YAML workflow with "schedule: \{ cron: \\"(.+)\\" \}"$"#)]
+fn yaml_schedule(world: &mut LibWorld, cron: String) {
+    let yaml = format!(
+        r#"
+document: {{ dsl: '1.0.0', namespace: specs, name: nightly, version: '1.0.0' }}
+schedule: {{ cron: '{cron}' }}
+do:
+  - report:
+      set:
+        done: true
+"#
+    );
+    world.notes.insert("yaml".into(), json!(yaml));
+}
+
+#[when("it is registered on the engine")]
+async fn yaml_registered(world: &mut LibWorld) {
+    let workflow = Workflow::<serde_json::Value, serde_json::Value>::from_yaml(
+        world.notes["yaml"].as_str().expect("a workflow"),
+    )
+    .expect("parses");
+    add(
+        world,
+        Schedule::from_workflow(workflow, json!({})).expect("a schedule"),
+    );
+    start_engine(world).await;
+}
+
+#[then("it is started at each tick like a native schedule")]
+async fn yaml_started_each_tick(world: &mut LibWorld) {
+    assert_eq!(world.clock.now(), at("2026-01-01T00:00:00Z"));
+    world.pass(Duration::from_secs(27 * 3600)).await;
+    let engine = world.engine();
+    for tick in ["2026-01-01T02:00:00Z", "2026-01-02T02:00:00Z"] {
+        let id = format!("specs/nightly/1.0.0/{tick}");
+        let history = engine.history(&id).await.expect("the history");
+        assert!(
+            history
+                .iter()
+                .any(|event| matches!(event, Event::WorkflowCompleted { .. })),
+            "the {tick} tick did not run: {history:?}"
+        );
+    }
+    let next = engine
+        .history("specs/nightly/1.0.0/2026-01-03T02:00:00Z")
+        .await
+        .expect("the history");
+    assert!(next.is_empty(), "a tick fired early: {next:?}");
+}

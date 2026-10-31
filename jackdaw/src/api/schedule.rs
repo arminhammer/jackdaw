@@ -290,6 +290,72 @@ impl Schedule {
         }
     }
 
+    /// The schedule a YAML workflow declares in its `schedule` block: `cron` or `every`. The schedule is named after
+    /// the workflow (`namespace/name/version`), so its instances are `namespace/name/version/<fire time>`.
+    ///
+    /// ```
+    /// use jackdaw::api::Schedule;
+    /// use jackdaw::prelude::*;
+    ///
+    /// let workflow = Workflow::<serde_json::Value, serde_json::Value>::from_yaml(
+    ///     r#"
+    /// document: { dsl: '1.0.0', namespace: ops, name: nightly, version: '1.0.0' }
+    /// schedule: { cron: '0 2 * * *' }
+    /// do:
+    ///   - report:
+    ///       set:
+    ///         done: true
+    /// "#,
+    /// )?;
+    /// let engine = Engine::builder()
+    ///     .schedule(Schedule::from_workflow(workflow, serde_json::json!({}))?)
+    ///     .build()?;
+    /// # let _ = engine;
+    /// # Ok::<(), Error>(())
+    /// ```
+    ///
+    /// # Errors
+    /// `Error::Invalid` if the workflow has no schedule, its cron expression does not parse, or it uses `after` or
+    /// `on`, which the engine does not schedule.
+    #[cfg(feature = "yaml")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "yaml")))]
+    pub fn from_workflow<I, O>(
+        workflow: super::workflow::Workflow<I, O>,
+        input: I,
+    ) -> Result<Self, Error>
+    where
+        I: Serialize + Clone + Send + Sync + 'static,
+        O: serde::de::DeserializeOwned + Send + 'static,
+    {
+        let definition = workflow.definition();
+        let name = crate::durableengine::workflow_key(definition);
+        let Some(schedule) = &definition.schedule else {
+            return Err(Error::invalid(format!(
+                "YAML workflow {name} has no `schedule`"
+            )));
+        };
+        if schedule.after.is_some() || schedule.on.is_some() {
+            return Err(Error::invalid(format!(
+                "YAML workflow {name} is scheduled with `after` or `on`; the engine schedules `cron` and `every`"
+            )));
+        }
+        let when = match (&schedule.cron, &schedule.every) {
+            (Some(cron), None) => When::Cron(Cron::parse(cron)?),
+            (None, Some(every)) => When::Every(Duration::from_millis(every.total_milliseconds())),
+            (Some(_), Some(_)) => {
+                return Err(Error::invalid(format!(
+                    "YAML workflow {name} sets both `cron` and `every` in its schedule"
+                )));
+            }
+            (None, None) => {
+                return Err(Error::invalid(format!(
+                    "YAML workflow {name} has a `schedule` with neither `cron` nor `every`"
+                )));
+            }
+        };
+        Ok(Self::new(name, when, workflow, input))
+    }
+
     /// What to do with fire times that passed while no engine ran.
     #[must_use]
     pub fn catch_up(mut self, policy: CatchUp) -> Self {

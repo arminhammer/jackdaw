@@ -419,6 +419,8 @@ impl EngineBuilder {
             .cache
             .unwrap_or_else(|| Arc::new(InMemoryCache::new()) as Arc<dyn CacheProvider>);
 
+        let clock = self.clock.unwrap_or_else(|| Arc::new(SystemClock));
+
         // YAML workflows run on the YAML interpreter, which calls native tasks and custom executors by name.
         #[cfg(feature = "yaml")]
         let yaml = {
@@ -449,6 +451,7 @@ impl EngineBuilder {
             }
             legacy.add_executors(natives);
             legacy.add_workflows(self.yaml_workflows);
+            legacy.set_clock(Arc::clone(&clock));
             YamlRuntime {
                 catalogs: self.catalogs,
                 legacy,
@@ -463,7 +466,7 @@ impl EngineBuilder {
             registry,
             yaml,
             self.self_replay,
-            self.clock.unwrap_or_else(|| Arc::new(SystemClock)),
+            clock,
             self.codec,
         );
         shared.retention = self.retention;
@@ -663,9 +666,19 @@ impl Engine {
         let info = match runnable.target() {
             RunTarget::Native(info) => info,
             #[cfg(feature = "yaml")]
-            RunTarget::Definition(_) | RunTarget::Catalog { .. } => {
+            RunTarget::Definition(definition) => {
+                // Serialized before awaiting, so the future does not hold the input (which need not be `Sync`).
+                let value = serde_json::to_value(&input).map_err(|e| {
+                    Error::invalid(format!("the input could not be serialized: {e}"))
+                })?;
+                return self
+                    .execute_definition_with(&definition, value, options)
+                    .await;
+            }
+            #[cfg(feature = "yaml")]
+            RunTarget::Catalog { .. } => {
                 return Err(Error::invalid(
-                    "execute_with starts Rust workflows; run YAML workflows with `execute`",
+                    "execute_with starts Rust and YAML workflows; run catalog workflows with `execute`",
                 ));
             }
         };
@@ -784,7 +797,101 @@ impl Engine {
                 }),
             }
         }
+        #[cfg(feature = "yaml")]
+        self.recover_yaml(&mut recovery).await?;
         Ok(recovery)
+    }
+
+    /// `execute_with` for a YAML workflow: an id of the caller's choosing. A YAML workflow sets its own deadline (its
+    /// `timeout`), so a `timeout` option is rejected.
+    #[cfg(feature = "yaml")]
+    async fn execute_definition_with<O: DeserializeOwned + Send + 'static>(
+        &self,
+        definition: &crate::dsl::workflow::WorkflowDefinition,
+        value: Value,
+        options: ExecuteOptions,
+    ) -> Result<ExecutionHandle<O>, Error> {
+        if options.timeout.is_some() {
+            return Err(Error::invalid(
+                "a YAML workflow's deadline is its `timeout`; `ExecuteOptions::timeout` applies to Rust workflows",
+            ));
+        }
+        self.shared.check_accepting()?;
+        let _starting = self.shared.starts.lock().await;
+        if let Some(id) = &options.id {
+            if let Some(core) = self.shared.instance(id)
+                && !options.create_only
+            {
+                return Ok(self.wrap(Launched { core }));
+            }
+            if self.shared.persistence.get_checkpoint(id).await?.is_some() {
+                return Err(Error::invalid(format!("instance `{id}` already exists")));
+            }
+        }
+        let launched = self
+            .shared
+            .launch_definition_as(definition, value, options.id)
+            .await?;
+        Ok(self.wrap(launched))
+    }
+
+    /// Resumes the YAML instances that were running. The YAML engine keeps its own record (events and a checkpoint),
+    /// which names the workflow; its definition has to be registered with [`EngineBuilder::yaml_workflow`].
+    #[cfg(feature = "yaml")]
+    async fn recover_yaml(&self, recovery: &mut Recovery) -> Result<(), Error> {
+        use crate::workflow::WorkflowEvent;
+        let native: std::collections::HashSet<String> = self
+            .shared
+            .summaries()
+            .await?
+            .into_iter()
+            .map(|summary| summary.id)
+            .collect();
+        for id in self.shared.indexed().await? {
+            if native.contains(&id) || self.shared.instance(&id).is_some() {
+                continue;
+            }
+            let events = self.shared.persistence.get_events(&id).await?;
+            let Some((key, input)) = events.iter().find_map(|event| {
+                if let WorkflowEvent::WorkflowStarted {
+                    workflow_id,
+                    initial_data,
+                    ..
+                } = event
+                {
+                    Some((workflow_id.clone(), initial_data.clone()))
+                } else {
+                    None
+                }
+            }) else {
+                continue;
+            };
+            let ended = events.iter().any(|event| {
+                matches!(
+                    event,
+                    WorkflowEvent::WorkflowCompleted { .. }
+                        | WorkflowEvent::WorkflowFailed { .. }
+                        | WorkflowEvent::WorkflowCancelled { .. }
+                )
+            });
+            if ended {
+                continue;
+            }
+            match self.shared.yaml.legacy.registered(&key).await {
+                Some(definition) => {
+                    self.shared.resume_definition(&definition, id.clone(), input).await?;
+                    recovery.resumed.push(id);
+                }
+                None => recovery.unrecoverable.push(Unrecoverable {
+                    reason: format!(
+                        "YAML workflow {key} is not registered on this engine (EngineBuilder::yaml_workflow)"
+                    ),
+                    workflow: key,
+                    id,
+                }),
+            }
+        }
+        Ok(())
     }
 
     /// The instances in the store that match `filter`, oldest first.

@@ -162,6 +162,8 @@ pub struct DurableEngine {
     workflow_registry: Arc<RwLock<HashMap<String, WorkflowDefinition>>>,
     /// Event buffer size for streaming execution
     event_buffer_size: usize,
+    /// The engine's clock: task start times, and when `wait` tasks end.
+    clock: Arc<dyn crate::api::Clock>,
 }
 
 impl std::fmt::Debug for DurableEngine {
@@ -221,7 +223,18 @@ impl DurableEngine {
             http_listeners: Arc::new(RwLock::new(HashMap::new())),
             workflow_registry: Arc::new(RwLock::new(HashMap::new())),
             event_buffer_size,
+            clock: Arc::new(crate::api::SystemClock),
         })
+    }
+
+    /// Uses the engine's clock (a test clock, for example) instead of the system clock.
+    pub(crate) fn set_clock(&mut self, clock: Arc<dyn crate::api::Clock>) {
+        self.clock = clock;
+    }
+
+    /// The YAML workflow registered under `namespace/name/version`.
+    pub(crate) async fn registered(&self, key: &str) -> Option<WorkflowDefinition> {
+        self.workflow_registry.read().await.get(key).cloned()
     }
 
     /// Adds executors (the engine's native tasks, for YAML workflows that `call:` them by name).
@@ -402,17 +415,48 @@ impl DurableEngine {
         workflow: WorkflowDefinition,
         input: serde_json::Value,
     ) -> Result<ExecutionHandle> {
+        self.start(workflow, input, None, false).await
+    }
+
+    /// Starts a new instance under `instance_id` (a schedule's deterministic id, for example).
+    pub(crate) async fn execute_with_id(
+        &self,
+        workflow: WorkflowDefinition,
+        input: serde_json::Value,
+        instance_id: String,
+    ) -> Result<ExecutionHandle> {
+        self.start(workflow, input, Some(instance_id), false).await
+    }
+
+    /// Continues an instance that was interrupted, from its checkpoint: tasks that completed are not run again.
+    pub(crate) async fn resume_instance(
+        &self,
+        workflow: WorkflowDefinition,
+        instance_id: String,
+    ) -> Result<ExecutionHandle> {
+        self.start(workflow, serde_json::json!({}), Some(instance_id), true)
+            .await
+    }
+
+    async fn start(
+        &self,
+        workflow: WorkflowDefinition,
+        input: serde_json::Value,
+        instance_id: Option<String>,
+        resuming: bool,
+    ) -> Result<ExecutionHandle> {
         // Create channels for event streaming and cancellation
         let (event_tx, event_rx) = tokio::sync::mpsc::channel(self.event_buffer_size);
         let (cancel_tx, _cancel_rx) = tokio::sync::mpsc::channel::<()>(1);
 
-        let instance_id = uuid::Uuid::new_v4().to_string();
+        let instance_id = instance_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
         // Clone what we need for the background task
         let executors = self.executors.clone();
         let persistence = self.persistence.clone();
         let cache = self.cache.clone();
         let workflow_registry = self.workflow_registry.clone();
+        let clock = Arc::clone(&self.clock);
         #[cfg(feature = "grpc-listener")]
         let grpc_listeners = self.grpc_listeners.clone();
         #[cfg(feature = "http-listener")]
@@ -421,21 +465,21 @@ impl DurableEngine {
         let instance_id_clone = instance_id.clone();
 
         // Spawn workflow execution in background
-        tokio::spawn(async move {
-            // Emit WorkflowStarted event
-            let _ = event_tx
-                .send(WorkflowEvent::WorkflowStarted {
+        let run = tokio::spawn(async move {
+            let opening = if resuming {
+                WorkflowEvent::WorkflowResumed {
                     instance_id: instance_id_clone.clone(),
-                    workflow_id: format!(
-                        "{}/{}/{}",
-                        workflow.document.namespace,
-                        workflow.document.name,
-                        workflow.document.version
-                    ),
-                    timestamp: Utc::now(),
+                    timestamp: clock.now(),
+                }
+            } else {
+                WorkflowEvent::WorkflowStarted {
+                    instance_id: instance_id_clone.clone(),
+                    workflow_id: workflow_key(&workflow),
+                    timestamp: clock.now(),
                     initial_data: input.clone(),
-                })
-                .await;
+                }
+            };
+            let _ = event_tx.send(opening).await;
 
             // Create a temporary engine for this execution
             // This is needed because we can't move self into the spawned task
@@ -443,6 +487,7 @@ impl DurableEngine {
                 Ok(mut engine) => {
                     engine.executors = executors;
                     engine.workflow_registry = workflow_registry;
+                    engine.clock = clock;
                     #[cfg(feature = "grpc-listener")]
                     {
                         engine.grpc_listeners = grpc_listeners;
@@ -508,13 +553,14 @@ impl DurableEngine {
                         #[cfg(feature = "grpc-listener")]
                         Error::Protobuf { .. } | Error::ProtobufDescriptor { .. } => e.to_string(),
                     };
-                    let _ = event_tx
-                        .send(WorkflowEvent::WorkflowFailed {
-                            instance_id: instance_id_clone,
-                            error: error_msg,
-                            timestamp: Utc::now(),
-                        })
-                        .await;
+                    let failed = WorkflowEvent::WorkflowFailed {
+                        instance_id: instance_id_clone,
+                        error: error_msg,
+                        timestamp: Utc::now(),
+                    };
+                    // Stored, so recovery knows the instance ended and does not resume it.
+                    let _ = temp_engine.persistence.save_event(failed.clone()).await;
+                    let _ = event_tx.send(failed).await;
                 }
             }
 
@@ -522,7 +568,7 @@ impl DurableEngine {
             // TODO: Emit correlation events for perpetual workflows
         });
 
-        Ok(ExecutionHandle::new(instance_id, event_rx, cancel_tx))
+        Ok(ExecutionHandle::new(instance_id, event_rx, cancel_tx).owning(run.abort_handle()))
     }
 
     pub(crate) async fn run_instance(
@@ -784,4 +830,12 @@ impl DurableEngine {
 
         Ok(final_data)
     }
+}
+
+/// The key YAML workflows are registered under, and stored `WorkflowStarted` events name: `namespace/name/version`.
+pub(crate) fn workflow_key(workflow: &WorkflowDefinition) -> String {
+    format!(
+        "{}/{}/{}",
+        workflow.document.namespace, workflow.document.name, workflow.document.version
+    )
 }

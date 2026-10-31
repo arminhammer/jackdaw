@@ -164,6 +164,12 @@ impl Listener for GrpcListener {
             *tx_lock = Some(shutdown_tx);
         }
 
+        // Bound before the listener counts as started, so a port that cannot be had fails the workflow.
+        let addr: std::net::SocketAddr = bind_addr.parse().map_err(|e| super::Error::Listener {
+            message: format!("Invalid bind address {bind_addr}: {e}"),
+        })?;
+        let tcp_listener = super::bind(addr).await?;
+
         // Spawn gRPC server in background
         tokio::spawn(async move {
             println!("  Spawning gRPC server task for {bind_addr}");
@@ -172,15 +178,6 @@ impl Listener for GrpcListener {
             let service = MultiMethodGrpcService {
                 method_handlers,
                 service_descriptor,
-            };
-
-            // Parse bind address
-            let addr: std::net::SocketAddr = match bind_addr.parse() {
-                Ok(a) => a,
-                Err(e) => {
-                    eprintln!("  Failed to parse bind address {bind_addr}: {e}");
-                    return;
-                }
             };
 
             println!("  gRPC server about to listen on {addr}");
@@ -220,15 +217,6 @@ impl Listener for GrpcListener {
             // Use hyper_util's TokioIo and serve connection directly
             use hyper_util::rt::TokioIo;
             use hyper_util::server::conn::auto;
-
-            let tcp_listener = match tokio::net::TcpListener::bind(addr).await {
-                Ok(listener) => listener,
-                Err(e) => {
-                    eprintln!("  Failed to bind to {addr}: {e}");
-                    tracing::error!("Failed to bind to {addr}: {e}");
-                    return;
-                }
-            };
 
             println!("  gRPC server listening on {addr}");
 

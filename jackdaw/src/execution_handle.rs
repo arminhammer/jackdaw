@@ -99,6 +99,18 @@ pub struct ExecutionHandle {
     event_receiver: mpsc::Receiver<WorkflowEvent>,
     #[allow(dead_code)]
     cancel_sender: mpsc::Sender<()>,
+    /// Stops the run when the handle is dropped: the engine that owns the handle is gone, as in a crash, and a new
+    /// engine resumes the instance from its checkpoint.
+    _run: Option<AbortOnDrop>,
+}
+
+/// Aborts a task when dropped.
+struct AbortOnDrop(tokio::task::AbortHandle);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
 }
 
 impl ExecutionHandle {
@@ -115,7 +127,14 @@ impl ExecutionHandle {
             instance_id,
             event_receiver,
             cancel_sender,
+            _run: None,
         }
+    }
+
+    /// Ties the run to this handle: dropping the handle stops it.
+    pub(crate) fn owning(mut self, run: tokio::task::AbortHandle) -> Self {
+        self._run = Some(AbortOnDrop(run));
+        self
     }
 
     /// Get the instance ID of the executing workflow

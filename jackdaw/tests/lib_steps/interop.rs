@@ -846,3 +846,118 @@ async fn native_api_works(world: &mut LibWorld) {
     let (ok, stderr) = downstream_cargo(world, &["run", "-q", "--bin", "native"]).await;
     assert!(ok, "{stderr}");
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// YAML workflows across a restart
+// ---------------------------------------------------------------------------------------------------------------
+
+const WAIT_BETWEEN_SETS: &str = r#"
+document:
+  dsl: '1.0.0'
+  namespace: specs
+  name: wait-between-sets
+  version: '1.0.0'
+do:
+  - first:
+      set:
+        stage: one
+  - pause:
+      wait:
+        hours: 1
+  - second:
+      set:
+        stage: two
+"#;
+
+/// The stored history of the YAML run, from the scenario's current engine.
+async fn yaml_history(world: &mut LibWorld) -> Vec<Event> {
+    let id = world.notes["yaml-id"]
+        .as_str()
+        .expect("an instance")
+        .to_string();
+    world.engine().history(&id).await.expect("the history")
+}
+
+fn started(history: &[Event], task: &str) -> usize {
+    history
+        .iter()
+        .filter(|event| matches!(event, Event::TaskStarted { task_name, .. } if task_name == task))
+        .count()
+}
+
+#[given(regex = r#"^a YAML workflow with a "wait" of 1 hour between two "set" tasks$"#)]
+fn wait_between_sets(world: &mut LibWorld) {
+    let workflow = Workflow::<Value, Value>::from_yaml(WAIT_BETWEEN_SETS).expect("parses");
+    // Registered on every engine of the scenario, so a new engine can resume it.
+    world
+        .extras
+        .push(Arc::new(move |builder| builder.yaml_workflow(&workflow)));
+    world.notes.insert("yaml".into(), json!(WAIT_BETWEEN_SETS));
+}
+
+#[when("I execute it and drop the engine during the wait")]
+async fn execute_and_drop(world: &mut LibWorld) {
+    let workflow =
+        Workflow::<Value, Value>::from_yaml(world.notes["yaml"].as_str().expect("a workflow"))
+            .expect("parses");
+    let id = {
+        let handle = world
+            .engine()
+            .execute(&workflow, json!({}))
+            .await
+            .expect("starts");
+        handle.id().to_string()
+    };
+    world.notes.insert("yaml-id".into(), json!(id));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while started(&yaml_history(world).await, "pause") == 0 {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the wait never started"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    // Most of the hour passes before the crash; a resumed wait only has the rest left.
+    world.clock.advance(std::time::Duration::from_secs(59 * 60));
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    world.crash().await;
+}
+
+#[when(regex = r#"^a new engine calls "Engine::recover\(\)"$"#)]
+async fn new_engine_recovers(world: &mut LibWorld) {
+    world.recover().await;
+}
+
+#[then("the YAML instance completes")]
+async fn yaml_instance_completes(world: &mut LibWorld) {
+    let id = world.notes["yaml-id"]
+        .as_str()
+        .expect("an instance")
+        .to_string();
+    let recovery = world.recovery.clone().expect("recovered");
+    assert!(recovery.resumed.contains(&id), "{recovery:?}");
+    // The minute that was left, and no more.
+    world.clock.advance(std::time::Duration::from_secs(61));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        let history = yaml_history(world).await;
+        if history
+            .iter()
+            .any(|event| matches!(event, Event::WorkflowCompleted { .. }))
+        {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the resumed instance did not complete within the minute left of its wait: {history:?}"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+}
+
+#[then(regex = r#"^the first "set" task is not re-executed$"#)]
+async fn first_set_once(world: &mut LibWorld) {
+    let history = yaml_history(world).await;
+    assert_eq!(started(&history, "first"), 1, "{history:?}");
+    assert_eq!(started(&history, "second"), 1, "{history:?}");
+}

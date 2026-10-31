@@ -1322,13 +1322,66 @@ impl Shared {
         definition: &WorkflowDefinition,
         input: Value,
     ) -> Result<Launched, Error> {
+        self.launch_definition_as(definition, input, None).await
+    }
+
+    /// [`launch_definition`](Self::launch_definition) under an instance id of the caller's choosing.
+    #[cfg(feature = "yaml")]
+    pub(crate) async fn launch_definition_as(
+        self: &Arc<Self>,
+        definition: &WorkflowDefinition,
+        input: Value,
+        id: Option<String>,
+    ) -> Result<Launched, Error> {
         self.validate_definition(definition)?;
-        let mut legacy = self
+        let legacy = match id {
+            Some(id) => {
+                self.yaml
+                    .legacy
+                    .execute_with_id(definition.clone(), input.clone(), id)
+                    .await
+            }
+            None => {
+                self.yaml
+                    .legacy
+                    .execute(definition.clone(), input.clone())
+                    .await
+            }
+        }
+        .map_err(|e| Error::Engine(e.to_string()))?;
+        if self.persistence.list_instances().await?.is_none() {
+            // Stores that cannot list instances find them through the index; recovery looks there.
+            self.add_to_index(legacy.instance_id()).await?;
+        }
+        Ok(self.mirror_definition(definition, input, legacy))
+    }
+
+    /// Continues a YAML instance that was interrupted (see [`launch_definition`](Self::launch_definition)): the YAML
+    /// engine resumes it from its checkpoint, and tasks that completed are not run again.
+    #[cfg(feature = "yaml")]
+    pub(crate) async fn resume_definition(
+        self: &Arc<Self>,
+        definition: &WorkflowDefinition,
+        id: String,
+        input: Value,
+    ) -> Result<Launched, Error> {
+        let legacy = self
             .yaml
             .legacy
-            .execute(definition.clone(), input.clone())
+            .resume_instance(definition.clone(), id)
             .await
             .map_err(|e| Error::Engine(e.to_string()))?;
+        Ok(self.mirror_definition(definition, input, legacy))
+    }
+
+    /// Mirrors a YAML engine run's events and result into one instance of this engine.
+    #[cfg(feature = "yaml")]
+    fn mirror_definition(
+        self: &Arc<Self>,
+        definition: &WorkflowDefinition,
+        input: Value,
+        mut legacy: crate::execution_handle::ExecutionHandle,
+    ) -> Launched {
         let id = legacy.instance_id().to_string();
         let workflow = WorkflowId {
             namespace: definition.document.namespace.clone(),
@@ -1380,7 +1433,7 @@ impl Shared {
             }
         });
         self.remember(&core, handle);
-        Ok(Launched { core })
+        Launched { core }
     }
 
     /// Starts a native child workflow, resuming it if an earlier attempt left a journal. Returns the running child,

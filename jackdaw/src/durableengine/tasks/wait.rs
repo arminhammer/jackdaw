@@ -103,10 +103,10 @@ fn parse_iso8601_duration(iso_str: &str) -> Result<StdDuration> {
 ///
 /// Waits for the specified duration before continuing workflow execution
 pub async fn exec_wait_task(
-    _engine: &DurableEngine,
-    _task_name: &str,
+    engine: &DurableEngine,
+    task_name: &str,
     wait_task: &WaitTaskDefinition,
-    _ctx: &Context,
+    ctx: &Context,
 ) -> Result<serde_json::Value> {
     // Parse the duration
     let duration = match &wait_task.wait {
@@ -121,8 +121,16 @@ pub async fn exec_wait_task(
         }
     };
 
-    // Wait for the specified duration
-    tokio::time::sleep(duration).await;
+    // The wait ends `duration` after the task first started, so a resumed instance only waits for what is left.
+    let started = ctx
+        .services
+        .history
+        .started_at(task_name)
+        .unwrap_or_else(|| engine.clock.now());
+    engine
+        .clock
+        .sleep_until(crate::api::plumbing::clock_after(started, duration))
+        .await;
 
     // Return empty result (wait tasks don't produce output)
     Ok(serde_json::json!({}))

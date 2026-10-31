@@ -127,9 +127,19 @@ impl Context {
             persistence
                 .save_event(WorkflowEvent::WorkflowStarted {
                     instance_id: instance_id.clone(),
-                    workflow_id: workflow.document.name.clone(),
+                    workflow_id: crate::durableengine::workflow_key(workflow),
                     timestamp: Utc::now(),
                     initial_data: initial_data.clone(),
+                })
+                .await
+                .context(PersistenceSnafu)?;
+            // A checkpoint from the start, so the instance is listed (and can be resumed) before its first task ends.
+            persistence
+                .save_checkpoint(WorkflowCheckpoint {
+                    instance_id: instance_id.clone(),
+                    current_task: first_task_name.clone(),
+                    data: initial_data.clone(),
+                    timestamp: Utc::now(),
                 })
                 .await
                 .context(PersistenceSnafu)?;

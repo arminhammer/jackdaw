@@ -475,6 +475,21 @@ where
     }
 }
 
+/// An owned YAML workflow runs like a borrowed one; schedules keep theirs.
+#[cfg(feature = "yaml")]
+impl<I, O> Runnable for Workflow<I, O>
+where
+    I: Serialize + Send + 'static,
+    O: DeserializeOwned + Send + 'static,
+{
+    type In = I;
+    type Out = O;
+
+    fn target(self) -> RunTarget {
+        RunTarget::Definition(self.definition)
+    }
+}
+
 #[cfg(feature = "yaml")]
 impl<I, O> Runnable for CatalogWorkflowRef<I, O>
 where

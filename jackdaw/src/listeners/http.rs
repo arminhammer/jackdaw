@@ -219,16 +219,11 @@ impl Listener for HttpListener {
             message: format!("Invalid bind address {bind_addr}: {e}"),
         })?;
 
+        // Bound before the listener counts as started, so a port that cannot be had fails the workflow.
+        let listener = super::bind(addr).await?;
+
         // Spawn server in background
         let server_handle = tokio::spawn(async move {
-            let listener = match tokio::net::TcpListener::bind(addr).await {
-                Ok(l) => l,
-                Err(e) => {
-                    tracing::error!("Failed to bind to {}: {}", addr, e);
-                    return;
-                }
-            };
-
             tracing::info!("HTTP server listening on {}", addr);
 
             // Convert the stateless router into a make_service

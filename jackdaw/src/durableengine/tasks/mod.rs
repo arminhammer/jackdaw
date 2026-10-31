@@ -81,8 +81,8 @@ impl DurableEngine {
             })
             .await?;
 
-        // Record task start time for duration calculation
-        let task_start_time = chrono::Utc::now();
+        // Record task start time for duration calculation (on the engine's clock: `wait` measures from it)
+        let task_start_time = self.clock.now();
 
         // Emit task.started.v1 event
         ctx.services

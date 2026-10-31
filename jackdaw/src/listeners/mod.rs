@@ -70,6 +70,27 @@ impl From<prost_reflect::DescriptorError> for Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// Binds `addr` for a listener. A listener whose engine just stopped releases its port as it shuts down, so a port in
+/// use is retried for a moment before giving up.
+#[cfg(any(feature = "http-listener", feature = "grpc-listener"))]
+pub(crate) async fn bind(addr: std::net::SocketAddr) -> Result<tokio::net::TcpListener> {
+    let mut attempts = 0;
+    loop {
+        match tokio::net::TcpListener::bind(addr).await {
+            Ok(listener) => return Ok(listener),
+            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse && attempts < 50 => {
+                attempts += 1;
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+            Err(e) => {
+                return Err(Error::Listener {
+                    message: format!("cannot listen on {addr}: {e}"),
+                });
+            }
+        }
+    }
+}
+
 /// Listener trait for handling incoming events from various sources
 #[async_trait]
 pub trait Listener: Send + Sync {

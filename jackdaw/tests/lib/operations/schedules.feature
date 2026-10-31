@@ -52,7 +52,7 @@ Feature: Scheduled workflows
     When it fires for "2026-01-01T02:00:00Z" on two engines that share a store
     Then one instance "nightly-report/2026-01-01T02:00:00Z" exists
 
-  @todo @yaml
+  @implemented @yaml
   Scenario: YAML workflows with a schedule are scheduled by the engine
     Given a YAML workflow with "schedule: { cron: \"0 2 * * *\" }"
     When it is registered on the engine

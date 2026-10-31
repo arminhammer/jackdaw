@@ -32,7 +32,7 @@ Feature: Rust and YAML workflows on one engine
     When I execute one YAML and one Rust workflow
     Then "Engine::history" returns events for both instances
 
-  @todo
+  @implemented
   Scenario: YAML workflows are durable on the new engine
     Given a YAML workflow with a "wait" of 1 hour between two "set" tasks
     When I execute it and drop the engine during the wait
