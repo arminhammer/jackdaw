@@ -154,6 +154,11 @@ mod task_ext;
 mod task_output;
 
 /// What the macros' generated code refers to. Not part of the API: it changes without notice.
+// Compiles the README's examples as doctests, so it cannot drift from the API.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;
+
 // The vendored DSL refers to its own modules as `crate::models::...`.
 use dsl as models;
 

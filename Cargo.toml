@@ -6,6 +6,21 @@ members = [
     "jackdaw-macros"
 ]
 
+# Shared by all crates. Publish them together: jackdaw's macros expand to paths in jackdaw, so the two are pinned to
+# each other with `=` and must have the same version.
+[workspace.package]
+version = "0.1.1"
+edition = "2024"
+# The oldest toolchain that builds the workspace and its dependencies (ordered-float needs 1.90).
+rust-version = "1.90"
+authors = ["Armin Graf"]
+license = "Apache-2.0"
+repository = "https://github.com/arminhammer/jackdaw"
+
+[workspace.dependencies]
+jackdaw = { path = "jackdaw", version = "=0.1.1" }
+jackdaw-macros = { path = "jackdaw-macros", version = "=0.1.1" }
+
 [workspace.lints.clippy]
 indexing_slicing = "deny"
 fallible_impl_from = "deny"

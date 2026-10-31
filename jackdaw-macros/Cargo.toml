@@ -1,12 +1,16 @@
 [package]
 name = "jackdaw-macros"
-version = "0.1.1"
-edition = "2024"
-authors = ["Armin Graf"]
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
 description = "Procedural macros for the jackdaw durable workflow engine (#[task], #[workflow], #[catalog])"
-repository = "https://github.com/arminhammer/jackdaw"
-license = "Apache-2.0"
 keywords = ["serverless", "workflow", "macros", "durable"]
+include = ["/src/**/*", "/README.md"]
+readme = "README.md"
+documentation = "https://docs.rs/jackdaw-macros"
 categories = ["development-tools", "asynchronous"]
 
 [lib]

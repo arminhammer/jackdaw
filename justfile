@@ -307,9 +307,14 @@ docker-build-all: docker-build-linux build-macos-universal
 # ============================================================================
 
 # Publish the jackdaw library crate to crates.io
+# Package and verify the published crates without uploading
+publish-dry-run:
+    cargo publish --dry-run --locked -p jackdaw-macros -p jackdaw
+
+# Publish jackdaw-macros, then jackdaw (cargo orders them), to crates.io. Irreversible: run publish-dry-run first
 publish-crate:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "Publishing the jackdaw library crate to crates.io..."
-    cargo publish -p jackdaw
+    echo "Publishing jackdaw-macros and jackdaw to crates.io..."
+    cargo publish --locked -p jackdaw-macros -p jackdaw
     echo "✓ Published to crates.io"

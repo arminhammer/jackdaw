@@ -34,6 +34,42 @@ jobs:
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
+  msrv:
+    name: Minimum Supported Rust Version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Keep in sync with `rust-version` in the root Cargo.toml.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.90
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: msrv
+
+      # `+1.90` because rust-toolchain.toml would otherwise select the pinned development toolchain.
+      - name: Check the workspace on the MSRV
+        run: cargo +1.90 check --workspace --all-features --locked
+
+  package:
+    name: Package (publish dry run)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.99.0
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Package and verify the published crates
+        run: cargo publish --dry-run --locked -p jackdaw-macros -p jackdaw
+
   build-docker-for-tests:
     name: Build Docker Image for Tests
     runs-on: ubuntu-latest

@@ -1,11 +1,12 @@
 [package]
 name = "jackdaw-cli"
-version = "0.1.1"
-edition = "2024"
-authors = ["Armin Graf"]
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
 description = "Command-line interface for the jackdaw durable workflow engine"
-repository = "https://github.com/arminhammer/jackdaw"
-license = "Apache-2.0"
 keywords = ["serverless", "workflow", "cli", "durable", "orchestration"]
 categories = ["command-line-utilities", "development-tools"]
 publish = false
@@ -15,7 +16,7 @@ name = "jackdaw"
 path = "src/main.rs"
 
 [dependencies]
-jackdaw = { path = "../jackdaw", version = "0.1.1" }
+jackdaw = { workspace = true }
 clap = { version = "4", features = ["derive", "env"] }
 config = "0.15.15"
 console = "0.15"
