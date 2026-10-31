@@ -100,9 +100,10 @@ The [`examples`](https://github.com/arminhammer/jackdaw/tree/main/jackdaw/exampl
 
 ## Command line
 
-The `jackdaw-cli` crate builds a `jackdaw` binary that runs, validates and visualizes YAML workflows:
+The `jackdaw-cli` crate installs a `jackdaw` binary that runs, validates and visualizes YAML workflows:
 
 ```sh
+cargo install jackdaw-cli --locked
 jackdaw run workflow.yaml
 jackdaw validate workflow.yaml
 ```

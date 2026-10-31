@@ -1,6 +1,6 @@
 # jackdaw
 
-`jackdaw` is a workflow execution engine for the [Open Workflow Specification]() specification. It supports durable execution of workflows through a persistence layer, as well as caching execution to prevent duplicate execution of expensive workflow tasks. `jackdaw` is written in Rust, and is designed for extensibility, performance, and ease of deployment into many execution contexts. 
+`jackdaw` is a workflow execution engine for the [Serverless Workflow](https://serverlessworkflow.io/) specification. It supports durable execution of workflows through a persistence layer, as well as caching execution to prevent duplicate execution of expensive workflow tasks. `jackdaw` is written in Rust, and is designed for extensibility, performance, and ease of deployment into many execution contexts. 
 
 `jackdaw` is distributed as a static binary, as well as a Docker container image. It is cross-compiled for Linux AMD64 & ARM64, as well as a MacOS Universal Binary. It does not have a server component that needs to be installed, and is a self-contained CLI tool. This should make it easy to run as a standalone workflow executor, as well as embedded as part of a larger program.
 
@@ -45,6 +45,16 @@ jackdaw run hello-world.sw.yaml --debug
 
 
 ## Installation
+
+### From crates.io
+
+```bash
+cargo install jackdaw-cli --locked
+```
+
+This builds from source (Rust 1.90 or newer) and installs a `jackdaw` binary into `~/.cargo/bin`. With
+[cargo-binstall](https://github.com/cargo-bins/cargo-binstall), `cargo binstall jackdaw-cli` downloads the prebuilt
+binary from the GitHub release instead.
 
 ### Docker image
 

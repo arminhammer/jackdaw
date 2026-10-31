@@ -9,7 +9,8 @@ repository.workspace = true
 description = "Command-line interface for the jackdaw durable workflow engine"
 keywords = ["serverless", "workflow", "cli", "durable", "orchestration"]
 categories = ["command-line-utilities", "development-tools"]
-publish = false
+readme = "README.md"
+include = ["/src/**/*", "/README.md"]
 
 [[bin]]
 name = "jackdaw"
@@ -33,3 +34,27 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [lints]
 workspace = true
+
+# `cargo binstall jackdaw-cli` downloads the binary from the GitHub release (tag `v<version>`) instead of compiling.
+# The asset names match the "Prepare release assets" step in .github/workflows/release-on-merge.yml.
+[package.metadata.binstall]
+pkg-fmt = "tgz"
+bin-dir = "{ bin }{ binary-ext }"
+
+[package.metadata.binstall.overrides.x86_64-unknown-linux-gnu]
+pkg-url = "{ repo }/releases/download/v{ version }/jackdaw-{ version }-linux-amd64.tar.gz"
+
+[package.metadata.binstall.overrides.x86_64-unknown-linux-musl]
+pkg-url = "{ repo }/releases/download/v{ version }/jackdaw-{ version }-linux-amd64.tar.gz"
+
+[package.metadata.binstall.overrides.aarch64-unknown-linux-gnu]
+pkg-url = "{ repo }/releases/download/v{ version }/jackdaw-{ version }-linux-arm64.tar.gz"
+
+[package.metadata.binstall.overrides.aarch64-unknown-linux-musl]
+pkg-url = "{ repo }/releases/download/v{ version }/jackdaw-{ version }-linux-arm64.tar.gz"
+
+[package.metadata.binstall.overrides.x86_64-apple-darwin]
+pkg-url = "{ repo }/releases/download/v{ version }/jackdaw-{ version }-macos-amd64.tar.gz"
+
+[package.metadata.binstall.overrides.aarch64-apple-darwin]
+pkg-url = "{ repo }/releases/download/v{ version }/jackdaw-{ version }-macos-arm64.tar.gz"

@@ -99,6 +99,7 @@
 //! The `jackdaw-cli` crate installs a `jackdaw` binary that runs, validates and visualizes YAML workflows:
 //!
 //! ```bash
+//! cargo install jackdaw-cli --locked
 //! jackdaw run workflow.yaml
 //! jackdaw validate workflow.yaml
 //! ```
