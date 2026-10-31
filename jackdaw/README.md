@@ -1,4 +1,4 @@
-# jackdaw
+# jackdaw-wf
 
 Durable workflows in Rust. Write workflows as ordinary async functions, or in the
 [Serverless Workflow](https://serverlessworkflow.io/) YAML DSL, and run both on one engine that records every step, so
@@ -18,9 +18,11 @@ a workflow that is interrupted continues where it stopped.
 ## Install
 
 ```sh
-cargo add jackdaw serde --features serde/derive
+cargo add jackdaw-wf serde --features serde/derive
 cargo add tokio --features macros,rt-multi-thread
 ```
+
+The package is `jackdaw-wf` on crates.io, and the library is imported as `jackdaw`.
 
 ## A workflow in a minute
 
@@ -89,9 +91,9 @@ Add `.store(Redb::open("jackdaw.redb")?)` to the builder and the workflow surviv
 
 ## Where to go next
 
-The [guide](https://docs.rs/jackdaw/latest/jackdaw/guide/) walks through the library chapter by chapter: tasks,
+The [guide](https://docs.rs/jackdaw-wf/latest/jackdaw/guide/) walks through the library chapter by chapter: tasks,
 workflows, durability, catalogs, YAML, testing, errors and events. The reference lives in
-[`api`](https://docs.rs/jackdaw/latest/jackdaw/api/) and [`prelude`](https://docs.rs/jackdaw/latest/jackdaw/prelude/).
+[`api`](https://docs.rs/jackdaw-wf/latest/jackdaw/api/) and [`prelude`](https://docs.rs/jackdaw-wf/latest/jackdaw/prelude/).
 
 The [`examples`](https://github.com/arminhammer/jackdaw/tree/main/jackdaw/examples) directory has runnable programs:
 `cargo run --example quickstart`.

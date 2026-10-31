@@ -1,7 +1,7 @@
 //! Signals change a running workflow's state, queries read it, and `wait_condition` waits for it.
 //!
 //! ```text
-//! cargo run -p jackdaw --example signals
+//! cargo run -p jackdaw-wf --example signals
 //! ```
 use jackdaw::prelude::*;
 

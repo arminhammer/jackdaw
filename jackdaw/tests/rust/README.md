@@ -1,12 +1,12 @@
 # Library API tests (`tests/rust`)
 
-The executable specification of the Rust library API. The API itself is documented in rustdoc (`cargo doc -p jackdaw
+The executable specification of the Rust library API. The API itself is documented in rustdoc (`cargo doc -p jackdaw-wf
 --open`; start at the `jackdaw::guide` chapters). These tests pin down the behaviour behind that documentation.
 
 ```
-cargo test -p jackdaw --test rust                 # everything
-cargo test -p jackdaw --test rust tasks::         # one module
-TRYBUILD=overwrite cargo test -p jackdaw --test rust compile_fail   # write/refresh ui/*.stderr
+cargo test -p jackdaw-wf --test rust                 # everything
+cargo test -p jackdaw-wf --test rust tasks::         # one module
+TRYBUILD=overwrite cargo test -p jackdaw-wf --test rust compile_fail   # write/refresh ui/*.stderr
 ```
 
 ## Reading order

@@ -1,5 +1,5 @@
 [package]
-name = "jackdaw-macros"
+name = "jackdaw-wf-macros"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,10 +10,11 @@ description = "Procedural macros for the jackdaw durable workflow engine (#[task
 keywords = ["serverless", "workflow", "macros", "durable"]
 include = ["/src/**/*", "/README.md"]
 readme = "README.md"
-documentation = "https://docs.rs/jackdaw-macros"
+documentation = "https://docs.rs/jackdaw-wf-macros"
 categories = ["development-tools", "asynchronous"]
 
 [lib]
+name = "jackdaw_macros"
 proc-macro = true
 
 [dependencies]

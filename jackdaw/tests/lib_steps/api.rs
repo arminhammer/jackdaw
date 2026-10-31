@@ -2048,7 +2048,14 @@ async fn documented() -> &'static (bool, String) {
     DOCS.get_or_init(|| async {
         let output =
             tokio::process::Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
-                .args(["doc", "-q", "-p", "jackdaw", "--all-features", "--no-deps"])
+                .args([
+                    "doc",
+                    "-q",
+                    "-p",
+                    "jackdaw-wf",
+                    "--all-features",
+                    "--no-deps",
+                ])
                 .env("RUSTDOCFLAGS", "-D warnings")
                 .output()
                 .await
@@ -2076,7 +2083,7 @@ async fn build_docs(_world: &mut LibWorld) {
 }
 
 #[when(
-    regex = r#"^I run "cargo doc -p jackdaw --all-features --no-deps" with "RUSTDOCFLAGS=-D warnings"$"#
+    regex = r#"^I run "cargo doc -p jackdaw-wf --all-features --no-deps" with "RUSTDOCFLAGS=-D warnings"$"#
 )]
 async fn doc_with_warnings_denied(world: &mut LibWorld) {
     let (ok, stderr) = documented().await;

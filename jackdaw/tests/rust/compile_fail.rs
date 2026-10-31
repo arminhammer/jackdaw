@@ -2,7 +2,7 @@
 //! message, the types of tasks and workflows are checked, and audited code can opt out.
 //!
 //! Each case is a small program in `ui/`. The expected compiler output sits next to it as `<case>.stderr`;
-//! write or refresh those files with `TRYBUILD=overwrite cargo test -p jackdaw --test rust compile_fail`, then
+//! write or refresh those files with `TRYBUILD=overwrite cargo test -p jackdaw-wf --test rust compile_fail`, then
 //! review the diff: the messages are part of the API (each one names the call and the replacement).
 
 #[test]

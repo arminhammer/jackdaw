@@ -57,7 +57,7 @@ test-validate:
 # Run the library BDD feature specs in jackdaw/tests/lib (skips @todo scenarios).
 # Extra arguments go to cucumber, e.g. `just test-lib --tags '@crash and not @todo'`
 test-lib *ARGS:
-    cargo test -p jackdaw --test lib_features -- {{ARGS}}
+    cargo test -p jackdaw-wf --test lib_features -- {{ARGS}}
 
 # Run all tests (unit + integration, including the library BDD specs)
 test-all:
@@ -309,12 +309,12 @@ docker-build-all: docker-build-linux build-macos-universal
 # Publish the jackdaw library crate to crates.io
 # Package and verify the published crates without uploading
 publish-dry-run:
-    cargo publish --dry-run --locked -p jackdaw-macros -p jackdaw
+    cargo publish --dry-run --locked -p jackdaw-wf-macros -p jackdaw-wf
 
 # Publish jackdaw-macros, then jackdaw (cargo orders them), to crates.io. Irreversible: run publish-dry-run first
 publish-crate:
     #!/usr/bin/env bash
     set -euo pipefail
     echo "Publishing jackdaw-macros and jackdaw to crates.io..."
-    cargo publish --locked -p jackdaw-macros -p jackdaw
+    cargo publish --locked -p jackdaw-wf-macros -p jackdaw-wf
     echo "✓ Published to crates.io"

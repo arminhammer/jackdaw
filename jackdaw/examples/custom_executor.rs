@@ -2,7 +2,7 @@
 //! built-in `http` or `grpc`.
 //!
 //! ```text
-//! cargo run -p jackdaw --example custom_executor
+//! cargo run -p jackdaw-wf --example custom_executor
 //! ```
 use jackdaw::api::Call;
 use jackdaw::prelude::*;

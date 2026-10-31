@@ -2,7 +2,7 @@
 //! the task that already ran is not run again.
 //!
 //! ```text
-//! cargo run -p jackdaw --example durable_restart
+//! cargo run -p jackdaw-wf --example durable_restart
 //! ```
 use jackdaw::prelude::*;
 use std::sync::atomic::{AtomicUsize, Ordering};

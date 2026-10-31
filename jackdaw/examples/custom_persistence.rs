@@ -2,7 +2,7 @@
 //! builder. This one keeps everything in maps; a real one would write to your database.
 //!
 //! ```text
-//! cargo run -p jackdaw --example custom_persistence
+//! cargo run -p jackdaw-wf --example custom_persistence
 //! ```
 use async_trait::async_trait;
 use jackdaw::persistence::{PersistenceProvider, Result as StoreResult};

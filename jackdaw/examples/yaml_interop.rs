@@ -1,7 +1,7 @@
 //! Rust and YAML on one engine: Rust runs a Serverless Workflow YAML file, and the YAML calls a Rust task by name.
 //!
 //! ```text
-//! cargo run -p jackdaw --example yaml_interop
+//! cargo run -p jackdaw-wf --example yaml_interop
 //! ```
 use jackdaw::prelude::*;
 use serde::{Deserialize, Serialize};

@@ -1821,7 +1821,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
-name = "jackdaw"
+name = "jackdaw-cli"
+version = "0.1.1"
+dependencies = [
+ "clap",
+ "config",
+ "console 0.15.11",
+ "futures",
+ "indicatif 0.17.11",
+ "jackdaw-wf",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "snafu",
+ "tempfile",
+ "tokio",
+ "tracing-indicatif",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "jackdaw-wf"
 version = "0.1.1"
 dependencies = [
  "async-recursion",
@@ -1839,8 +1859,8 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
- "jackdaw",
- "jackdaw-macros",
+ "jackdaw-wf",
+ "jackdaw-wf-macros",
  "jaq-core",
  "jaq-json",
  "jaq-std",
@@ -1879,27 +1899,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "jackdaw-cli"
-version = "0.1.1"
-dependencies = [
- "clap",
- "config",
- "console 0.15.11",
- "futures",
- "indicatif 0.17.11",
- "jackdaw",
- "serde",
- "serde_json",
- "serde_yaml",
- "snafu",
- "tempfile",
- "tokio",
- "tracing-indicatif",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "jackdaw-macros"
+name = "jackdaw-wf-macros"
 version = "0.1.1"
 dependencies = [
  "proc-macro2",

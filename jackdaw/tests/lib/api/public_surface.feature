@@ -75,7 +75,7 @@ Feature: The public API is small, documented and stable
 
   @implemented
   Scenario: Every public item is documented
-    When I run "cargo doc -p jackdaw --all-features --no-deps" with "RUSTDOCFLAGS=-D warnings"
+    When I run "cargo doc -p jackdaw-wf --all-features --no-deps" with "RUSTDOCFLAGS=-D warnings"
     Then the command succeeds
     And "src/lib.rs" contains "#![warn(missing_docs)]"
 
@@ -98,5 +98,5 @@ Feature: The public API is small, documented and stable
   @todo
   Scenario: The public API is checked for semver breaks
     Given a published version of "jackdaw"
-    When I run "cargo semver-checks -p jackdaw" against it
+    When I run "cargo semver-checks -p jackdaw-wf" against it
     Then it reports no breaking change unless the minor version was bumped

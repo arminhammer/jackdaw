@@ -704,12 +704,12 @@ fn invoked_once(world: &mut LibWorld) {
 // The documented examples
 // ---------------------------------------------------------------------------------------------------------------
 
-#[when(regex = r#"^I run "cargo run -p jackdaw --example (\w+)"$"#)]
+#[when(regex = r#"^I run "cargo run -p jackdaw-wf --example (\w+)"$"#)]
 async fn run_example(world: &mut LibWorld, example: String) {
     let output = tokio::time::timeout(
         std::time::Duration::from_secs(600),
         tokio::process::Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
-            .args(["run", "-q", "-p", "jackdaw", "--example", &example])
+            .args(["run", "-q", "-p", "jackdaw-wf", "--example", &example])
             .output(),
     )
     .await

@@ -1,7 +1,7 @@
 //! A workflow written in Rust that calls two tasks, on an in-memory engine.
 //!
 //! ```text
-//! cargo run -p jackdaw --example quickstart
+//! cargo run -p jackdaw-wf --example quickstart
 //! ```
 use jackdaw::prelude::*;
 use serde::{Deserialize, Serialize};

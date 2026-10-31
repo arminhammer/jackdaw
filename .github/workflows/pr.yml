@@ -68,7 +68,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Package and verify the published crates
-        run: cargo publish --dry-run --locked -p jackdaw-macros -p jackdaw
+        run: cargo publish --dry-run --locked -p jackdaw-wf-macros -p jackdaw-wf
 
   build-docker-for-tests:
     name: Build Docker Image for Tests

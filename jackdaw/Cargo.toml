@@ -1,5 +1,6 @@
 [package]
-name = "jackdaw"
+# Published as jackdaw-wf (the `jackdaw` name on crates.io is taken); the library is still imported as `jackdaw`.
+name = "jackdaw-wf"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -7,12 +8,15 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "A durable, cached, graph-based execution engine for Serverless Workflow"
-documentation = "https://docs.rs/jackdaw"
+documentation = "https://docs.rs/jackdaw-wf"
 readme = "README.md"
 # An allowlist, so tests, fixtures and work in progress stay out of the published crate.
 include = ["/src/**/*", "/examples/*.rs", "/README.md"]
 keywords = ["serverless", "workflow", "engine", "durable", "orchestration"]
 categories = ["development-tools", "asynchronous"]
+
+[lib]
+name = "jackdaw"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -68,7 +72,7 @@ metrics = ["dep:metrics"]
 
 [dev-dependencies]
 tempfile = "3"
-jackdaw = { path = ".", features = ["metrics"] }
+jackdaw = { package = "jackdaw-wf", path = ".", features = ["metrics"] }
 metrics = "0.24"
 metrics-util = { version = "0.20", default-features = false, features = ["debugging"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std"] }

@@ -18,8 +18,8 @@ license = "Apache-2.0"
 repository = "https://github.com/arminhammer/jackdaw"
 
 [workspace.dependencies]
-jackdaw = { path = "jackdaw", version = "=0.1.1" }
-jackdaw-macros = { path = "jackdaw-macros", version = "=0.1.1" }
+jackdaw = { package = "jackdaw-wf", path = "jackdaw", version = "=0.1.1" }
+jackdaw-macros = { package = "jackdaw-wf-macros", path = "jackdaw-macros", version = "=0.1.1" }
 
 [workspace.lints.clippy]
 indexing_slicing = "deny"

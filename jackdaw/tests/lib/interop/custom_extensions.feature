@@ -46,10 +46,10 @@ Feature: Custom executors and persistence providers
 
   @implemented
   Scenario: The documented custom PersistenceProvider example compiles and runs
-    When I run "cargo run -p jackdaw --example custom_persistence"
+    When I run "cargo run -p jackdaw-wf --example custom_persistence"
     Then it completes successfully
 
   @implemented
   Scenario: The documented custom Executor example compiles and runs
-    When I run "cargo run -p jackdaw --example custom_executor"
+    When I run "cargo run -p jackdaw-wf --example custom_executor"
     Then it completes successfully
