@@ -16,6 +16,13 @@ use tower::Service as TowerService;
 // Type alias for boxed body (tonic 0.14+ made BoxBody private)
 type BoxBody = UnsyncBoxBody<Bytes, Status>;
 
+/// Handles one method: the decoded request in, the response out.
+pub(crate) type MethodHandler = Arc<
+    dyn Fn(DynamicMessage) -> futures::future::BoxFuture<'static, Result<DynamicMessage>>
+        + Send
+        + Sync,
+>;
+
 /// gRPC listener for handling proto-based service requests
 pub struct GrpcListener {
     /// Bind address (e.g., "localhost:50051")
@@ -30,14 +37,7 @@ pub struct GrpcListener {
     /// Method handlers: ``method_name`` -> handler function
     /// For multi-method servers, this contains all handlers
     /// Using ``RwLock`` to allow adding methods dynamically
-    method_handlers: Arc<
-        RwLock<
-            std::collections::HashMap<
-                String,
-                Arc<dyn Fn(DynamicMessage) -> Result<DynamicMessage> + Send + Sync>,
-            >,
-        >,
-    >,
+    method_handlers: Arc<RwLock<std::collections::HashMap<String, MethodHandler>>>,
 
     /// Server handle for shutdown
     shutdown_tx: Arc<RwLock<Option<tokio::sync::oneshot::Sender<()>>>>,
@@ -50,11 +50,7 @@ impl GrpcListener {
     ///
     /// # Errors
     /// Returns an error if the provided `method_name` does not exist in the service descriptor.
-    pub async fn add_method(
-        &self,
-        method_name: String,
-        handler: Arc<dyn Fn(DynamicMessage) -> Result<DynamicMessage> + Send + Sync>,
-    ) -> Result<()> {
+    pub async fn add_method(&self, method_name: String, handler: MethodHandler) -> Result<()> {
         // Validate that the method exists in the service
         if !self
             .service_descriptor
@@ -95,10 +91,7 @@ impl GrpcListener {
         bind_addr: String,
         proto_path: &str,
         service_name: &str,
-        method_handlers: std::collections::HashMap<
-            String,
-            Arc<dyn Fn(DynamicMessage) -> Result<DynamicMessage> + Send + Sync>,
-        >,
+        method_handlers: std::collections::HashMap<String, MethodHandler>,
     ) -> Result<Self> {
         // Compile proto file and build descriptor pool
         let file_descriptor_set = protox::compile([proto_path], ["."])?;
@@ -138,126 +131,13 @@ impl GrpcListener {
 #[async_trait]
 impl Listener for GrpcListener {
     async fn start(&self) -> Result<()> {
-        let method_names: Vec<String> = {
-            let handlers = self.method_handlers.read().await;
-            handlers.keys().cloned().collect()
-        };
-        tracing::info!(
-            "Starting gRPC listener on {} for {}/{:?}",
-            self.bind_addr,
-            self.service_descriptor.full_name(),
-            method_names
-        );
-
-        // Clone what we need for the server task
-        let bind_addr = self.bind_addr.clone();
-        let method_handlers = self.method_handlers.clone();
-        let service_descriptor = self.service_descriptor.clone();
-        let file_descriptor_set = self.file_descriptor_set.clone();
-
-        // Create shutdown channel
-        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
-
-        // Store shutdown sender
-        {
-            let mut tx_lock = self.shutdown_tx.write().await;
-            *tx_lock = Some(shutdown_tx);
-        }
-
         // Bound before the listener counts as started, so a port that cannot be had fails the workflow.
-        let addr: std::net::SocketAddr = bind_addr.parse().map_err(|e| super::Error::Listener {
-            message: format!("Invalid bind address {bind_addr}: {e}"),
-        })?;
+        let addr: std::net::SocketAddr =
+            self.bind_addr.parse().map_err(|e| super::Error::Listener {
+                message: format!("Invalid bind address {}: {e}", self.bind_addr),
+            })?;
         let tcp_listener = super::bind(addr).await?;
-
-        // Spawn gRPC server in background
-        tokio::spawn(async move {
-            println!("  Spawning gRPC server task for {bind_addr}");
-
-            // Create a multi-method dynamic gRPC service handler
-            let service = MultiMethodGrpcService {
-                method_handlers,
-                service_descriptor,
-            };
-
-            println!("  gRPC server about to listen on {addr}");
-            tracing::info!("gRPC server listening on {}", addr);
-
-            let service_wrapper = service.into_service();
-
-            // Build reflection service from file descriptor set
-            let reflection_service = match ReflectionBuilder::configure()
-                .register_encoded_file_descriptor_set(
-                    file_descriptor_set.encode_to_vec().as_slice(),
-                )
-                .build_v1()
-            {
-                Ok(service) => service,
-                Err(e) => {
-                    eprintln!("  Failed to build reflection service: {e}");
-                    tracing::error!("Failed to build reflection service: {e}");
-                    return;
-                }
-            };
-
-            println!("  Starting tonic server on {addr} with reflection support");
-
-            // Wrap reflection service to convert its body type to BoxBody
-            let reflection_adapted = ReflectionAdapter {
-                inner: reflection_service,
-            };
-
-            // Combine reflection service and our custom dynamic router into one service
-            // This service will route based on the request path
-            let combined_service = CombinedService {
-                reflection: reflection_adapted,
-                dynamic_router: service_wrapper,
-            };
-
-            // Use hyper_util's TokioIo and serve connection directly
-            use hyper_util::rt::TokioIo;
-            use hyper_util::server::conn::auto;
-
-            println!("  gRPC server listening on {addr}");
-
-            let result = async move {
-                loop {
-                    let (tcp_stream, _remote_addr) = match tcp_listener.accept().await {
-                        Ok(conn) => conn,
-                        Err(e) => {
-                            eprintln!("  Failed to accept connection: {e}");
-                            continue;
-                        }
-                    };
-
-                    let io = TokioIo::new(tcp_stream);
-
-                    // Use our HyperAdapter to convert body types from Incoming to BoxBody
-                    let svc = HyperAdapter {
-                        inner: combined_service.clone(),
-                    };
-
-                    tokio::task::spawn(async move {
-                        if let Err(err) = auto::Builder::new(hyper_util::rt::TokioExecutor::new())
-                            .serve_connection(io, svc)
-                            .await
-                        {
-                            eprintln!("  Error serving connection: {:?}", err);
-                        }
-                    });
-                }
-            };
-
-            tokio::select! {
-                _ = result => {},
-                _ = shutdown_rx => {
-                    println!("  gRPC server on {addr} received shutdown signal");
-                }
-            }
-            println!("  gRPC server on {addr} exited cleanly");
-        });
-
-        Ok(())
+        self.serve_on(tcp_listener).await
     }
 
     async fn stop(&self) -> Result<()> {
@@ -393,14 +273,7 @@ impl http_body::Body for GrpcErrorBody {
 /// Multi-method dynamic gRPC service implementation
 /// This handles multiple methods on a single gRPC server
 struct MultiMethodGrpcService {
-    method_handlers: Arc<
-        RwLock<
-            std::collections::HashMap<
-                String,
-                Arc<dyn Fn(DynamicMessage) -> Result<DynamicMessage> + Send + Sync>,
-            >,
-        >,
-    >,
+    method_handlers: Arc<RwLock<std::collections::HashMap<String, MethodHandler>>>,
     service_descriptor: ServiceDescriptor,
 }
 
@@ -470,8 +343,9 @@ impl MultiMethodGrpcService {
         println!("  Successfully decoded request");
 
         // Call the handler
-        let response_msg =
-            (handler)(request_msg).map_err(|e| Status::internal(format!("Handler error: {e}")))?;
+        let response_msg = (handler)(request_msg)
+            .await
+            .map_err(|e| Status::internal(format!("Handler error: {e}")))?;
 
         // Encode response
         let mut response_bytes = Vec::new();
@@ -859,5 +733,144 @@ where
         // Clone inner service and call it
         let mut inner = self.inner.clone();
         Box::pin(async move { inner.call(req).await })
+    }
+}
+
+impl GrpcListener {
+    /// A listener for a service whose descriptors are already compiled (the engine's own listeners).
+    pub(crate) fn from_descriptors(
+        bind_addr: String,
+        service_descriptor: ServiceDescriptor,
+        file_descriptor_set: FileDescriptorSet,
+        method_handlers: std::collections::HashMap<String, MethodHandler>,
+    ) -> Self {
+        Self {
+            bind_addr,
+            service_descriptor,
+            file_descriptor_set,
+            method_handlers: Arc::new(RwLock::new(method_handlers)),
+            shutdown_tx: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    /// Serves on a socket that is already bound (the engine binds its listeners itself, so port 0 works). Returns once
+    /// the server is running; [`Listener::stop`] stops it.
+    pub(crate) async fn serve_on(&self, tcp_listener: tokio::net::TcpListener) -> Result<()> {
+        let method_names: Vec<String> = {
+            let handlers = self.method_handlers.read().await;
+            handlers.keys().cloned().collect()
+        };
+        tracing::info!(
+            "Starting gRPC listener on {} for {}/{:?}",
+            self.bind_addr,
+            self.service_descriptor.full_name(),
+            method_names
+        );
+
+        // Clone what we need for the server task
+        let bind_addr = self.bind_addr.clone();
+        let method_handlers = self.method_handlers.clone();
+        let service_descriptor = self.service_descriptor.clone();
+        let file_descriptor_set = self.file_descriptor_set.clone();
+
+        // Create shutdown channel
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+
+        // Store shutdown sender
+        {
+            let mut tx_lock = self.shutdown_tx.write().await;
+            *tx_lock = Some(shutdown_tx);
+        }
+
+        let addr = tcp_listener.local_addr()?;
+
+        // Spawn gRPC server in background
+        tokio::spawn(async move {
+            println!("  Spawning gRPC server task for {bind_addr}");
+
+            // Create a multi-method dynamic gRPC service handler
+            let service = MultiMethodGrpcService {
+                method_handlers,
+                service_descriptor,
+            };
+
+            println!("  gRPC server about to listen on {addr}");
+            tracing::info!("gRPC server listening on {}", addr);
+
+            let service_wrapper = service.into_service();
+
+            // Build reflection service from file descriptor set
+            let reflection_service = match ReflectionBuilder::configure()
+                .register_encoded_file_descriptor_set(
+                    file_descriptor_set.encode_to_vec().as_slice(),
+                )
+                .build_v1()
+            {
+                Ok(service) => service,
+                Err(e) => {
+                    eprintln!("  Failed to build reflection service: {e}");
+                    tracing::error!("Failed to build reflection service: {e}");
+                    return;
+                }
+            };
+
+            println!("  Starting tonic server on {addr} with reflection support");
+
+            // Wrap reflection service to convert its body type to BoxBody
+            let reflection_adapted = ReflectionAdapter {
+                inner: reflection_service,
+            };
+
+            // Combine reflection service and our custom dynamic router into one service
+            // This service will route based on the request path
+            let combined_service = CombinedService {
+                reflection: reflection_adapted,
+                dynamic_router: service_wrapper,
+            };
+
+            // Use hyper_util's TokioIo and serve connection directly
+            use hyper_util::rt::TokioIo;
+            use hyper_util::server::conn::auto;
+
+            println!("  gRPC server listening on {addr}");
+
+            let result = async move {
+                loop {
+                    let (tcp_stream, _remote_addr) = match tcp_listener.accept().await {
+                        Ok(conn) => conn,
+                        Err(e) => {
+                            eprintln!("  Failed to accept connection: {e}");
+                            continue;
+                        }
+                    };
+
+                    let io = TokioIo::new(tcp_stream);
+
+                    // Use our HyperAdapter to convert body types from Incoming to BoxBody
+                    let svc = HyperAdapter {
+                        inner: combined_service.clone(),
+                    };
+
+                    tokio::task::spawn(async move {
+                        if let Err(err) = auto::Builder::new(hyper_util::rt::TokioExecutor::new())
+                            .serve_connection(io, svc)
+                            .await
+                        {
+                            eprintln!("  Error serving connection: {:?}", err);
+                        }
+                    });
+                }
+            };
+
+            tokio::select! {
+                _ = result => {},
+                _ = shutdown_rx => {
+                    println!("  gRPC server on {addr} received shutdown signal");
+                }
+            }
+            println!("  gRPC server on {addr} exited cleanly");
+        });
+
+        Ok(())
     }
 }

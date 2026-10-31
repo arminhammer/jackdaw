@@ -101,9 +101,10 @@ http-client = ["dep:reqwest"]
 openapi = ["yaml", "dep:openapiv3-extended"]
 # `ctx.run_container` and YAML `run: container`, through the Docker API.
 docker = ["dep:bollard"]
-# YAML `listen` on HTTP (OpenAPI) and gRPC.
-http-listener = ["yaml", "dep:axum", "tokio/net", "tokio/rt-multi-thread"]
-grpc-listener = ["yaml", "dep:tonic", "dep:tonic-reflection", "dep:prost", "dep:prost-reflect", "dep:prost-types", "dep:protox", "dep:tower", "dep:http", "dep:http-body", "dep:http-body-util", "dep:hyper", "dep:hyper-util", "dep:bytes", "tokio/net", "tokio/rt-multi-thread"]
+# `api::Listener` (the engine serves HTTP routes or a gRPC service whose requests start workflows), and YAML
+# `listen` tasks on HTTP (OpenAPI) and gRPC.
+http-listener = ["dep:axum", "tokio/net", "tokio/rt-multi-thread"]
+grpc-listener = ["dep:tonic", "dep:tonic-reflection", "dep:prost", "dep:prost-reflect", "dep:prost-types", "dep:protox", "dep:tower", "dep:http", "dep:http-body", "dep:http-body-util", "dep:hyper", "dep:hyper-util", "dep:bytes", "tokio/net", "tokio/rt-multi-thread"]
 
 # Counters and histograms through the `metrics` facade. The library never installs a recorder.
 metrics = ["dep:metrics"]

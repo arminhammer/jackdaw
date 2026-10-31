@@ -108,7 +108,7 @@ The [`examples`](https://github.com/arminhammer/jackdaw/tree/main/jackdaw/exampl
 | `sqlite`, `postgres` | | The `Sqlite` and `Postgres` stores. |
 | `docker` | | `ctx.run_container` and YAML `run: container`. |
 | `openapi` | | YAML `call: openapi`. |
-| `http-listener`, `grpc-listener` | | YAML `listen` tasks on HTTP (OpenAPI) and gRPC. |
+| `http-listener`, `grpc-listener` | | `api::Listener`: the engine serves an OpenAPI document's operations or a gRPC service, each request starting a workflow. Also YAML `listen` tasks on HTTP and gRPC. |
 | `metrics` | | Counters and histograms through the `metrics` facade. |
 | `full` | | All of the above. |
 

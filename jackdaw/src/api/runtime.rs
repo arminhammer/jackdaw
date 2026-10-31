@@ -56,7 +56,7 @@ pub(crate) const BUILTIN_CALL_TYPES: &[&str] = &[
 
 const INDEX_ID: &str = "__jackdaw_index__";
 
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -760,6 +760,9 @@ pub(crate) struct Shared {
     pub registry: Registry,
     #[cfg_attr(not(feature = "yaml"), allow(dead_code))]
     pub yaml: YamlRuntime,
+    /// The listeners this engine serves (see `EngineBuilder::listener`).
+    #[cfg(any(feature = "http-listener", feature = "grpc-listener"))]
+    pub listeners: Mutex<Vec<Arc<super::listener::Serving>>>,
     pub self_replay: bool,
     pub clock: SharedClock,
     pub codec: Option<Arc<dyn super::codec::PayloadCodec>>,
@@ -917,6 +920,10 @@ impl Drop for Shared {
         for handle in lock(&self.running).drain(..) {
             handle.abort();
         }
+        #[cfg(any(feature = "http-listener", feature = "grpc-listener"))]
+        for listener in lock(&self.listeners).drain(..) {
+            listener.abort();
+        }
     }
 }
 
@@ -947,6 +954,8 @@ impl Shared {
             cache,
             registry,
             yaml,
+            #[cfg(any(feature = "http-listener", feature = "grpc-listener"))]
+            listeners: Mutex::new(Vec::new()),
             self_replay,
             clock,
             codec,

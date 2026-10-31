@@ -4,28 +4,28 @@ Feature: Listeners registered on the engine
   I want the engine to start workflows from HTTP and gRPC requests
   So that I can serve an API from workflows without the CLI
 
-  @todo @http
+  @implemented @http
   Scenario: An OpenAPI listener starts a workflow per request
-    Given an engine built with "EngineBuilder::listener(Listener::openapi(spec, \"127.0.0.1:0\"))"
-    And the operation "addNumbers" is bound to a workflow
+    Given an OpenAPI listener "api" on "127.0.0.1:0" whose operation "addNumbers" is bound to a workflow
+    And an engine built with it through "EngineBuilder::listener"
     When I POST "{\"a\":2,\"b\":3}" to "/add"
     Then the response body is "{\"sum\":5}"
     And an instance of the bound workflow is in the store
 
-  @todo @grpc
+  @implemented @grpc
   Scenario: A gRPC listener starts a workflow per call
     Given an engine built with a gRPC listener for "calculator.proto"
     When I call "Calculator/Add" with a=2 and b=3
-    Then the response has sum 5
+    Then the response's result is 5
 
-  @todo
+  @implemented
   Scenario: Listeners stop on engine shutdown
     Given an engine with an HTTP listener
-    When I call "Engine::shutdown()"
-    Then the listener's port is closed
-    And in-flight requests complete before shutdown returns
+    When I call "Engine::shutdown()" while a request is in flight
+    Then the in-flight request completes before shutdown returns
+    And the listener's port is closed
 
-  @todo
+  @implemented
   Scenario: The listener's bound address is available
     Given a listener on port 0
     When the engine is built

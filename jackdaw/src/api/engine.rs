@@ -206,6 +206,8 @@ pub struct EngineBuilder {
     #[cfg(feature = "yaml")]
     yaml_workflows: Vec<crate::dsl::workflow::WorkflowDefinition>,
     poll: std::time::Duration,
+    #[cfg(any(feature = "http-listener", feature = "grpc-listener"))]
+    listeners: Vec<super::listener::Listener>,
 }
 
 impl Default for EngineBuilder {
@@ -235,6 +237,8 @@ impl EngineBuilder {
             #[cfg(feature = "yaml")]
             yaml_workflows: Vec::new(),
             poll: std::time::Duration::from_secs(1),
+            #[cfg(any(feature = "http-listener", feature = "grpc-listener"))]
+            listeners: Vec::new(),
         }
     }
 
@@ -363,6 +367,19 @@ impl EngineBuilder {
         self
     }
 
+    /// Serves a [`Listener`](super::Listener): HTTP routes or a gRPC service whose requests start workflows. The
+    /// listener binds its port in [`build`](Self::build), which then has to run inside a tokio runtime.
+    #[must_use]
+    #[cfg(any(feature = "http-listener", feature = "grpc-listener"))]
+    #[cfg_attr(
+        docsrs,
+        doc(cfg(any(feature = "http-listener", feature = "grpc-listener")))
+    )]
+    pub fn listener(mut self, listener: super::listener::Listener) -> Self {
+        self.listeners.push(listener);
+        self
+    }
+
     /// Starts a workflow on a schedule while the engine runs (see [`Schedule`](super::Schedule)). Schedules start when
     /// the engine is built inside a tokio runtime.
     #[must_use]
@@ -486,6 +503,11 @@ impl EngineBuilder {
         }
         let shared = Arc::new(shared);
         super::runtime::register_on_store(&shared)?;
+        #[cfg(any(feature = "http-listener", feature = "grpc-listener"))]
+        for listener in self.listeners {
+            let serving = listener.start(Arc::downgrade(&shared))?;
+            super::runtime::lock(&shared.listeners).push(Arc::new(serving));
+        }
         if tokio::runtime::Handle::try_current().is_ok() {
             for schedule in self.schedules {
                 shared.spawn_background(super::schedule::drive(schedule, Arc::downgrade(&shared)));
@@ -1038,6 +1060,16 @@ impl Engine {
     /// finish and record their result, and then every instance is stopped *without* ending it, so the next process
     /// over the same store resumes it with [`recover`](Self::recover). Sleeps and waits are not waited for.
     pub async fn shutdown(&self, grace: std::time::Duration) {
+        // Listeners first: they stop accepting, and the requests they are serving finish their workflows.
+        #[cfg(any(feature = "http-listener", feature = "grpc-listener"))]
+        {
+            let listeners: Vec<_> = super::runtime::lock(&self.shared.listeners)
+                .drain(..)
+                .collect();
+            for listener in listeners {
+                listener.stop(grace).await;
+            }
+        }
         self.shared
             .shutting_down
             .store(true, std::sync::atomic::Ordering::SeqCst);
@@ -1053,6 +1085,21 @@ impl Engine {
         }
         // Task steps count as in flight until their result is recorded, so nothing finished is lost here.
         self.shared.abandon_all();
+    }
+
+    /// The address listener `name` is serving on: with port `0`, the port the OS assigned. `None` if there is no such
+    /// listener, or it was stopped by [`shutdown`](Self::shutdown).
+    #[cfg(any(feature = "http-listener", feature = "grpc-listener"))]
+    #[cfg_attr(
+        docsrs,
+        doc(cfg(any(feature = "http-listener", feature = "grpc-listener")))
+    )]
+    #[must_use]
+    pub fn listener_addr(&self, name: &str) -> Option<std::net::SocketAddr> {
+        super::runtime::lock(&self.shared.listeners)
+            .iter()
+            .find(|listener| listener.name == name)
+            .map(|listener| listener.addr)
     }
 
     /// Registers a YAML workflow that other YAML workflows run by name (`run: workflow:`), on a running engine. See

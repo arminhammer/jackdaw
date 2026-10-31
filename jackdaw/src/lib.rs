@@ -114,7 +114,7 @@
 //! | `sqlite`, `postgres` | | The `Sqlite` and `Postgres` stores. |
 //! | `docker` | | `ctx.run_container` and YAML `run: container`. |
 //! | `openapi` | | YAML `call: openapi`. |
-//! | `http-listener`, `grpc-listener` | | YAML `listen` tasks on HTTP (OpenAPI) and gRPC. |
+//! | `http-listener`, `grpc-listener` | | `api::Listener`: the engine serves an OpenAPI document's operations or a gRPC service, each request starting a workflow. Also YAML `listen` tasks on HTTP and gRPC. |
 //! | `metrics` | | Counters and histograms through the `metrics` facade. |
 //! | `full` | | All of the above. |
 //!
@@ -179,7 +179,7 @@ mod executionhistory;
 mod executor;
 #[cfg(feature = "yaml")]
 mod expressions;
-#[cfg(feature = "yaml")]
+#[cfg(any(feature = "yaml", feature = "http-listener", feature = "grpc-listener"))]
 mod listeners;
 #[cfg(feature = "yaml")]
 mod output;

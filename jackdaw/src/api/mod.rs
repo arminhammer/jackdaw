@@ -15,6 +15,8 @@ mod error;
 mod event;
 mod executor;
 mod helpers;
+#[cfg(any(feature = "http-listener", feature = "grpc-listener"))]
+mod listener;
 mod observe;
 mod runtime;
 mod schedule;
@@ -47,6 +49,8 @@ pub use helpers::Container;
 pub use helpers::{ProcessOutput, Script, Shell};
 #[cfg(feature = "http-client")]
 pub use helpers::{Request, Response};
+#[cfg(any(feature = "http-listener", feature = "grpc-listener"))]
+pub use listener::Listener;
 pub use schedule::{CatchUp, Cron, Overlap, Schedule};
 #[cfg(feature = "postgres")]
 pub use store::Postgres;

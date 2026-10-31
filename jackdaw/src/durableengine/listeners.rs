@@ -264,11 +264,7 @@ impl DurableEngine {
                 // Build method handlers map - convert JSON handlers to DynamicMessage handlers
                 let mut method_handlers: std::collections::HashMap<
                     String,
-                    Arc<
-                        dyn Fn(DynamicMessage) -> crate::listeners::Result<DynamicMessage>
-                            + Send
-                            + Sync,
-                    >,
+                    crate::listeners::grpc::MethodHandler,
                 > = std::collections::HashMap::new();
 
                 for (method_name, task_name, json_handler) in methods {
@@ -292,24 +288,16 @@ impl DurableEngine {
                     let json_handler_clone = json_handler.clone();
 
                     // Create a wrapper that converts DynamicMessage to JSON, calls the JSON handler, then converts back
-                    let wrapped_handler: Arc<
-                    dyn Fn(DynamicMessage) -> crate::listeners::Result<DynamicMessage>
-                        + Send
-                        + Sync,
-                > = Arc::new(
-                    move |request_msg: DynamicMessage| -> crate::listeners::Result<DynamicMessage> {
-                        // Convert DynamicMessage to JSON
-                        let request_json = dynamic_message_to_json(&request_msg);
-
-                        // Call the JSON handler
-                        let response_json = json_handler_clone(request_json)?;
-
-                        // Convert JSON response back to DynamicMessage using the output descriptor
-                        let response_msg =
-                            json_to_dynamic_message(&response_json, &output_descriptor);
-                        Ok(response_msg)
-                    },
-                );
+                    let wrapped_handler: crate::listeners::grpc::MethodHandler =
+                        Arc::new(move |request_msg: DynamicMessage| {
+                            // DynamicMessage to JSON, through the JSON handler (which runs to completion here), and
+                            // back to a DynamicMessage of the method's output type.
+                            let request_json = dynamic_message_to_json(&request_msg);
+                            let response = json_handler_clone(request_json).map(|response_json| {
+                                json_to_dynamic_message(&response_json, &output_descriptor)
+                            });
+                            Box::pin(std::future::ready(response))
+                        });
 
                     method_handlers.insert(method_name.clone(), wrapped_handler);
                 }

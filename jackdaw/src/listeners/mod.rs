@@ -1,15 +1,17 @@
 use async_trait::async_trait;
+#[cfg(feature = "yaml")]
 use serde::{Deserialize, Serialize};
 use snafu::prelude::*;
 use std::sync::Arc;
 
 #[cfg(feature = "grpc-listener")]
 pub mod grpc;
-#[cfg(feature = "http-listener")]
+// The YAML interpreter's HTTP server (the engine's own listeners serve with axum directly, in `api::listener`).
+#[cfg(all(feature = "yaml", feature = "http-listener"))]
 pub mod http;
 
 // pub use grpc::GrpcListener;
-#[cfg(feature = "http-listener")]
+#[cfg(all(feature = "yaml", feature = "http-listener"))]
 pub use http::HttpListener;
 
 #[derive(Debug, Snafu)]
@@ -72,7 +74,9 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// Binds `addr` for a listener. A listener whose engine just stopped releases its port as it shuts down, so a port in
 /// use is retried for a moment before giving up.
+// Used by the YAML interpreter's listeners (the engine binds its own synchronously).
 #[cfg(any(feature = "http-listener", feature = "grpc-listener"))]
+#[cfg_attr(not(feature = "yaml"), allow(dead_code))]
 pub(crate) async fn bind(addr: std::net::SocketAddr) -> Result<tokio::net::TcpListener> {
     let mut attempts = 0;
     loop {
@@ -104,6 +108,7 @@ pub trait Listener: Send + Sync {
     fn get_endpoint(&self) -> String;
 }
 
+#[cfg(feature = "yaml")]
 /// Event source configuration from workflow Listen task
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventSource {
@@ -115,6 +120,7 @@ pub struct EventSource {
     pub schema: Option<SchemaReference>,
 }
 
+#[cfg(feature = "yaml")]
 /// Schema reference for event validation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SchemaReference {
@@ -125,6 +131,7 @@ pub struct SchemaReference {
     pub resource: ResourceLocation,
 }
 
+#[cfg(feature = "yaml")]
 /// Resource location for schema files
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResourceLocation {
