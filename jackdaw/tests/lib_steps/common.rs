@@ -38,6 +38,19 @@ async fn fresh_postgres_database() -> String {
     format!("{base}/{name}")
 }
 
+/// Drops a database made by [`fresh_postgres_database`], closing whatever still holds it.
+pub async fn drop_postgres_database(url: &str) {
+    use sqlx::Connection as _;
+    let (Ok(admin), Some((_, name))) = (std::env::var("DATABASE_URL"), url.rsplit_once('/')) else {
+        return;
+    };
+    if let Ok(mut connection) = sqlx::PgConnection::connect(&admin).await {
+        let _ = sqlx::query(&format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"))
+            .execute(&mut connection)
+            .await;
+    }
+}
+
 #[given("an in-memory engine")]
 fn memory_engine(world: &mut LibWorld) {
     world.durable = false;

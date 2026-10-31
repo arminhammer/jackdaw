@@ -238,6 +238,27 @@ async fn dropped_after_chunks(world: &mut LibWorld, n: usize, total: u32) {
             probe.completed("import_chunk") >= n
         })
         .await;
+    // A chunk counts as finished when its task returns, but is only safe from a re-run once its result is recorded.
+    // Slower stores (SQLite, Postgres) record it later, so crash once nothing has finished or been recorded for a
+    // moment.
+    let id = world.runs[world.last()].id.clone();
+    let engine = world.engine();
+    let started = std::time::Instant::now();
+    loop {
+        let before = (
+            probe.completed("import_chunk"),
+            engine.describe(&id).await.expect("describe").steps,
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        let after = (
+            probe.completed("import_chunk"),
+            engine.describe(&id).await.expect("describe").steps,
+        );
+        if before == after || started.elapsed() > std::time::Duration::from_secs(10) {
+            break;
+        }
+    }
+    drop(engine);
     world.crash().await;
     world.probe.release_all();
 }

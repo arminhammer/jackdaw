@@ -260,10 +260,19 @@ async fn shutdown_in_flight(world: &mut LibWorld) {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     engine.shutdown(Duration::from_secs(10)).await;
-    world.notes.insert(
-        "finished-before-shutdown-returned".into(),
-        json!(request.is_finished()),
-    );
+    // What the server did before shutdown returned: the request's workflow completed. (The client may still be
+    // reading the response, so its own task is not checked here.)
+    let completed = engine
+        .list(&ListFilter::new())
+        .await
+        .expect("list")
+        .iter()
+        .any(|instance| {
+            instance.workflow.name == "slow-add" && instance.status == Status::Completed
+        });
+    world
+        .notes
+        .insert("finished-before-shutdown-returned".into(), json!(completed));
     let (status, text) = request.await.expect("the request task");
     world.notes.insert("status".into(), json!(status));
     world.notes.insert("response".into(), json!(text));
