@@ -59,9 +59,10 @@ Feature: External events and the event stream
     When I call "Engine::history" with its id from a new engine
     Then I get the same events the stream delivered
 
-  @todo @yaml
+  @implemented @yaml
   Scenario: Rust workflows can emit events
-    Given a workflow that calls "ctx.emit(CloudEvent { type: \"order.shipped\", .. })"
+    Given a YAML workflow on the engine that listens for "order.shipped"
+    And a workflow that calls "ctx.emit(CloudEvent { type: \"order.shipped\", .. })"
     When it runs
-    Then the event stream contains an "Other" event of type "order.shipped"
-    And a YAML workflow listening for "order.shipped" on the same engine is triggered
+    Then the event stream contains an "Emitted" event of type "order.shipped"
+    And the YAML workflow receives the event and completes

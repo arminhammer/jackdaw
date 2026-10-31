@@ -418,3 +418,101 @@ async fn effect_once(world: &mut LibWorld) {
     };
     assert_eq!(effects, 1);
 }
+
+// ---- ctx.emit reaching YAML listen tasks on the same engine ----
+
+#[given(regex = r#"^a YAML workflow on the engine that listens for "(.+)"$"#)]
+async fn yaml_listener(world: &mut LibWorld, event_type: String) {
+    let yaml = format!(
+        r#"
+document: {{ dsl: '1.0.0', namespace: specs, name: on-event, version: '1.0.0' }}
+do:
+  - await:
+      listen:
+        to:
+          one:
+            with:
+              type: {event_type}
+"#
+    );
+    let workflow = Workflow::<Value, Value>::from_yaml(&yaml).expect("parses");
+    let engine = world.engine();
+    let id = engine
+        .execute(&workflow, json!({}))
+        .await
+        .expect("starts")
+        .id()
+        .to_string();
+    world.notes.insert("listener-id".into(), json!(id));
+    // Listening once its task has started (events are delivered to listeners waiting when they are emitted).
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        let history = engine.history(&id).await.expect("history");
+        if history.iter().any(
+            |event| matches!(event, Event::TaskStarted { task_name, .. } if task_name == "await"),
+        ) {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the listen task never started"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+}
+
+#[given(
+    regex = r#"^a workflow that calls "ctx\.emit\(CloudEvent \{ type: \\"order\.shipped\\", \.\. \}\)"$"#
+)]
+fn emitting_workflow(world: &mut LibWorld) {
+    world.set_fixture(super::fixture("helpers.ships"));
+}
+
+#[when("it runs")]
+async fn emitting_runs(world: &mut LibWorld) {
+    let run = world.start("it", json!("o-1")).await;
+    assert_eq!(world.outcome(run).await.value(), &json!("o-1"));
+}
+
+#[then(regex = r#"^the event stream contains an "Emitted" event of type "order\.shipped"$"#)]
+async fn stream_has_emitted(world: &mut LibWorld) {
+    let id = world.runs[world.last()].id.clone();
+    let history = world.engine().history(&id).await.expect("history");
+    assert_eq!(shipped(&history).len(), 1, "{history:?}");
+}
+
+#[then("the YAML workflow receives the event and completes")]
+async fn yaml_receives(world: &mut LibWorld) {
+    let id = world.notes["listener-id"]
+        .as_str()
+        .expect("a listener")
+        .to_string();
+    let engine = world.engine();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        let history = engine.history(&id).await.expect("history");
+        let received = history.iter().find_map(|event| match event {
+            Event::TaskCompleted {
+                task_name, result, ..
+            } if task_name == "await" => Some(result.clone()),
+            _ => None,
+        });
+        if let Some(received) = received {
+            assert_eq!(received[0]["type"], json!("order.shipped"), "{received}");
+            assert_eq!(received[0]["data"], json!({"order": "o-1"}), "{received}");
+            assert!(
+                history
+                    .iter()
+                    .any(|event| matches!(event, Event::WorkflowCompleted { .. })),
+                "{history:?}"
+            );
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the YAML workflow never received the event: {history:?}"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+}

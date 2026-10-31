@@ -286,11 +286,14 @@ async fn exec_do_task(
 /// Execute a Listen task - listeners are initialized at workflow startup
 #[allow(clippy::unnecessary_wraps)]
 async fn exec_listen_task(
-    _engine: &DurableEngine,
+    engine: &DurableEngine,
     _task_name: &str,
     listen_task: &crate::dsl::task::ListenTaskDefinition,
     ctx: &Context,
 ) -> Result<serde_json::Value> {
+    if !super::listeners::is_endpoint(listen_task) {
+        return listen_for_events(engine, listen_task).await;
+    }
     // Listen tasks are initialized at workflow startup via initialize_listeners()
     // The listener is already running in the background.
     // According to the DSL spec, if 'until' is specified with eventConsumptionStrategy 'any',
@@ -329,4 +332,76 @@ async fn exec_listen_task(
     }
 
     Ok(serde_json::json!({"status": "already_listening"}))
+}
+
+/// A `listen` task for events emitted on this engine: waits for the events its strategy names (`one`, `any` or `all`
+/// of the filters) and returns them, as CloudEvents or (with `read: data`) their data. A filter matches an event that
+/// has each attribute of its `with` set to the given value.
+async fn listen_for_events(
+    engine: &DurableEngine,
+    listen_task: &crate::dsl::task::ListenTaskDefinition,
+) -> Result<serde_json::Value> {
+    let to = &listen_task.listen.to;
+    let (filters, needs_all) = match (&to.one, &to.any, &to.all) {
+        (Some(one), None, None) => (vec![one.clone()], false),
+        (None, Some(any), None) => (any.clone(), false),
+        (None, None, Some(all)) => (all.clone(), true),
+        (None, None, None)
+        | (Some(_), Some(_), _)
+        | (Some(_), _, Some(_))
+        | (_, Some(_), Some(_)) => {
+            return Err(super::Error::Configuration {
+                message: "a listen task names exactly one of `one`, `any` or `all`".to_string(),
+            });
+        }
+    };
+    let matches = |filter: &crate::dsl::event::EventFilterDefinition, event: &serde_json::Value| {
+        filter.with.as_ref().is_none_or(|with| {
+            with.iter()
+                .all(|(attribute, expected)| event.get(attribute) == Some(expected))
+        })
+    };
+    let mut events = engine.events.subscribe();
+    let mut consumed: Vec<Option<serde_json::Value>> = vec![None; filters.len()];
+    loop {
+        let event = match events.recv().await {
+            Ok(event) => event,
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                return Err(super::Error::WorkflowExecution {
+                    message: "the engine stopped while a listen task waited for events".to_string(),
+                });
+            }
+        };
+        for (filter, slot) in filters.iter().zip(consumed.iter_mut()) {
+            if slot.is_none() && matches(filter, &event) {
+                *slot = Some(event.clone());
+                break;
+            }
+        }
+        let done = if needs_all {
+            consumed.iter().all(Option::is_some)
+        } else {
+            consumed.iter().any(Option::is_some)
+        };
+        if done {
+            let read_data = listen_task.listen.read.as_deref() == Some("data");
+            return Ok(serde_json::Value::Array(
+                consumed
+                    .into_iter()
+                    .flatten()
+                    .map(|event| {
+                        if read_data {
+                            event
+                                .get("data")
+                                .cloned()
+                                .unwrap_or(serde_json::Value::Null)
+                        } else {
+                            event
+                        }
+                    })
+                    .collect(),
+            ));
+        }
+    }
 }

@@ -6,7 +6,7 @@ use super::super::{DurableEngine, Result};
 
 /// Execute an Emit task - emits ``CloudEvents`` to the workflow context
 pub async fn exec_emit_task(
-    _engine: &DurableEngine,
+    engine: &DurableEngine,
     _task_name: &str,
     emit_task: &crate::dsl::task::EmitTaskDefinition,
     ctx: &Context,
@@ -44,6 +44,7 @@ pub async fn exec_emit_task(
     }
 
     let result = serde_json::Value::Object(event_data);
+    engine.publish(result.clone());
 
     // Merge each field of the event into the context (not nested under task name)
     if let serde_json::Value::Object(map) = &result {

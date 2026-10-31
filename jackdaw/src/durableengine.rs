@@ -164,6 +164,8 @@ pub struct DurableEngine {
     event_buffer_size: usize,
     /// The engine's clock: task start times, and when `wait` tasks end.
     clock: Arc<dyn crate::api::Clock>,
+    /// Events emitted on this engine (by `emit` tasks and `ctx.emit`), for the `listen` tasks waiting for them.
+    events: tokio::sync::broadcast::Sender<serde_json::Value>,
 }
 
 impl std::fmt::Debug for DurableEngine {
@@ -224,7 +226,14 @@ impl DurableEngine {
             workflow_registry: Arc::new(RwLock::new(HashMap::new())),
             event_buffer_size,
             clock: Arc::new(crate::api::SystemClock),
+            events: tokio::sync::broadcast::channel(256).0,
         })
+    }
+
+    /// Delivers an emitted CloudEvent (as JSON) to the `listen` tasks waiting on this engine. An event nobody waits for
+    /// is dropped: it is not kept for listeners that start later.
+    pub(crate) fn publish(&self, event: serde_json::Value) {
+        let _ = self.events.send(event);
     }
 
     /// Uses the engine's clock (a test clock, for example) instead of the system clock.
@@ -457,6 +466,7 @@ impl DurableEngine {
         let cache = self.cache.clone();
         let workflow_registry = self.workflow_registry.clone();
         let clock = Arc::clone(&self.clock);
+        let events = self.events.clone();
         #[cfg(feature = "grpc-listener")]
         let grpc_listeners = self.grpc_listeners.clone();
         #[cfg(feature = "http-listener")]
@@ -488,6 +498,7 @@ impl DurableEngine {
                     engine.executors = executors;
                     engine.workflow_registry = workflow_registry;
                     engine.clock = clock;
+                    engine.events = events;
                     #[cfg(feature = "grpc-listener")]
                     {
                         engine.grpc_listeners = grpc_listeners;

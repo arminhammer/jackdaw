@@ -62,7 +62,9 @@ impl DurableEngine {
         // Scan all tasks for Listen tasks
         for entry in &workflow.do_.entries {
             for (task_name, task) in entry {
-                if let TaskDefinition::Listen(listen_task) = task {
+                if let TaskDefinition::Listen(listen_task) = task
+                    && is_endpoint(listen_task)
+                {
                     // Extract event source and handler information
                     #[cfg_attr(
                         not(any(feature = "http-listener", feature = "grpc-listener")),
@@ -691,4 +693,21 @@ fn indent_json(value: &serde_json::Value, indent: usize) -> String {
         .map(|line| format!("{indent_str}{line}"))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Whether a `listen` task serves an endpoint (HTTP or gRPC, named by `with.source.uri`), as opposed to waiting for
+/// events emitted on the engine. A CloudEvent's own `source` attribute is a string, so it never looks like an endpoint.
+pub(super) fn is_endpoint(listen_task: &ListenTaskDefinition) -> bool {
+    let to = &listen_task.listen.to;
+    to.one
+        .iter()
+        .chain(to.any.iter().flatten())
+        .chain(to.all.iter().flatten())
+        .any(|filter| {
+            filter
+                .with
+                .as_ref()
+                .and_then(|with| with.get("source"))
+                .is_some_and(|source| source.get("uri").is_some())
+        })
 }

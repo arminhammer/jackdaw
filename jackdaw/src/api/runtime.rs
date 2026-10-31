@@ -2765,6 +2765,13 @@ impl InstanceCore {
                 if event.source.is_empty() {
                     event.source = format!("jackdaw:{}", self.workflow);
                 }
+                // Live only: a replayed `emit` has its record and does not reach this code again.
+                #[cfg(feature = "yaml")]
+                if let Ok(shared) = self.shared()
+                    && let Ok(json) = serde_json::to_value(&event)
+                {
+                    shared.yaml.legacy.publish(json);
+                }
                 self.emit(Event::Emitted {
                     instance_id: self.id.clone(),
                     event,
