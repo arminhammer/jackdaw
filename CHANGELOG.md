@@ -9,6 +9,10 @@ The workspace publishes three crates with the same version: `jackdaw-wf` (the li
 
 ## [Unreleased]
 
+## [0.2.0] - unreleased
+
+Set the date when the release is tagged.
+
 Jackdaw becomes a library first: durable workflows written in Rust, with the Serverless Workflow YAML interpreter as
 an optional part of the same engine. The CLI is now a separate crate built on the library's public API.
 
@@ -64,5 +68,6 @@ an optional part of the same engine. The CLI is now a separate crate built on th
 
 The CLI release before the library refactor; see the GitHub release.
 
-[Unreleased]: https://github.com/arminhammer/jackdaw/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/arminhammer/jackdaw/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/arminhammer/jackdaw/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/arminhammer/jackdaw/releases/tag/v0.1.1
