@@ -115,6 +115,19 @@
 
 pub mod api;
 pub mod cache;
+/// The Serverless Workflow DSL (1.0.3) as Rust types.
+///
+/// [`dsl::workflow::WorkflowDefinition`] is the root: what [`api::Workflow::from_yaml`] parses a document into and
+/// [`api::Workflow::definition`] hands back. The types mirror the
+/// [DSL reference](https://github.com/serverlessworkflow/specification/blob/main/dsl-reference.md) field for field.
+///
+/// Vendored verbatim from `core/src/models` of the
+/// [Serverless Workflow Rust SDK](https://github.com/serverlessworkflow/sdk-rust) (Apache-2.0, copyright The
+/// Serverless Workflow Authors; see `src/dsl/LICENSE`, and `src/dsl/UPSTREAM` for the commit). Do not edit these
+/// files; run `just update-dsl` to pull a new revision.
+#[allow(missing_docs, rustdoc::all, clippy::all, clippy::pedantic, clippy::restriction)]
+#[rustfmt::skip]
+pub mod dsl;
 pub mod guide;
 pub mod persistence;
 pub mod prelude;
@@ -141,6 +154,9 @@ mod task_ext;
 mod task_output;
 
 /// What the macros' generated code refers to. Not part of the API: it changes without notice.
+// The vendored DSL refers to its own modules as `crate::models::...`.
+use dsl as models;
+
 #[doc(hidden)]
 pub mod __private {
     pub use crate::api::plumbing::*;

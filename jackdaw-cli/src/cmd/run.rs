@@ -1,7 +1,7 @@
 use clap::Parser;
 use console::style;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use serverless_workflow_core::models::workflow::WorkflowDefinition;
+use jackdaw::dsl::workflow::WorkflowDefinition;
 use snafu::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

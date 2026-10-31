@@ -6,11 +6,11 @@ mod yaml_engine;
 use crate::yaml_engine::YamlEngineBuilder;
 /// Tests for flow control directives (exit, end, continue)
 use jackdaw::cache::CacheProvider;
+use jackdaw::dsl::workflow::WorkflowDefinition;
 use jackdaw::persistence::PersistenceProvider;
 use jackdaw::providers::cache::RedbCache;
 use jackdaw::providers::persistence::RedbPersistence;
 use serde_json::json;
-use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use std::sync::Arc;
 use std::time::Duration;
 

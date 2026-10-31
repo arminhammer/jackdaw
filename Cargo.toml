@@ -6,9 +6,6 @@ members = [
     "jackdaw-macros"
 ]
 
-[workspace.dependencies]
-serverless_workflow_core = { git = "https://github.com/arminhammer/sdk-rust.git", rev = "6c3b00ad5579a890a47f9a363815dca64d6facfc" }
-
 [workspace.lints.clippy]
 indexing_slicing = "deny"
 fallible_impl_from = "deny"

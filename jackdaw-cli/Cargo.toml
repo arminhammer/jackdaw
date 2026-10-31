@@ -16,7 +16,6 @@ path = "src/main.rs"
 
 [dependencies]
 jackdaw = { path = "../jackdaw", version = "0.1.1" }
-serverless_workflow_core = { workspace = true }
 clap = { version = "4", features = ["derive", "env"] }
 config = "0.15.15"
 console = "0.15"

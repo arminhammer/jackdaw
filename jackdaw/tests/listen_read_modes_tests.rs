@@ -19,10 +19,10 @@ use tempfile::TempDir;
 use crate::yaml_engine::YamlEngine;
 use crate::yaml_engine::YamlEngineBuilder;
 use jackdaw::cache::CacheProvider;
+use jackdaw::dsl::workflow::WorkflowDefinition;
 use jackdaw::persistence::PersistenceProvider;
 use jackdaw::providers::cache::RedbCache;
 use jackdaw::providers::persistence::RedbPersistence;
-use serverless_workflow_core::models::workflow::WorkflowDefinition;
 
 /// Helper to set up test infrastructure
 async fn setup_test_engine(temp_dir: &TempDir) -> YamlEngine {

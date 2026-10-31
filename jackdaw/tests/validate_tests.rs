@@ -4,7 +4,7 @@
 #![allow(clippy::collapsible_if)]
 
 use jackdaw::api::Workflow;
-use serverless_workflow_core::models::workflow::WorkflowDefinition;
+use jackdaw::dsl::workflow::WorkflowDefinition;
 use std::path::PathBuf;
 
 /// Helper function to validate a single workflow file

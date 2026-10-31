@@ -15,7 +15,7 @@ use super::super::{DurableEngine, Error, IoSnafu, Result};
 pub async fn exec_run_task(
     engine: &DurableEngine,
     task_name: &str,
-    run_task: &serverless_workflow_core::models::task::RunTaskDefinition,
+    run_task: &crate::dsl::task::RunTaskDefinition,
     ctx: &Context,
 ) -> Result<serde_json::Value> {
     // Evaluate expressions in the run task definition before computing cache key
@@ -156,7 +156,7 @@ pub async fn exec_run_task(
         // Get script code - either inline or from external source
         let script_code = if let Some(source) = script.source.as_ref() {
             // Load from external source
-            use serverless_workflow_core::models::resource::OneOfEndpointDefinitionOrUri;
+            use crate::dsl::resource::OneOfEndpointDefinitionOrUri;
             let source_uri = match &source.endpoint {
                 OneOfEndpointDefinitionOrUri::Uri(uri) => uri.as_str(),
                 OneOfEndpointDefinitionOrUri::Endpoint(endpoint) => &endpoint.uri,

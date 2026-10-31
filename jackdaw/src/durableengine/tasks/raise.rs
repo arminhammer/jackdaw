@@ -6,10 +6,10 @@ use super::super::{DurableEngine, Error, Result};
 pub async fn exec_raise_task(
     _engine: &DurableEngine,
     task_name: &str,
-    raise_task: &serverless_workflow_core::models::task::RaiseTaskDefinition,
+    raise_task: &crate::dsl::task::RaiseTaskDefinition,
     _ctx: &Context,
 ) -> Result<serde_json::Value> {
-    use serverless_workflow_core::models::error::OneOfErrorDefinitionOrReference;
+    use crate::dsl::error::OneOfErrorDefinitionOrReference;
 
     // Extract the error definition
     let error_def = match &raise_task.raise.error {

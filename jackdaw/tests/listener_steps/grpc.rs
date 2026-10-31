@@ -9,8 +9,8 @@
 use crate::ListenerWorld;
 use crate::common::parse_docstring;
 use cucumber::{given, then, when};
+use jackdaw::dsl::workflow::WorkflowDefinition;
 use prost::Message;
-use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use snafu::prelude::*;
 
 #[derive(Debug, Snafu)]

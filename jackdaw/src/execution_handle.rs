@@ -30,7 +30,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// ## One-shot workflow - wait for result
 /// ```text
 /// # use jackdaw::builder::DurableEngineBuilder;
-/// # use serverless_workflow_core::models::workflow::WorkflowDefinition;
+/// # use crate::dsl::workflow::WorkflowDefinition;
 /// # use std::time::Duration;
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// # let engine = DurableEngineBuilder::new().build()?;
@@ -46,7 +46,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// ## Stream events from execution
 /// ```text
 /// # use jackdaw::{builder::DurableEngineBuilder, workflow::WorkflowEvent};
-/// # use serverless_workflow_core::models::workflow::WorkflowDefinition;
+/// # use crate::dsl::workflow::WorkflowDefinition;
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// # let engine = DurableEngineBuilder::new().build()?;
 /// # let workflow_yaml = "document:\n  dsl: '1.0.2'\n  namespace: test\n  name: test\n  version: 1.0.0\ndo: []";
@@ -74,7 +74,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// ## Perpetual workflow - process indefinitely
 /// ```text
 /// # use jackdaw::{builder::DurableEngineBuilder, workflow::WorkflowEvent};
-/// # use serverless_workflow_core::models::workflow::WorkflowDefinition;
+/// # use crate::dsl::workflow::WorkflowDefinition;
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// # let engine = DurableEngineBuilder::new().build()?;
 /// # let workflow_yaml = "document:\n  dsl: '1.0.2'\n  namespace: test\n  name: test\n  version: 1.0.0\ndo: []";
@@ -124,7 +124,7 @@ impl ExecutionHandle {
     ///
     /// ```text
     /// # use jackdaw::builder::DurableEngineBuilder;
-    /// # use serverless_workflow_core::models::workflow::WorkflowDefinition;
+    /// # use crate::dsl::workflow::WorkflowDefinition;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// # let engine = DurableEngineBuilder::new().build()?;
     /// # let workflow_yaml = "document:\n  dsl: '1.0.2'\n  namespace: test\n  name: test\n  version: 1.0.0\ndo: []";
@@ -154,7 +154,7 @@ impl ExecutionHandle {
     ///
     /// ```text
     /// # use jackdaw::{builder::DurableEngineBuilder, workflow::WorkflowEvent};
-    /// # use serverless_workflow_core::models::workflow::WorkflowDefinition;
+    /// # use crate::dsl::workflow::WorkflowDefinition;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// # let engine = DurableEngineBuilder::new().build()?;
     /// # let workflow_yaml = "document:\n  dsl: '1.0.2'\n  namespace: test\n  name: test\n  version: 1.0.0\ndo: []";
@@ -186,7 +186,7 @@ impl ExecutionHandle {
     ///
     /// ```text
     /// # use jackdaw::builder::DurableEngineBuilder;
-    /// # use serverless_workflow_core::models::workflow::WorkflowDefinition;
+    /// # use crate::dsl::workflow::WorkflowDefinition;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// # let engine = DurableEngineBuilder::new().build()?;
     /// # let workflow_yaml = "document:\n  dsl: '1.0.2'\n  namespace: test\n  name: test\n  version: 1.0.0\ndo: []";

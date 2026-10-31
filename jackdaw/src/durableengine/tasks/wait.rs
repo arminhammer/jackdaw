@@ -1,7 +1,7 @@
 use crate::context::Context;
+use crate::dsl::duration::OneOfDurationOrIso8601Expression;
+use crate::dsl::task::WaitTaskDefinition;
 use crate::durableengine::DurableEngine;
-use serverless_workflow_core::models::duration::OneOfDurationOrIso8601Expression;
-use serverless_workflow_core::models::task::WaitTaskDefinition;
 use std::time::Duration as StdDuration;
 
 use super::Result;

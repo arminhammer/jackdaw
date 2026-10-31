@@ -1,4 +1,4 @@
-use serverless_workflow_core::models::task::TaskDefinition;
+use crate::dsl::task::TaskDefinition;
 
 use crate::context::Context;
 use crate::output;
@@ -218,10 +218,10 @@ impl DurableEngine {
 async fn exec_set_task(
     _engine: &DurableEngine,
     _task_name: &str,
-    set_task: &serverless_workflow_core::models::task::SetTaskDefinition,
+    set_task: &crate::dsl::task::SetTaskDefinition,
     ctx: &Context,
 ) -> Result<serde_json::Value> {
-    use serverless_workflow_core::models::task::SetValue;
+    use crate::dsl::task::SetValue;
 
     // Get current context data for expression evaluation
     let current_data = ctx.state.data.read().await.clone();
@@ -258,7 +258,7 @@ async fn exec_set_task(
 async fn exec_do_task(
     engine: &DurableEngine,
     _task_name: &str,
-    do_task: &serverless_workflow_core::models::task::DoTaskDefinition,
+    do_task: &crate::dsl::task::DoTaskDefinition,
     ctx: &Context,
 ) -> Result<serde_json::Value> {
     let mut last_result = serde_json::Value::Null;
@@ -288,7 +288,7 @@ async fn exec_do_task(
 async fn exec_listen_task(
     _engine: &DurableEngine,
     _task_name: &str,
-    listen_task: &serverless_workflow_core::models::task::ListenTaskDefinition,
+    listen_task: &crate::dsl::task::ListenTaskDefinition,
     ctx: &Context,
 ) -> Result<serde_json::Value> {
     // Listen tasks are initialized at workflow startup via initialize_listeners()
@@ -299,7 +299,7 @@ async fn exec_listen_task(
 
     let listen_def = &listen_task.listen;
     if let Some(until_box) = &listen_def.to.until {
-        use serverless_workflow_core::models::event::OneOfEventConsumptionStrategyDefinitionOrExpression;
+        use crate::dsl::event::OneOfEventConsumptionStrategyDefinitionOrExpression;
 
         // Check if until is an expression (not a strategy with events)
         if let OneOfEventConsumptionStrategyDefinitionOrExpression::Expression(until_expr) =

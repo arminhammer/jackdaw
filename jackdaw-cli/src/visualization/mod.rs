@@ -4,7 +4,7 @@ pub mod graphviz;
 pub use self::d2::D2Provider;
 pub use self::graphviz::GraphvizProvider;
 
-use serverless_workflow_core::models::workflow::WorkflowDefinition;
+use jackdaw::dsl::workflow::WorkflowDefinition;
 use snafu::prelude::*;
 use std::collections::HashMap;
 use std::path::Path;

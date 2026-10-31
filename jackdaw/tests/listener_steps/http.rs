@@ -5,7 +5,7 @@
 use crate::ListenerWorld;
 use crate::common::parse_docstring;
 use cucumber::{given, then, when};
-use serverless_workflow_core::models::workflow::WorkflowDefinition;
+use jackdaw::dsl::workflow::WorkflowDefinition;
 
 // Helper to parse JSON/YAML request body
 fn parse_request_body(text: &str) -> serde_json::Value {

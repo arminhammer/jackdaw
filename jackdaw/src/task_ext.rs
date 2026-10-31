@@ -1,12 +1,12 @@
 //! Extension trait for ``TaskDefinition`` to provide convenient helper methods
 
+use crate::dsl::input::InputDataModelDefinition;
+use crate::dsl::output::OutputDataModelDefinition;
+use crate::dsl::task::CallTaskDefinition;
+use crate::dsl::task::TaskDefinition;
+use crate::dsl::timeout::OneOfTimeoutDefinitionOrReference;
 use serde::ser::Error as _;
 use serde_json::Value;
-use serverless_workflow_core::models::input::InputDataModelDefinition;
-use serverless_workflow_core::models::output::OutputDataModelDefinition;
-use serverless_workflow_core::models::task::CallTaskDefinition;
-use serverless_workflow_core::models::task::TaskDefinition;
-use serverless_workflow_core::models::timeout::OneOfTimeoutDefinitionOrReference;
 use std::collections::HashMap;
 
 fn to_map<T: serde::Serialize>(

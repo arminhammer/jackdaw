@@ -8,7 +8,7 @@ use super::super::{DurableEngine, Result};
 pub async fn exec_emit_task(
     _engine: &DurableEngine,
     _task_name: &str,
-    emit_task: &serverless_workflow_core::models::task::EmitTaskDefinition,
+    emit_task: &crate::dsl::task::EmitTaskDefinition,
     ctx: &Context,
 ) -> Result<serde_json::Value> {
     // Get current context data for expression evaluation

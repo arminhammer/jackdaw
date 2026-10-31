@@ -1,6 +1,6 @@
 /// Timeout utility functions for parsing and applying timeouts
-use serverless_workflow_core::models::duration::OneOfDurationOrIso8601Expression;
-use serverless_workflow_core::models::timeout::OneOfTimeoutDefinitionOrReference;
+use crate::dsl::duration::OneOfDurationOrIso8601Expression;
+use crate::dsl::timeout::OneOfTimeoutDefinitionOrReference;
 use std::time::Duration as StdDuration;
 
 use super::Error;
@@ -108,8 +108,8 @@ mod tests {
     #![allow(clippy::panic)]
 
     use super::*;
-    use serverless_workflow_core::models::duration::Duration;
-    use serverless_workflow_core::models::timeout::TimeoutDefinition;
+    use crate::dsl::duration::Duration;
+    use crate::dsl::timeout::TimeoutDefinition;
 
     #[test]
     fn test_parse_iso8601_seconds() {

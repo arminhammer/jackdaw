@@ -1,7 +1,7 @@
 //! Checking a YAML workflow without running it: [`Workflow::validate`](super::Workflow::validate).
+use crate::dsl::workflow::WorkflowDefinition;
 use crate::task_ext::call_parts;
 use serde_json::Value;
-use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use std::collections::HashSet;
 
 /// How serious a [`Issue`] is.
@@ -106,14 +106,14 @@ fn extract_all_expressions(workflow: &WorkflowDefinition) -> Vec<(String, String
     }
 
     // Extract from tasks - TaskDefinition is an enum, so we need to match on it
-    use serverless_workflow_core::models::task::TaskDefinition;
+    use crate::dsl::task::TaskDefinition;
 
     for entry in &workflow.do_.entries {
         for (task_name, task_def) in entry {
             // Extract task-specific expressions based on task type
             match task_def {
                 TaskDefinition::Set(set_task) => {
-                    use serverless_workflow_core::models::task::SetValue;
+                    use crate::dsl::task::SetValue;
 
                     // Extract from set values
                     match &set_task.set {
@@ -523,7 +523,7 @@ fn validate_expression_syntax(expr: &str) -> std::result::Result<(), String> {
 }
 
 fn validate_references(workflow: &WorkflowDefinition, issues: &mut Vec<Issue>) {
-    use serverless_workflow_core::models::task::TaskDefinition;
+    use crate::dsl::task::TaskDefinition;
 
     // Collect defined functions
     let mut defined_functions = HashSet::new();

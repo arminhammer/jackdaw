@@ -1,6 +1,6 @@
 use crate::context::Context;
+use crate::dsl::task::TaskDefinition;
 use crate::task_ext::TaskDefinitionExt;
-use serverless_workflow_core::models::task::TaskDefinition;
 
 /// Apply export configuration to update context based on task result
 ///

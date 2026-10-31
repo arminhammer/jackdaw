@@ -6,7 +6,7 @@ use super::super::{DurableEngine, Error, Result};
 pub async fn exec_for_task(
     engine: &DurableEngine,
     _task_name: &str,
-    for_task: &serverless_workflow_core::models::task::ForTaskDefinition,
+    for_task: &crate::dsl::task::ForTaskDefinition,
     ctx: &Context,
 ) -> Result<serde_json::Value> {
     // Get current context data

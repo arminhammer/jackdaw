@@ -6,7 +6,7 @@
 use crate::NestedWorkflowWorld;
 use crate::common::parse_docstring;
 use cucumber::{given, then, when};
-use serverless_workflow_core::models::workflow::WorkflowDefinition;
+use jackdaw::dsl::workflow::WorkflowDefinition;
 use std::time::Duration;
 
 #[given(regex = r"^the following workflows are registered:$")]

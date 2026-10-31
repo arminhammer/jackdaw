@@ -1,4 +1,4 @@
-use serverless_workflow_core::models::workflow::WorkflowDefinition;
+use crate::dsl::workflow::WorkflowDefinition;
 use snafu::prelude::*;
 use std::collections::HashMap;
 
@@ -62,7 +62,7 @@ impl DurableEngine {
             // Use first catalog for now
             let function_url = if let Some(catalog) = catalogs.values().next() {
                 // Extract URI from the endpoint enum
-                use serverless_workflow_core::models::resource::OneOfEndpointDefinitionOrUri;
+                use crate::dsl::resource::OneOfEndpointDefinitionOrUri;
                 let catalog_uri = match &catalog.endpoint {
                     OneOfEndpointDefinitionOrUri::Uri(uri) => uri.as_str(),
                     OneOfEndpointDefinitionOrUri::Endpoint(endpoint_def) => &endpoint_def.uri,

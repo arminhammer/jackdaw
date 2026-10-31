@@ -1857,10 +1857,10 @@ dependencies = [
  "reqwest",
  "schemars 1.2.1",
  "serde",
+ "serde_derive",
  "serde_json",
  "serde_yaml",
  "serial_test",
- "serverless_workflow_core",
  "sha2",
  "snafu",
  "sqlx",
@@ -1891,7 +1891,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
- "serverless_workflow_core",
  "snafu",
  "tempfile",
  "tokio",
@@ -3508,17 +3507,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
-]
-
-[[package]]
-name = "serverless_workflow_core"
-version = "1.0.0-alpha6.3"
-source = "git+https://github.com/arminhammer/sdk-rust.git?rev=6c3b00ad5579a890a47f9a363815dca64d6facfc#6c3b00ad5579a890a47f9a363815dca64d6facfc"
-dependencies = [
- "serde",
- "serde_derive",
- "serde_json",
- "serde_yaml",
 ]
 
 [[package]]

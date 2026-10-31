@@ -13,7 +13,7 @@ use crate::task_ext::call_parts;
 pub async fn exec_call_task(
     engine: &DurableEngine,
     task_name: &str,
-    call_task: &serverless_workflow_core::models::task::CallTaskDefinition,
+    call_task: &crate::dsl::task::CallTaskDefinition,
     ctx: &Context,
 ) -> Result<serde_json::Value> {
     let (function_name, with_params) = call_parts(call_task)?;
@@ -64,7 +64,7 @@ pub async fn exec_call_task(
         .and_then(|funcs| funcs.get(function_name))
     {
         // User-defined function
-        use serverless_workflow_core::models::task::TaskDefinition;
+        use crate::dsl::task::TaskDefinition;
         let (call_type, func_params) = match function_def {
             TaskDefinition::Call(call_def) => call_parts(call_def)?,
             TaskDefinition::Do(_)

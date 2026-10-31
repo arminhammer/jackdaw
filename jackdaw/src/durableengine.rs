@@ -1,8 +1,8 @@
+use crate::dsl::task::TaskDefinition;
+use crate::dsl::workflow::WorkflowDefinition;
 use async_recursion::async_recursion;
 use chrono::Utc;
 use petgraph::{graph::DiGraph, stable_graph::NodeIndex};
-use serverless_workflow_core::models::task::TaskDefinition;
-use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use snafu::prelude::*;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
@@ -351,7 +351,7 @@ impl DurableEngine {
     ///
     /// ```text
     /// # use jackdaw::builder::DurableEngineBuilder;
-    /// # use serverless_workflow_core::models::workflow::WorkflowDefinition;
+    /// # use crate::dsl::workflow::WorkflowDefinition;
     /// # use std::time::Duration;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let engine = DurableEngineBuilder::new().build()?;

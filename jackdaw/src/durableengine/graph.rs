@@ -1,6 +1,6 @@
+use crate::dsl::task::TaskDefinition;
+use crate::dsl::workflow::WorkflowDefinition;
 use petgraph::{graph::DiGraph, stable_graph::NodeIndex};
-use serverless_workflow_core::models::task::TaskDefinition;
-use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use std::collections::HashMap;
 
 use super::{Error, Result};

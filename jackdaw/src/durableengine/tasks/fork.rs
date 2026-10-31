@@ -9,7 +9,7 @@ use super::super::{DurableEngine, Error, Result};
 pub async fn exec_fork_task(
     engine: &DurableEngine,
     _task_name: &str,
-    fork_task: &serverless_workflow_core::models::task::ForkTaskDefinition,
+    fork_task: &crate::dsl::task::ForkTaskDefinition,
     ctx: &Context,
 ) -> Result<serde_json::Value> {
     // Check if compete mode is enabled - use different future types

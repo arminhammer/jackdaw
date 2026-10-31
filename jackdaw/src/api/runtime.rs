@@ -16,13 +16,13 @@ use super::workflow::{
     WorkflowId,
 };
 use crate::cache::{CacheEntry, CacheProvider, compute_cache_key};
+use crate::dsl::workflow::WorkflowDefinition;
 use crate::durableengine::DurableEngine;
 use crate::persistence::PersistenceProvider;
 use crate::workflow::WorkflowCheckpoint;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use sha2::{Digest, Sha256};
 use std::any::TypeId;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};

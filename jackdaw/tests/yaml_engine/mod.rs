@@ -3,11 +3,11 @@
 #![allow(dead_code)]
 
 use jackdaw::api::{Event, EventStream, ExecutionHandle, Workflow};
+use jackdaw::dsl::workflow::WorkflowDefinition;
 use jackdaw::providers::cache::mem::InMemoryCache;
 use jackdaw::providers::persistence::InMemoryPersistence;
 use jackdaw::{CacheProvider, Engine, Error, PersistenceProvider};
 use serde_json::Value;
-use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use std::sync::Arc;
 use std::time::Duration;
 

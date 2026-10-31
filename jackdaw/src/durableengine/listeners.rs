@@ -1,9 +1,7 @@
+use crate::dsl::task::{CallTaskDefinition, ListenTaskDefinition, TaskDefinition};
+use crate::dsl::workflow::WorkflowDefinition;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-use serverless_workflow_core::models::task::{
-    CallTaskDefinition, ListenTaskDefinition, TaskDefinition,
-};
-use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use std::collections::HashMap;
 use std::sync::Arc;
 

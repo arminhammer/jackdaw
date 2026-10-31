@@ -1,6 +1,6 @@
 use clap::Parser;
 use console::style;
-use serverless_workflow_core::models::workflow::WorkflowDefinition;
+use jackdaw::dsl::workflow::WorkflowDefinition;
 use snafu::{ResultExt, prelude::*};
 use std::path::PathBuf;
 

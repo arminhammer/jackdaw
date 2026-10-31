@@ -7,7 +7,7 @@ use super::super::{DurableEngine, Result};
 pub async fn exec_try_task(
     engine: &DurableEngine,
     task_name: &str,
-    try_task: &serverless_workflow_core::models::task::TryTaskDefinition,
+    try_task: &crate::dsl::task::TryTaskDefinition,
     ctx: &Context,
 ) -> Result<serde_json::Value> {
     // Execute the tasks in the try block
@@ -119,7 +119,7 @@ pub async fn exec_try_task(
 /// Check if an error should be caught based on the catch definition
 fn should_catch_error(
     error: &serde_json::Value,
-    catch_def: &serverless_workflow_core::models::task::ErrorCatcherDefinition,
+    catch_def: &crate::dsl::task::ErrorCatcherDefinition,
 ) -> bool {
     // If no error filter is defined, catch all errors
     let Some(ref error_filter) = catch_def.errors else {

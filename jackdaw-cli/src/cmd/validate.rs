@@ -1,8 +1,8 @@
 use clap::Parser;
 use console::style;
 use jackdaw::api::{Severity, Workflow};
+use jackdaw::dsl::workflow::WorkflowDefinition;
 use serde_json::Value;
-use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use snafu::prelude::*;
 use std::path::{Path, PathBuf};
 

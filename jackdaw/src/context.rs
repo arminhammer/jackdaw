@@ -1,5 +1,5 @@
+use crate::dsl::workflow::WorkflowDefinition;
 use chrono::Utc;
-use serverless_workflow_core::models::workflow::WorkflowDefinition;
 use snafu::prelude::*;
 use std::collections::HashSet;
 use std::sync::Arc;

@@ -6,7 +6,7 @@ use super::super::{DurableEngine, Result};
 pub async fn exec_switch_task(
     _engine: &DurableEngine,
     _task_name: &str,
-    switch_task: &serverless_workflow_core::models::task::SwitchTaskDefinition,
+    switch_task: &crate::dsl::task::SwitchTaskDefinition,
     ctx: &Context,
 ) -> Result<serde_json::Value> {
     // Get current context data

@@ -1,5 +1,5 @@
-use serverless_workflow_core::models::task::TaskDefinition;
-use serverless_workflow_core::models::workflow::WorkflowDefinition;
+use jackdaw::dsl::task::TaskDefinition;
+use jackdaw::dsl::workflow::WorkflowDefinition;
 use snafu::prelude::*;
 use std::fmt::Write;
 use std::path::Path;
@@ -307,7 +307,7 @@ mod tests {
     #![allow(clippy::unwrap_used)]
 
     use super::*;
-    use serverless_workflow_core::models::workflow::WorkflowDefinitionMetadata;
+    use jackdaw::dsl::workflow::WorkflowDefinitionMetadata;
 
     fn create_test_workflow() -> WorkflowDefinition {
         WorkflowDefinition::new(WorkflowDefinitionMetadata {

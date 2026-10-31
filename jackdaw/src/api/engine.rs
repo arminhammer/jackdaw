@@ -190,7 +190,7 @@ pub struct EngineBuilder {
     schedules: Vec<super::schedule::Schedule>,
     lease: Option<std::time::Duration>,
     engine_id: Option<String>,
-    yaml_workflows: Vec<serverless_workflow_core::models::workflow::WorkflowDefinition>,
+    yaml_workflows: Vec<crate::dsl::workflow::WorkflowDefinition>,
     poll: std::time::Duration,
 }
 
