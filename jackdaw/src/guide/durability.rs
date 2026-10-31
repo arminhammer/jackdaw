@@ -130,7 +130,16 @@
 //!
 //! ## Changing a workflow that has running instances
 //!
-//! You have three tools. Pick by how big the change is.
+//! What matters is whether a running instance's recorded steps still match what the new code asks for, in order:
+//!
+//! - **Safe:** changing what a task does inside (its body), as long as its name stays and its recorded results still
+//!   deserialize into its output type; changing code between steps that does not change which steps are taken or
+//!   their inputs; adding steps *after* the furthest step any running instance has reached (they run live).
+//! - **Breaks running instances:** adding, removing or reordering steps before that point; renaming a task or child
+//!   workflow; changing a step's input (its hash is recorded); changing a step's output type so recorded results no
+//!   longer deserialize.
+//!
+//! For anything in the second list you have three tools. Pick by how big the change is.
 //!
 //! ### 1. Bump the version (the default for real changes)
 //!
@@ -207,6 +216,22 @@
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! A deploy that changes workflows, then: run `replay_all` against a copy of production data in CI; bump the version
+//! for changes of behaviour and keep the old version registered; and remove the old version once
+//! [`Engine::list`](crate::api::Engine::list) shows none of its instances running.
+//!
+//! ## The journal across jackdaw versions
+//!
+//! A store holds, per instance, a header (the workflow, its status and input, the deadlines, the journal format
+//! number) and an append-only log of records (one per step result, signal, event and deadline). The current format is
+//! 2; journals of format 1 (jackdaw 0.1, the whole journal in one record) are still read, and are rewritten in
+//! format 2 the next time they are saved. YAML workflows keep the YAML interpreter's own events and checkpoint instead.
+//!
+//! The policy until 1.0: a release that changes the journal format still reads every earlier format, and its
+//! changelog says so. Rolling back to an older jackdaw is safe only while no instance has been written in a format
+//! that release does not know. Payload encoding is yours: a [`PayloadCodec`](crate::api::PayloadCodec) that changes
+//! has to keep decoding what it encoded before.
 //!
 //! ## What is guaranteed about tasks
 //!

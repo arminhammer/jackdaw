@@ -111,7 +111,7 @@ Please make sure that a Docker socket at `/var/run/docker.sock` is available to 
 
 #### Python
 
-Python scripts are supported by `jackdaw`. The most straightforward way to use a python script is to embed the script directly in the workflow. See ['jackdaw-cli/examples/python/python-basics.sw.yaml'](./jackdaw-cli/examples/python/python-basics.sw.yaml).
+Python scripts are supported by `jackdaw`. The most straightforward way to use a python script is to embed the script directly in the workflow. See ['jackdaw-cli/examples/python/python-basics.sw.yaml'](https://github.com/arminhammer/jackdaw/blob/main/jackdaw-cli/examples/python/python-basics.sw.yaml).
 
 ```bash
 jackdaw run jackdaw-cli/examples/python/python-basics.sw.yaml
