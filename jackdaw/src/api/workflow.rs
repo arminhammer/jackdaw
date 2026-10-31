@@ -2,17 +2,23 @@
 //!
 //! Write workflows with the `workflow` and `workflow_methods` attributes; see the
 //! [workflows chapter](crate::guide::workflows). Workflows defined in YAML are loaded with [`Workflow`].
+#[cfg(feature = "yaml")]
 use super::catalog::CatalogWorkflowRef;
 use super::context::WorkflowContext;
-use super::error::{Error, WorkflowResult};
+#[cfg(feature = "yaml")]
+use super::error::Error;
+use super::error::WorkflowResult;
 use super::runtime::{Registry, register_workflow};
 use super::task::{BoxFuture, TaskDef, TaskTarget};
+#[cfg(feature = "yaml")]
 use crate::dsl::workflow::WorkflowDefinition;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::marker::PhantomData;
+#[cfg(feature = "yaml")]
 use std::path::Path;
+#[cfg(feature = "yaml")]
 use std::sync::Arc;
 
 /// `namespace`, `name` and `version`: the identity of a workflow.
@@ -348,12 +354,14 @@ impl<W> SyncWorkflowContext<W> {
 }
 
 /// What a workflow needs from the engine, found by scanning its `#[run]` body.
+#[non_exhaustive]
 pub enum Dependency {
     /// A task, native or from a catalog.
     Task(TaskTarget),
     /// A native child workflow.
     Workflow(WorkflowInfo),
     /// A child workflow from a catalog.
+    #[cfg(feature = "yaml")]
     CatalogWorkflow {
         /// The entry's name in the catalog.
         name: &'static str,
@@ -395,6 +403,7 @@ where
     }
 }
 
+#[cfg(feature = "yaml")]
 impl<I, O> AsDependency for CatalogWorkflowRef<I, O> {
     fn dependency(&self) -> Dependency {
         Dependency::CatalogWorkflow {
@@ -405,12 +414,17 @@ impl<I, O> AsDependency for CatalogWorkflowRef<I, O> {
 }
 
 /// Where a run request points.
+#[non_exhaustive]
 pub enum RunTarget {
     /// A native workflow.
     Native(WorkflowInfo),
     /// A workflow loaded from YAML or JSON.
+    #[cfg(feature = "yaml")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "yaml")))]
     Definition(Arc<WorkflowDefinition>),
     /// A workflow from a catalog.
+    #[cfg(feature = "yaml")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "yaml")))]
     Catalog {
         /// The entry's name in the catalog.
         name: &'static str,
@@ -447,6 +461,7 @@ where
     }
 }
 
+#[cfg(feature = "yaml")]
 impl<I, O> Runnable for &Workflow<I, O>
 where
     I: Serialize + Send + 'static,
@@ -460,6 +475,7 @@ where
     }
 }
 
+#[cfg(feature = "yaml")]
 impl<I, O> Runnable for CatalogWorkflowRef<I, O>
 where
     I: Serialize + Send + 'static,
@@ -506,11 +522,14 @@ where
 /// assert_eq!(workflow.name(), "greet");
 /// # Ok::<(), Error>(())
 /// ```
+#[cfg(feature = "yaml")]
+#[cfg_attr(docsrs, doc(cfg(feature = "yaml")))]
 pub struct Workflow<In, Out> {
     definition: Arc<WorkflowDefinition>,
     _types: PhantomData<fn(In) -> Out>,
 }
 
+#[cfg(feature = "yaml")]
 impl<In, Out> Clone for Workflow<In, Out> {
     fn clone(&self) -> Self {
         Self {
@@ -520,6 +539,7 @@ impl<In, Out> Clone for Workflow<In, Out> {
     }
 }
 
+#[cfg(feature = "yaml")]
 impl<In, Out> fmt::Debug for Workflow<In, Out> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Workflow")
@@ -530,6 +550,7 @@ impl<In, Out> fmt::Debug for Workflow<In, Out> {
     }
 }
 
+#[cfg(feature = "yaml")]
 impl<In, Out> Workflow<In, Out> {
     /// Parses a YAML workflow definition.
     ///

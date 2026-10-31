@@ -6,10 +6,27 @@ use crate::cache::{CacheEntry, compute_cache_key};
 use crate::container::{ContainerConfig, ContainerProvider};
 use crate::context::Context;
 use crate::output;
+#[cfg(feature = "docker")]
 use crate::providers::container::DockerProvider;
 use crate::task_output::TaskOutputStreamer;
 
 use super::super::{DurableEngine, Error, IoSnafu, Result};
+
+/// The provider that runs `run: container` tasks: Docker, with the `docker` feature.
+#[cfg(feature = "docker")]
+fn container_provider() -> Result<Box<dyn ContainerProvider>> {
+    let provider = DockerProvider::new().map_err(|e| Error::TaskExecution {
+        message: format!("Failed to create container provider: {e}"),
+    })?;
+    Ok(Box::new(provider))
+}
+
+#[cfg(not(feature = "docker"))]
+fn container_provider() -> Result<Box<dyn ContainerProvider>> {
+    Err(Error::TaskExecution {
+        message: "`run: container` needs the `docker` feature of jackdaw".to_string(),
+    })
+}
 
 /// Execute a Run task - runs workflows, scripts, containers, or shell commands
 pub async fn exec_run_task(
@@ -459,10 +476,7 @@ pub async fn exec_run_task(
         // Ports don't need expression evaluation (they're numbers)
         let ports = container.ports.clone();
 
-        // Create container provider (Docker for now, could be configurable later)
-        let provider = DockerProvider::new().map_err(|e| Error::TaskExecution {
-            message: format!("Failed to create container provider: {e}"),
-        })?;
+        let provider = container_provider()?;
 
         // Execute container
         let config = ContainerConfig {

@@ -16,24 +16,29 @@
 //! # Ok(())
 //! # }
 //! ```
+#[cfg(feature = "yaml")]
 use super::catalog::CatalogDef;
 use super::clock::{Clock, SharedClock, SystemClock};
 use super::codec::PayloadCodec;
 use super::error::{Divergence, Error};
 use super::event::{Event, EventStream};
+#[cfg(feature = "yaml")]
+use super::runtime::CatalogSet;
 use super::runtime::{
-    CatalogSet, InstanceCore, Journal, JournalStatus, Launched, Registry, Shared, StepExec,
+    InstanceCore, Journal, JournalStatus, Launched, Registry, Shared, StepExec, YamlRuntime,
     replay_instance,
 };
 use super::store::Store;
-use super::task::{
-    BoxFuture, NativeTask, RegisterTask, TaskContext, TaskDef, TaskOptions, TaskSet,
-};
+use super::task::{BoxFuture, RegisterTask, TaskDef, TaskOptions, TaskSet};
+#[cfg(feature = "yaml")]
+use super::task::{NativeTask, TaskContext};
 use super::workflow::{
     QueryRef, RunTarget, Runnable, SignalRef, UpdateRef, WorkflowDef, WorkflowId,
 };
 use crate::cache::CacheProvider;
+#[cfg(feature = "yaml")]
 use crate::durableengine::DurableEngine;
+#[cfg(feature = "yaml")]
 use crate::executor::Executor;
 use crate::persistence::PersistenceProvider;
 use crate::providers::cache::mem::InMemoryCache;
@@ -42,6 +47,7 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
+#[cfg(feature = "yaml")]
 use std::collections::HashMap;
 use std::fmt;
 use std::future::IntoFuture;
@@ -100,8 +106,10 @@ impl<T: TaskSet> IntoTaskSet for T {
 }
 
 /// Lets YAML workflows `call:` a native task by name.
+#[cfg(feature = "yaml")]
 struct NativeExecutor(NativeTask);
 
+#[cfg(feature = "yaml")]
 #[async_trait::async_trait]
 impl Executor for NativeExecutor {
     async fn exec(
@@ -128,11 +136,13 @@ impl Executor for NativeExecutor {
 }
 
 /// Lets YAML workflows `call:` a custom call type.
+#[cfg(feature = "yaml")]
 struct CustomExecutor {
     name: String,
     executor: Arc<dyn super::executor::Executor>,
 }
 
+#[cfg(feature = "yaml")]
 #[async_trait::async_trait]
 impl Executor for CustomExecutor {
     async fn exec(
@@ -181,7 +191,10 @@ pub struct EngineBuilder {
     persistence: Option<Arc<dyn PersistenceProvider>>,
     cache: Option<Arc<dyn CacheProvider>>,
     registry: Registry,
+    #[cfg(feature = "yaml")]
     catalogs: CatalogSet,
+    // Sizes the YAML interpreter's event buffer.
+    #[cfg_attr(not(feature = "yaml"), allow(dead_code))]
     event_buffer: usize,
     self_replay: bool,
     clock: Option<SharedClock>,
@@ -190,6 +203,7 @@ pub struct EngineBuilder {
     schedules: Vec<super::schedule::Schedule>,
     lease: Option<std::time::Duration>,
     engine_id: Option<String>,
+    #[cfg(feature = "yaml")]
     yaml_workflows: Vec<crate::dsl::workflow::WorkflowDefinition>,
     poll: std::time::Duration,
 }
@@ -208,6 +222,7 @@ impl EngineBuilder {
             persistence: None,
             cache: None,
             registry: Registry::default(),
+            #[cfg(feature = "yaml")]
             catalogs: CatalogSet::default(),
             event_buffer: 1000,
             self_replay: false,
@@ -217,6 +232,7 @@ impl EngineBuilder {
             schedules: Vec::new(),
             lease: None,
             engine_id: None,
+            #[cfg(feature = "yaml")]
             yaml_workflows: Vec::new(),
             poll: std::time::Duration::from_secs(1),
         }
@@ -248,6 +264,8 @@ impl EngineBuilder {
     /// Registers a YAML workflow that other YAML workflows run by name (`run: workflow: { namespace, name, version }`).
     /// Workflows you execute directly need no registration.
     #[must_use]
+    #[cfg(feature = "yaml")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "yaml")))]
     pub fn yaml_workflow<I, O>(mut self, workflow: &super::workflow::Workflow<I, O>) -> Self {
         self.yaml_workflows.push(workflow.definition().clone());
         self
@@ -326,6 +344,8 @@ impl EngineBuilder {
 
     /// Declares a catalog bound with `#[catalog]`.
     #[must_use]
+    #[cfg(feature = "yaml")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "yaml")))]
     pub fn catalog<C: CatalogDef>(mut self) -> Self {
         self.catalogs.add::<C>();
         self
@@ -384,8 +404,13 @@ impl EngineBuilder {
         let mut registry = self.registry;
         registry.add_builtins();
         registry.apply_fakes();
-        registry.validate(&self.catalogs)?;
-        self.catalogs.validate()?;
+        #[cfg(feature = "yaml")]
+        {
+            registry.validate(&self.catalogs)?;
+            self.catalogs.validate()?;
+        }
+        #[cfg(not(feature = "yaml"))]
+        registry.validate()?;
 
         let persistence = self.persistence.unwrap_or_else(|| {
             Arc::new(InMemoryPersistence::new()) as Arc<dyn PersistenceProvider>
@@ -394,40 +419,49 @@ impl EngineBuilder {
             .cache
             .unwrap_or_else(|| Arc::new(InMemoryCache::new()) as Arc<dyn CacheProvider>);
 
-        let mut legacy = DurableEngine::new_with_config(
-            Arc::clone(&persistence),
-            Arc::clone(&cache),
-            self.event_buffer,
-        )
-        .map_err(|e| Error::Engine(e.to_string()))?;
-        let mut natives: HashMap<String, Box<dyn Executor>> = registry
-            .tasks
-            .iter()
-            .map(|(name, task)| {
-                (
-                    (*name).to_string(),
-                    Box::new(NativeExecutor(task.clone())) as Box<dyn Executor>,
-                )
-            })
-            .collect();
-        for (name, executor) in &registry.executors {
-            natives.insert(
-                name.clone(),
-                Box::new(CustomExecutor {
-                    name: name.clone(),
-                    executor: Arc::clone(executor),
-                }),
-            );
-        }
-        legacy.add_executors(natives);
-        legacy.add_workflows(self.yaml_workflows);
+        // YAML workflows run on the YAML interpreter, which calls native tasks and custom executors by name.
+        #[cfg(feature = "yaml")]
+        let yaml = {
+            let mut legacy = DurableEngine::new_with_config(
+                Arc::clone(&persistence),
+                Arc::clone(&cache),
+                self.event_buffer,
+            )
+            .map_err(|e| Error::Engine(e.to_string()))?;
+            let mut natives: HashMap<String, Box<dyn Executor>> = registry
+                .tasks
+                .iter()
+                .map(|(name, task)| {
+                    (
+                        (*name).to_string(),
+                        Box::new(NativeExecutor(task.clone())) as Box<dyn Executor>,
+                    )
+                })
+                .collect();
+            for (name, executor) in &registry.executors {
+                natives.insert(
+                    name.clone(),
+                    Box::new(CustomExecutor {
+                        name: name.clone(),
+                        executor: Arc::clone(executor),
+                    }),
+                );
+            }
+            legacy.add_executors(natives);
+            legacy.add_workflows(self.yaml_workflows);
+            YamlRuntime {
+                catalogs: self.catalogs,
+                legacy,
+            }
+        };
+        #[cfg(not(feature = "yaml"))]
+        let yaml = YamlRuntime {};
 
         let mut shared = Shared::new(
             persistence,
             cache,
             registry,
-            self.catalogs,
-            legacy,
+            yaml,
             self.self_replay,
             self.clock.unwrap_or_else(|| Arc::new(SystemClock)),
             self.codec,
@@ -502,11 +536,13 @@ impl Engine {
                 let journal = Journal::new(info.id.clone(), value.clone());
                 self.shared.launch(id, entry, value, journal).await?
             }
+            #[cfg(feature = "yaml")]
             RunTarget::Definition(definition) => {
                 self.shared.launch_definition(&definition, value).await?
             }
+            #[cfg(feature = "yaml")]
             RunTarget::Catalog { name, version } => {
-                let definition = self.shared.catalogs.load(name, version).await?;
+                let definition = self.shared.yaml.catalogs.load(name, version).await?;
                 self.shared.launch_definition(&definition, value).await?
             }
         };
@@ -623,10 +659,15 @@ impl Engine {
         input: R::In,
         options: ExecuteOptions,
     ) -> Result<ExecutionHandle<R::Out>, Error> {
-        let RunTarget::Native(info) = runnable.target() else {
-            return Err(Error::invalid(
-                "execute_with starts Rust workflows; run YAML workflows with `execute`",
-            ));
+        #[cfg_attr(not(feature = "yaml"), allow(clippy::infallible_destructuring_match))]
+        let info = match runnable.target() {
+            RunTarget::Native(info) => info,
+            #[cfg(feature = "yaml")]
+            RunTarget::Definition(_) | RunTarget::Catalog { .. } => {
+                return Err(Error::invalid(
+                    "execute_with starts Rust workflows; run YAML workflows with `execute`",
+                ));
+            }
         };
         let value = serde_json::to_value(&input)
             .map_err(|e| Error::invalid(format!("the input could not be serialized: {e}")))?;
@@ -909,10 +950,13 @@ impl Engine {
 
     /// Registers a YAML workflow that other YAML workflows run by name (`run: workflow:`), on a running engine. See
     /// [`EngineBuilder::yaml_workflow`].
+    #[cfg(feature = "yaml")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "yaml")))]
     pub async fn register_yaml_workflow<I, O>(&self, workflow: &super::workflow::Workflow<I, O>) {
         // Registration only inserts into a map; the YAML engine reports no error for it.
         let _ = self
             .shared
+            .yaml
             .legacy
             .register_workflow(workflow.definition().clone())
             .await;
@@ -1422,6 +1466,8 @@ pub struct PendingTimer {
 /// Prints the YAML interpreter's task-by-task trace (inputs, outputs, timings) to the terminal, for every engine in the
 /// process. Off by default; the `jackdaw` CLI turns it on with `--debug`. Rust workflows report through
 /// [`tracing`](https://docs.rs/tracing) instead.
+#[cfg(feature = "yaml")]
+#[cfg_attr(docsrs, doc(cfg(feature = "yaml")))]
 pub fn set_yaml_trace(enabled: bool) {
     crate::output::set_debug_mode(enabled);
 }

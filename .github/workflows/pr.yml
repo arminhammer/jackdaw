@@ -34,6 +34,31 @@ jobs:
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
+  features:
+    name: Feature combinations
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.99.0
+        with:
+          components: clippy
+
+      - name: Install cargo-hack
+        uses: taiki-e/install-action@cargo-hack
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: features
+
+      # Each feature on its own (and none), so a gate that only works because another feature is on fails here. The
+      # tests always build with `full` (the crate's dev-dependency on itself), so this is where slim builds are checked.
+      - name: Clippy for each feature
+        run: cargo hack clippy -p jackdaw-wf --each-feature --no-dev-deps -- -D warnings
+
   msrv:
     name: Minimum Supported Rust Version
     runs-on: ubuntu-latest

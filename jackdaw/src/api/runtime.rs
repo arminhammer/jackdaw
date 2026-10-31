@@ -5,6 +5,7 @@
 //! has to be rebuilt, `#[run]` runs again from the top: steps that have a record return it, and the first step without
 //! one runs live. Step identities are assigned when the step is *created* (in program order), not when it is polled,
 //! so parallel combinators such as `futures::try_join!` replay correctly.
+#[cfg(feature = "yaml")]
 use super::catalog::{CatalogDef, CatalogEntry, EntryKind};
 use super::clock::SharedClock;
 use super::context::WorkflowContext;
@@ -16,7 +17,9 @@ use super::workflow::{
     WorkflowId,
 };
 use crate::cache::{CacheEntry, CacheProvider, compute_cache_key};
+#[cfg(feature = "yaml")]
 use crate::dsl::workflow::WorkflowDefinition;
+#[cfg(feature = "yaml")]
 use crate::durableengine::DurableEngine;
 use crate::persistence::PersistenceProvider;
 use crate::workflow::WorkflowCheckpoint;
@@ -25,7 +28,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::any::TypeId;
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+#[cfg(feature = "yaml")]
+use std::collections::HashSet;
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::future::Future;
 use std::marker::PhantomData;
 use std::panic::Location;
@@ -164,7 +169,9 @@ impl Registry {
             .iter()
             .filter_map(|dependency| match dependency {
                 Dependency::Workflow(info) => Some(info.register),
-                Dependency::Task(_) | Dependency::CatalogWorkflow { .. } => None,
+                Dependency::Task(_) => None,
+                #[cfg(feature = "yaml")]
+                Dependency::CatalogWorkflow { .. } => None,
             })
             .collect();
         self.workflows.insert(
@@ -184,7 +191,10 @@ impl Registry {
     }
 
     /// Checks that everything a registered workflow refers to exists.
-    pub(crate) fn validate(&self, catalogs: &CatalogSet) -> Result<(), Error> {
+    pub(crate) fn validate(
+        &self,
+        #[cfg(feature = "yaml")] catalogs: &CatalogSet,
+    ) -> Result<(), Error> {
         let mut problems = self.errors.clone();
         for entry in self.workflows.values() {
             for dependency in &entry.dependencies {
@@ -197,6 +207,7 @@ impl Registry {
                             entry.id
                         ))
                     }
+                    #[cfg(feature = "yaml")]
                     Dependency::Task(TaskTarget::Catalog { name, version })
                     | Dependency::CatalogWorkflow { name, version }
                         if !catalogs.contains(name, version) =>
@@ -206,9 +217,9 @@ impl Registry {
                             entry.id
                         ));
                     }
-                    Dependency::Task(_)
-                    | Dependency::Workflow(_)
-                    | Dependency::CatalogWorkflow { .. } => {}
+                    Dependency::Task(_) | Dependency::Workflow(_) => {}
+                    #[cfg(feature = "yaml")]
+                    Dependency::CatalogWorkflow { .. } => {}
                 }
             }
         }
@@ -229,16 +240,19 @@ pub fn register_workflow<W: WorkflowDef>(registry: &mut Registry) {
 // Catalogs
 // ---------------------------------------------------------------------------------------------------------------
 
+#[cfg(feature = "yaml")]
 struct BoundEntry {
     source: &'static str,
     entry: CatalogEntry,
 }
 
+#[cfg(feature = "yaml")]
 #[derive(Default)]
 pub(crate) struct CatalogSet {
     entries: HashMap<(String, String), BoundEntry>,
 }
 
+#[cfg(feature = "yaml")]
 impl CatalogSet {
     pub(crate) fn add<C: CatalogDef>(&mut self) {
         for entry in C::entries() {
@@ -347,6 +361,7 @@ impl CatalogSet {
 }
 
 /// If the entry's input schema requires a property the Rust input type does not have, says so.
+#[cfg(feature = "yaml")]
 fn schema_conflict(
     name: &str,
     version: &str,
@@ -730,12 +745,21 @@ pub(crate) fn duplicate(result: &Result<Value, Error>) -> Result<Value, Error> {
 // Shared engine state
 // ---------------------------------------------------------------------------------------------------------------
 
+/// The YAML interpreter's part of an engine: the interpreter, and the catalogs (whose entries are YAML). Empty without
+/// the `yaml` feature.
+pub(crate) struct YamlRuntime {
+    #[cfg(feature = "yaml")]
+    pub catalogs: CatalogSet,
+    #[cfg(feature = "yaml")]
+    pub legacy: DurableEngine,
+}
+
 pub(crate) struct Shared {
     pub persistence: Arc<dyn PersistenceProvider>,
     pub cache: Arc<dyn CacheProvider>,
     pub registry: Registry,
-    pub catalogs: CatalogSet,
-    pub legacy: DurableEngine,
+    #[cfg_attr(not(feature = "yaml"), allow(dead_code))]
+    pub yaml: YamlRuntime,
     pub self_replay: bool,
     pub clock: SharedClock,
     pub codec: Option<Arc<dyn super::codec::PayloadCodec>>,
@@ -913,8 +937,7 @@ impl Shared {
         persistence: Arc<dyn PersistenceProvider>,
         cache: Arc<dyn CacheProvider>,
         registry: Registry,
-        catalogs: CatalogSet,
-        legacy: DurableEngine,
+        yaml: YamlRuntime,
         self_replay: bool,
         clock: SharedClock,
         codec: Option<Arc<dyn super::codec::PayloadCodec>>,
@@ -923,8 +946,7 @@ impl Shared {
             persistence,
             cache,
             registry,
-            catalogs,
-            legacy,
+            yaml,
             self_replay,
             clock,
             codec,
@@ -1294,6 +1316,7 @@ impl Shared {
     }
 
     /// Runs a YAML definition on the YAML engine and mirrors its events and result into one instance.
+    #[cfg(feature = "yaml")]
     pub(crate) async fn launch_definition(
         self: &Arc<Self>,
         definition: &WorkflowDefinition,
@@ -1301,6 +1324,7 @@ impl Shared {
     ) -> Result<Launched, Error> {
         self.validate_definition(definition)?;
         let mut legacy = self
+            .yaml
             .legacy
             .execute(definition.clone(), input.clone())
             .await
@@ -1387,6 +1411,7 @@ impl Shared {
     }
 
     /// Fails fast on a YAML workflow that calls something nobody provides.
+    #[cfg(feature = "yaml")]
     pub(crate) fn validate_definition(&self, definition: &WorkflowDefinition) -> Result<(), Error> {
         let mut unknown = Vec::new();
         let functions: HashSet<String> = definition
@@ -2589,13 +2614,14 @@ impl InstanceCore {
             } => self.run_native(spec, name, options).await,
             // The engine's shared state is only borrowed to start things: holding it while a step waits would keep a
             // dropped engine (and its store) alive for as long as the step runs.
+            #[cfg(feature = "yaml")]
             StepExec::Task {
                 target: TaskTarget::Catalog { name, version },
                 ..
             } => {
                 let child = {
                     let shared = self.shared()?;
-                    let definition = shared.catalogs.load(name, version).await?;
+                    let definition = shared.yaml.catalogs.load(name, version).await?;
                     Child::Running(
                         shared
                             .launch_definition(&definition, spec.input.clone())
@@ -2619,12 +2645,14 @@ impl InstanceCore {
                                 )
                                 .await
                         }
+                        #[cfg(feature = "yaml")]
                         RunTarget::Definition(definition) => shared
                             .launch_definition(definition, spec.input.clone())
                             .await
                             .map(|launched| Child::Running(launched.core)),
+                        #[cfg(feature = "yaml")]
                         RunTarget::Catalog { name, version } => {
-                            match shared.catalogs.load(name, version).await {
+                            match shared.yaml.catalogs.load(name, version).await {
                                 Ok(definition) => shared
                                     .launch_definition(&definition, spec.input.clone())
                                     .await
@@ -2656,14 +2684,16 @@ impl InstanceCore {
                             .await?;
                         Ok(Outcome::Ok(Value::String(id)))
                     }
+                    #[cfg(feature = "yaml")]
                     RunTarget::Definition(definition) => {
                         let launched = shared
                             .launch_definition(definition, spec.input.clone())
                             .await?;
                         Ok(Outcome::Ok(Value::String(launched.core.id.clone())))
                     }
+                    #[cfg(feature = "yaml")]
                     RunTarget::Catalog { name, version } => {
-                        let definition = shared.catalogs.load(name, version).await?;
+                        let definition = shared.yaml.catalogs.load(name, version).await?;
                         let launched = shared
                             .launch_definition(&definition, spec.input.clone())
                             .await?;

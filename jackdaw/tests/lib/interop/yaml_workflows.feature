@@ -47,7 +47,7 @@ Feature: Rust and YAML workflows on one engine
     Then it fails with "Error::Invalid" naming the directive
     And no task of the workflow ran
 
-  @todo
+  @implemented
   Scenario: The YAML interpreter is optional
     Given "jackdaw" built without the "yaml" feature
     Then "Workflow::from_yaml" does not exist

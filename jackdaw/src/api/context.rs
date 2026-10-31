@@ -6,9 +6,12 @@
 use super::error::{Error, Fault, StepError, WorkflowResult};
 use super::runtime::{InstanceCore, StepExec, StepSpec};
 use super::task::{BoxFuture, Retry, TaskDef, TaskOptions};
-use super::workflow::{RunTarget, Runnable, Workflow, WorkflowDef};
+#[cfg(feature = "yaml")]
+use super::workflow::Workflow;
+use super::workflow::{RunTarget, Runnable, WorkflowDef};
 use chrono::{DateTime, Utc};
 use futures::{StreamExt, TryStreamExt};
+#[cfg(feature = "yaml")]
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -122,7 +125,9 @@ impl<W: Send + 'static> WorkflowContext<W> {
                 let target = child.target();
                 let name = match &target {
                     RunTarget::Native(info) => info.id.name.clone(),
+                    #[cfg(feature = "yaml")]
                     RunTarget::Definition(definition) => definition.document.name.clone(),
+                    #[cfg(feature = "yaml")]
                     RunTarget::Catalog { name, .. } => (*name).to_string(),
                 };
                 let spec = self
@@ -145,7 +150,9 @@ impl<W: Send + 'static> WorkflowContext<W> {
                 let target = workflow.target();
                 let name = match &target {
                     RunTarget::Native(info) => info.id.name.clone(),
+                    #[cfg(feature = "yaml")]
                     RunTarget::Definition(definition) => definition.document.name.clone(),
+                    #[cfg(feature = "yaml")]
                     RunTarget::Catalog { name, .. } => (*name).to_string(),
                 };
                 let spec = self
@@ -159,6 +166,8 @@ impl<W: Send + 'static> WorkflowContext<W> {
 
     /// Runs a YAML workflow bound to Rust types as a child.
     #[track_caller]
+    #[cfg(feature = "yaml")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "yaml")))]
     pub fn run_definition<I, O>(&self, workflow: &Workflow<I, O>, input: &I) -> Step<O>
     where
         I: Serialize + Send + 'static,
@@ -224,12 +233,16 @@ impl<W: Send + 'static> WorkflowContext<W> {
     /// Runs a container with Docker and returns what it printed. See [`Container`](super::Container).
     #[track_caller]
     #[must_use]
+    #[cfg(feature = "docker")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "docker")))]
     pub fn run_container(&self, container: super::Container) -> Step<super::ProcessOutput> {
         self.call(super::helpers::ContainerTask, container)
     }
 
     /// Sends an HTTP request. Statuses 408, 429 and 5xx are retryable faults, so `.retry(..)` on the step retries
     /// them. See [`Request`](super::Request).
+    #[cfg(feature = "http-client")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "http-client")))]
     #[track_caller]
     #[must_use]
     pub fn http(&self, request: super::Request) -> Step<super::Response> {

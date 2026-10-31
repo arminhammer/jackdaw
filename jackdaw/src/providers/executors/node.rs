@@ -47,6 +47,7 @@ impl NodeExecutor {
         Self { node_path }
     }
 
+    #[cfg(any(feature = "http-listener", feature = "grpc-listener"))]
     /// Execute a JavaScript function (used by listeners)
     ///
     /// Since this is an external executor, we need to serialize the function and arguments

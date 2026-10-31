@@ -3,10 +3,13 @@ use serde::{Deserialize, Serialize};
 use snafu::prelude::*;
 use std::sync::Arc;
 
+#[cfg(feature = "grpc-listener")]
 pub mod grpc;
+#[cfg(feature = "http-listener")]
 pub mod http;
 
 // pub use grpc::GrpcListener;
+#[cfg(feature = "http-listener")]
 pub use http::HttpListener;
 
 #[derive(Debug, Snafu)]
@@ -38,6 +41,7 @@ impl From<serde_yaml::Error> for Error {
     }
 }
 
+#[cfg(feature = "grpc-listener")]
 impl From<protox::Error> for Error {
     fn from(source: protox::Error) -> Self {
         Error::Listener {
@@ -46,6 +50,7 @@ impl From<protox::Error> for Error {
     }
 }
 
+#[cfg(feature = "grpc-listener")]
 impl From<prost::EncodeError> for Error {
     fn from(source: prost::EncodeError) -> Self {
         Error::Listener {
@@ -54,6 +59,7 @@ impl From<prost::EncodeError> for Error {
     }
 }
 
+#[cfg(feature = "grpc-listener")]
 impl From<prost_reflect::DescriptorError> for Error {
     fn from(source: prost_reflect::DescriptorError) -> Self {
         Error::Listener {

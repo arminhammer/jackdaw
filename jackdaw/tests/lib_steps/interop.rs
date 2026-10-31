@@ -729,3 +729,120 @@ fn example_succeeded(world: &mut LibWorld) {
     let example = &world.notes["example"];
     assert_eq!(example["success"], json!(true), "{}", example["stderr"]);
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Building jackdaw with fewer features
+// ---------------------------------------------------------------------------------------------------------------
+
+/// A downstream crate's native workflow, which must build and run without `yaml`.
+const NATIVE_ONLY: &str = r#"use jackdaw::prelude::*;
+
+#[task]
+async fn double(n: u64) -> Result<u64, TaskError> {
+    Ok(n * 2)
+}
+
+#[workflow(namespace = "check", name = "native", version = "1.0.0")]
+struct Native;
+
+#[workflow_methods]
+impl Native {
+    #[run]
+    async fn run(ctx: &mut WorkflowContext<Self>, n: u64) -> WorkflowResult<u64> {
+        Ok(ctx.call(Double, &n).await?)
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Error> {
+    let engine = Engine::builder().task(Double).workflow::<Native>().build()?;
+    let out = engine.execute(Native::run, 21).await?.await?;
+    assert_eq!(out, 42);
+    Ok(())
+}
+"#;
+
+/// A downstream crate that names the YAML API, which must not compile without `yaml`.
+const USES_YAML: &str = r#"fn main() {
+    let _ = jackdaw::api::Workflow::<serde_json::Value, serde_json::Value>::from_yaml("");
+}
+"#;
+
+/// Runs cargo in the downstream crate. It has its own target directory, so it does not wait on the test build's lock,
+/// and it reuses the workspace's lock file offline.
+async fn downstream_cargo(world: &LibWorld, args: &[&str]) -> (bool, String) {
+    let dir = world.notes["downstream"]
+        .as_str()
+        .expect("the crate")
+        .to_string();
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(900),
+        tokio::process::Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
+            .args(args)
+            .arg("--offline")
+            .current_dir(&dir)
+            .env("CARGO_TARGET_DIR", format!("{dir}/../target"))
+            .output(),
+    )
+    .await
+    .expect("cargo finishes within 15 minutes")
+    .expect("cargo runs");
+    (
+        output.status.success(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    )
+}
+
+#[given(regex = r#"^"jackdaw" built without the "yaml" feature$"#)]
+fn without_yaml(world: &mut LibWorld) {
+    let manifest = env!("CARGO_MANIFEST_DIR");
+    let dir = format!("{manifest}/../target/feature-checks/no-yaml");
+    std::fs::create_dir_all(format!("{dir}/src/bin")).expect("the crate directory");
+    std::fs::write(
+        format!("{dir}/Cargo.toml"),
+        format!(
+            r#"[package]
+name = "no-yaml"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+jackdaw = {{ package = "jackdaw-wf", path = "{manifest}", default-features = false }}
+serde = {{ version = "1", features = ["derive"] }}
+serde_json = "1"
+tokio = {{ version = "1", features = ["macros", "rt-multi-thread"] }}
+
+[workspace]
+"#
+        ),
+    )
+    .expect("Cargo.toml");
+    std::fs::copy(
+        format!("{manifest}/../Cargo.lock"),
+        format!("{dir}/Cargo.lock"),
+    )
+    .expect("the lock file");
+    std::fs::write(format!("{dir}/src/bin/native.rs"), NATIVE_ONLY).expect("native.rs");
+    std::fs::write(format!("{dir}/src/bin/uses_yaml.rs"), USES_YAML).expect("uses_yaml.rs");
+    world.notes.insert("downstream".into(), json!(dir));
+}
+
+#[then(regex = r#"^"Workflow::from_yaml" does not exist$"#)]
+async fn no_from_yaml(world: &mut LibWorld) {
+    let (ok, stderr) = downstream_cargo(world, &["build", "-q", "--bin", "uses_yaml"]).await;
+    assert!(
+        !ok,
+        "naming the YAML API compiled without the `yaml` feature"
+    );
+    assert!(
+        stderr.contains("error[E0") && stderr.contains("Workflow"),
+        "{stderr}"
+    );
+}
+
+#[then("the native Rust API works")]
+async fn native_api_works(world: &mut LibWorld) {
+    let (ok, stderr) = downstream_cargo(world, &["run", "-q", "--bin", "native"]).await;
+    assert!(ok, "{stderr}");
+}

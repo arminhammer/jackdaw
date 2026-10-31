@@ -18,10 +18,13 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// Where a task's code lives.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum TaskTarget {
     /// A native Rust task registered on the engine, by name.
     Native(&'static str),
     /// A catalog entry, `name:version`.
+    #[cfg(feature = "yaml")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "yaml")))]
     Catalog {
         /// The entry's name in the catalog.
         name: &'static str,

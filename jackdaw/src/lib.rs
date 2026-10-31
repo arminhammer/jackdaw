@@ -104,6 +104,24 @@
 //! jackdaw validate workflow.yaml
 //! ```
 //!
+//! ## Features
+//!
+//! | Feature | Default | What it adds |
+//! |---|---|---|
+//! | `yaml` | yes | The Serverless Workflow interpreter: `dsl`, `api::Workflow` (`from_yaml`, `validate`), `ctx.run_definition`, catalogs (`#[catalog]`). Includes `http-client`. |
+//! | `redb` | yes | The `Redb` store. |
+//! | `http-client` | yes | `ctx.http`, YAML `call: http`, remote catalogs. |
+//! | `sqlite`, `postgres` | | The `Sqlite` and `Postgres` stores. |
+//! | `docker` | | `ctx.run_container` and YAML `run: container`. |
+//! | `openapi` | | YAML `call: openapi`. |
+//! | `http-listener`, `grpc-listener` | | YAML `listen` tasks on HTTP (OpenAPI) and gRPC. |
+//! | `metrics` | | Counters and histograms through the `metrics` facade. |
+//! | `full` | | All of the above. |
+//!
+//! Without `yaml`, the native Rust API (tasks, workflows, the engine, the in-memory store, `testing`) still works:
+//! `default-features = false` builds about 70 crates instead of about 150. A YAML workflow that needs a feature the build
+//! lacks, such as a `listen` task without `http-listener`, fails with an error that names the feature.
+//!
 //! ## Extending jackdaw
 //!
 //! - A store of your own: implement [`PersistenceProvider`] (see the `custom_persistence` example), or [`api::Store`]
@@ -113,6 +131,7 @@
 //!
 //! The YAML interpreter that [`api`] is built on is private to the crate.
 #![warn(missing_docs)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 pub mod api;
 pub mod cache;
@@ -126,6 +145,8 @@ pub mod cache;
 /// [Serverless Workflow Rust SDK](https://github.com/serverlessworkflow/sdk-rust) (Apache-2.0, copyright The
 /// Serverless Workflow Authors; see `src/dsl/LICENSE`, and `src/dsl/UPSTREAM` for the commit). Do not edit these
 /// files; run `just update-dsl` to pull a new revision.
+#[cfg(feature = "yaml")]
+#[cfg_attr(docsrs, doc(cfg(feature = "yaml")))]
 #[allow(missing_docs, rustdoc::all, clippy::all, clippy::pedantic, clippy::restriction)]
 #[rustfmt::skip]
 pub mod dsl;
@@ -141,17 +162,30 @@ pub use cache::CacheProvider;
 pub use persistence::PersistenceProvider;
 
 // The YAML interpreter that `api` is built on.
+// The YAML interpreter.
+#[cfg(any(feature = "yaml", feature = "docker"))]
 mod container;
+#[cfg(feature = "yaml")]
 mod context;
+#[cfg(feature = "yaml")]
 mod descriptors;
+#[cfg(feature = "yaml")]
 mod durableengine;
+#[cfg(feature = "yaml")]
 mod execution_handle;
+#[cfg(feature = "yaml")]
 mod executionhistory;
+#[cfg(feature = "yaml")]
 mod executor;
+#[cfg(feature = "yaml")]
 mod expressions;
+#[cfg(feature = "yaml")]
 mod listeners;
+#[cfg(feature = "yaml")]
 mod output;
+#[cfg(feature = "yaml")]
 mod task_ext;
+#[cfg(feature = "yaml")]
 mod task_output;
 
 /// What the macros' generated code refers to. Not part of the API: it changes without notice.
@@ -161,14 +195,16 @@ mod task_output;
 struct ReadmeDoctests;
 
 // The vendored DSL refers to its own modules as `crate::models::...`.
+#[cfg(feature = "yaml")]
 use dsl as models;
 
 #[doc(hidden)]
 pub mod __private {
     pub use crate::api::plumbing::*;
+    #[cfg(feature = "yaml")]
+    pub use crate::api::{CatalogDef, CatalogTaskRef, CatalogWorkflowRef};
     pub use crate::api::{
-        CatalogDef, CatalogTaskRef, CatalogWorkflowRef, QueryRef, SignalRef, SyncWorkflowContext,
-        TaskDef, UpdateRef, WorkflowContext, WorkflowContextView, WorkflowDef, WorkflowRef,
-        WorkflowResult,
+        QueryRef, SignalRef, SyncWorkflowContext, TaskDef, UpdateRef, WorkflowContext,
+        WorkflowContextView, WorkflowDef, WorkflowRef, WorkflowResult,
     };
 }

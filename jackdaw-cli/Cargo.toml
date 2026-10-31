@@ -17,7 +17,7 @@ name = "jackdaw"
 path = "src/main.rs"
 
 [dependencies]
-jackdaw = { workspace = true }
+jackdaw = { workspace = true, features = ["full"] }
 clap = { version = "4", features = ["derive", "env"] }
 config = "0.15.15"
 console = "0.15"

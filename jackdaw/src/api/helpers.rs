@@ -16,6 +16,7 @@
 use super::error::{TaskError, error_types};
 use super::task::{NativeTask, TaskDef};
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "http-client")]
 use serde_json::Value;
 use std::collections::BTreeMap;
 
@@ -178,6 +179,8 @@ impl Script {
 
 /// A container for [`ctx.run_container`](crate::api::WorkflowContext::run_container), run with Docker and removed
 /// when it exits.
+#[cfg(feature = "docker")]
+#[cfg_attr(docsrs, doc(cfg(feature = "docker")))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[non_exhaustive]
 pub struct Container {
@@ -194,6 +197,7 @@ pub struct Container {
     pub stdin: Option<String>,
 }
 
+#[cfg(feature = "docker")]
 impl Container {
     /// Runs `image`.
     #[must_use]
@@ -236,6 +240,8 @@ impl Container {
 ///
 /// Statuses 408, 429 and 5xx (and connection errors) fail the step with a retryable fault, so a step `.retry(..)`
 /// policy retries them; other 4xx statuses fail it for good. Any other response is returned.
+#[cfg(feature = "http-client")]
+#[cfg_attr(docsrs, doc(cfg(feature = "http-client")))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[non_exhaustive]
 pub struct Request {
@@ -251,6 +257,7 @@ pub struct Request {
     pub body: Option<Value>,
 }
 
+#[cfg(feature = "http-client")]
 impl Request {
     /// A request with `method`.
     #[must_use]
@@ -303,6 +310,8 @@ impl Request {
 }
 
 /// The response to [`ctx.http`](crate::api::WorkflowContext::http).
+#[cfg(feature = "http-client")]
+#[cfg_attr(docsrs, doc(cfg(feature = "http-client")))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[non_exhaustive]
 pub struct Response {
@@ -332,7 +341,9 @@ macro_rules! helper_marker {
 
 helper_marker!(ShellTask, "jackdaw.shell", Shell, ProcessOutput);
 helper_marker!(ScriptTask, "jackdaw.script", Script, ProcessOutput);
+#[cfg(feature = "docker")]
 helper_marker!(ContainerTask, "jackdaw.container", Container, ProcessOutput);
+#[cfg(feature = "http-client")]
 helper_marker!(HttpTask, "jackdaw.http", Request, Response);
 
 /// The helper tasks every engine provides.
@@ -344,9 +355,11 @@ pub(crate) fn builtin_tasks() -> Vec<NativeTask> {
         NativeTask::new("jackdaw.script", false, |_ctx, script: Script| async move {
             run_shell(script.shell()?).await
         }),
+        #[cfg(feature = "docker")]
         NativeTask::new("jackdaw.container", false, |_ctx, container: Container| {
             run_container(container)
         }),
+        #[cfg(feature = "http-client")]
         NativeTask::new("jackdaw.http", false, |_ctx, request: Request| {
             send(request)
         }),
@@ -414,6 +427,7 @@ async fn run_shell(shell: Shell) -> Result<ProcessOutput, TaskError> {
     })
 }
 
+#[cfg(feature = "docker")]
 async fn run_container(container: Container) -> Result<ProcessOutput, TaskError> {
     use crate::container::{ContainerConfig, ContainerProvider};
     let provider = crate::providers::container::DockerProvider::new()
@@ -437,10 +451,12 @@ async fn run_container(container: Container) -> Result<ProcessOutput, TaskError>
     })
 }
 
+#[cfg(feature = "http-client")]
 fn retryable_status(status: u16) -> bool {
     status == 408 || status == 429 || status >= 500
 }
 
+#[cfg(feature = "http-client")]
 async fn send(request: Request) -> Result<Response, TaskError> {
     let method = reqwest::Method::from_bytes(request.method.as_bytes()).map_err(|e| {
         TaskError::fault(error_types::CONFIGURATION)

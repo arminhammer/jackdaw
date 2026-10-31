@@ -1,40 +1,25 @@
-use crate::dsl::task::{CallTaskDefinition, ListenTaskDefinition, TaskDefinition};
+#[cfg(any(feature = "http-listener", feature = "grpc-listener"))]
+use crate::dsl::task::CallTaskDefinition;
+use crate::dsl::task::{ListenTaskDefinition, TaskDefinition};
 use crate::dsl::workflow::WorkflowDefinition;
+#[cfg(feature = "grpc-listener")]
 use base64::Engine as _;
+#[cfg(feature = "grpc-listener")]
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::listeners::{EventSource, Listener, grpc::GrpcListener, http::HttpListener};
+use crate::listeners::EventSource;
+#[cfg(any(feature = "http-listener", feature = "grpc-listener"))]
+use crate::listeners::Listener;
+#[cfg(feature = "grpc-listener")]
+use crate::listeners::grpc::GrpcListener;
+#[cfg(feature = "http-listener")]
+use crate::listeners::http::HttpListener;
+#[cfg(any(feature = "http-listener", feature = "grpc-listener"))]
 use crate::providers::executors::{PythonExecutor, TypeScriptExecutor};
 
 use super::{DurableEngine, Error, Result};
-
-/// Convert OpenAPI-style path parameters `{param}` to Axum-style `:param`
-///
-/// Example: `/api/v1/pet/{petId}` → `/api/v1/pet/:petId`
-fn convert_path_params_to_axum(path: &str) -> String {
-    let mut result = String::with_capacity(path.len());
-    let mut chars = path.chars();
-
-    while let Some(ch) = chars.next() {
-        if ch == '{' {
-            // Found opening brace, replace with : and collect param name
-            result.push(':');
-            // Collect characters until closing brace
-            for param_char in chars.by_ref() {
-                if param_char == '}' {
-                    break;
-                }
-                result.push(param_char);
-            }
-        } else {
-            result.push(ch);
-        }
-    }
-
-    result
-}
 
 impl DurableEngine {
     /// Initialize all listeners from the workflow before task execution begins
@@ -44,6 +29,7 @@ impl DurableEngine {
     pub(super) async fn initialize_listeners(&self, workflow: &WorkflowDefinition) -> Result<()> {
         // Collect all HTTP routes grouped by (bind_addr, openapi_path)
         // Key: (bind_addr, openapi_path), Value: Vec of (path, task_name, handler)
+        #[cfg_attr(not(feature = "http-listener"), allow(unused_mut, unused_variables))]
         let mut http_routes: HashMap<
             (String, String),
             Vec<(
@@ -59,6 +45,7 @@ impl DurableEngine {
 
         // Collect all gRPC methods grouped by (bind_addr, proto_path, service_name)
         // Key: (bind_addr, proto_path, service_name), Value: Vec of (method_name, task_name, handler)
+        #[cfg_attr(not(feature = "grpc-listener"), allow(unused_mut, unused_variables))]
         let mut grpc_methods: HashMap<
             (String, String, String),
             Vec<(
@@ -77,6 +64,10 @@ impl DurableEngine {
             for (task_name, task) in entry {
                 if let TaskDefinition::Listen(listen_task) = task {
                     // Extract event source and handler information
+                    #[cfg_attr(
+                        not(any(feature = "http-listener", feature = "grpc-listener")),
+                        allow(unused_variables)
+                    )]
                     let (source_value, schema_path_opt) =
                         self.extract_listen_source(listen_task)?;
                     let event_source: EventSource = serde_json::from_value(source_value)?;
@@ -85,194 +76,221 @@ impl DurableEngine {
                     if event_source.uri.starts_with("http://")
                         || event_source.uri.starts_with("https://")
                     {
-                        // Parse bind address and path from URI
-                        let uri = &event_source.uri;
-                        let without_scheme = uri
-                            .strip_prefix("http://")
-                            .or_else(|| uri.strip_prefix("https://"))
-                            .ok_or_else(|| Error::Listener {
-                                message: "Invalid HTTP URI".to_string(),
+                        #[cfg(not(feature = "http-listener"))]
+                        return Err(Error::Listener {
+                            message: format!(
+                                "task `{task_name}` listens on HTTP; build jackdaw with the `http-listener` feature"
+                            ),
+                        });
+                        #[cfg(feature = "http-listener")]
+                        {
+                            // Parse bind address and path from URI
+                            let uri = &event_source.uri;
+                            let without_scheme = uri
+                                .strip_prefix("http://")
+                                .or_else(|| uri.strip_prefix("https://"))
+                                .ok_or_else(|| Error::Listener {
+                                    message: "Invalid HTTP URI".to_string(),
+                                })?;
+
+                            let parts: Vec<&str> = without_scheme.splitn(2, '/').collect();
+                            let mut bind_addr = parts
+                                .first()
+                                .ok_or_else(|| Error::Listener {
+                                    message: "Invalid gRPC URI: missing bind address".to_string(),
+                                })?
+                                .to_string();
+
+                            // Convert localhost to 127.0.0.1 for SocketAddr parsing
+                            if bind_addr.starts_with("localhost:") {
+                                bind_addr = bind_addr.replace("localhost:", "127.0.0.1:");
+                            }
+
+                            let path = if let Some(path_part) = parts.get(1) {
+                                format!("/{path_part}")
+                            } else {
+                                "/".to_string()
+                            };
+
+                            let openapi_path = schema_path_opt.ok_or_else(|| Error::Listener {
+                                message: "HTTP listener requires OpenAPI schema".to_string(),
                             })?;
 
-                        let parts: Vec<&str> = without_scheme.splitn(2, '/').collect();
-                        let mut bind_addr = parts
-                            .first()
-                            .ok_or_else(|| Error::Listener {
-                                message: "Invalid gRPC URI: missing bind address".to_string(),
-                            })?
-                            .to_string();
+                            // Create handler for this route
+                            let handler = self.create_handler_from_listen_task(listen_task)?;
 
-                        // Convert localhost to 127.0.0.1 for SocketAddr parsing
-                        if bind_addr.starts_with("localhost:") {
-                            bind_addr = bind_addr.replace("localhost:", "127.0.0.1:");
+                            // Get the read mode and wrap the handler to apply it
+                            let read_mode =
+                                listen_task.listen.read.as_deref().unwrap_or("envelope");
+                            let wrapped_handler = wrap_handler_with_read_mode(handler, read_mode);
+
+                            // Group by (bind_addr, openapi_path) - different specs can coexist on same port
+                            http_routes
+                                .entry((bind_addr.clone(), openapi_path.clone()))
+                                .or_default()
+                                .push((path, task_name.clone(), wrapped_handler));
                         }
-
-                        let path = if let Some(path_part) = parts.get(1) {
-                            format!("/{path_part}")
-                        } else {
-                            "/".to_string()
-                        };
-
-                        let openapi_path = schema_path_opt.ok_or_else(|| Error::Listener {
-                            message: "HTTP listener requires OpenAPI schema".to_string(),
-                        })?;
-
-                        // Create handler for this route
-                        let handler = self.create_handler_from_listen_task(listen_task)?;
-
-                        // Get the read mode and wrap the handler to apply it
-                        let read_mode = listen_task.listen.read.as_deref().unwrap_or("envelope");
-                        let wrapped_handler = wrap_handler_with_read_mode(handler, read_mode);
-
-                        // Group by (bind_addr, openapi_path) - different specs can coexist on same port
-                        http_routes
-                            .entry((bind_addr.clone(), openapi_path.clone()))
-                            .or_default()
-                            .push((path, task_name.clone(), wrapped_handler));
                     }
                     // Handle gRPC listeners
                     else if event_source.uri.starts_with("grpc://") {
-                        // Parse bind address and method from URI (e.g., grpc://localhost:50051/calculator.Calculator/Add)
-                        let uri = &event_source.uri;
-                        let without_scheme =
-                            uri.strip_prefix("grpc://").ok_or_else(|| Error::Listener {
-                                message: "Invalid gRPC URI".to_string(),
+                        #[cfg(not(feature = "grpc-listener"))]
+                        return Err(Error::Listener {
+                            message: format!(
+                                "task `{task_name}` listens on gRPC; build jackdaw with the `grpc-listener` feature"
+                            ),
+                        });
+                        #[cfg(feature = "grpc-listener")]
+                        {
+                            // Parse bind address and method from URI (e.g., grpc://localhost:50051/calculator.Calculator/Add)
+                            let uri = &event_source.uri;
+                            let without_scheme =
+                                uri.strip_prefix("grpc://").ok_or_else(|| Error::Listener {
+                                    message: "Invalid gRPC URI".to_string(),
+                                })?;
+
+                            let parts: Vec<&str> = without_scheme.splitn(2, '/').collect();
+                            let mut bind_addr = parts
+                                .first()
+                                .ok_or_else(|| Error::Listener {
+                                    message: "Invalid gRPC URI: missing bind address".to_string(),
+                                })?
+                                .to_string();
+
+                            // Convert localhost to 127.0.0.1 for SocketAddr parsing
+                            if bind_addr.starts_with("localhost:") {
+                                bind_addr = bind_addr.replace("localhost:", "127.0.0.1:");
+                            }
+
+                            // Extract service and method from the path (e.g., "calculator.Calculator/Add")
+                            let method_path = parts.get(1).ok_or_else(|| Error::Listener {
+                                message: "gRPC URI must include service/method path".to_string(),
                             })?;
 
-                        let parts: Vec<&str> = without_scheme.splitn(2, '/').collect();
-                        let mut bind_addr = parts
-                            .first()
-                            .ok_or_else(|| Error::Listener {
-                                message: "Invalid gRPC URI: missing bind address".to_string(),
-                            })?
-                            .to_string();
+                            let method_parts: Vec<&str> = method_path.split('/').collect();
+                            if method_parts.len() != 2 {
+                                return Err(Error::Listener {
+                                    message:
+                                        "gRPC method path must be in format 'service.Name/Method'"
+                                            .to_string(),
+                                });
+                            }
+                            let service_name =
+                                (*method_parts.first().ok_or_else(|| Error::Listener {
+                                    message: "Missing service name in gRPC method path".to_string(),
+                                })?)
+                                .to_string();
+                            let method_name =
+                                (*method_parts.get(1).ok_or_else(|| Error::Listener {
+                                    message: "Missing method name in gRPC method path".to_string(),
+                                })?)
+                                .to_string();
 
-                        // Convert localhost to 127.0.0.1 for SocketAddr parsing
-                        if bind_addr.starts_with("localhost:") {
-                            bind_addr = bind_addr.replace("localhost:", "127.0.0.1:");
+                            let proto_path = schema_path_opt.ok_or_else(|| Error::Listener {
+                                message: "gRPC listener requires proto schema".to_string(),
+                            })?;
+
+                            // Create handler for this method
+                            let handler = self.create_handler_from_listen_task(listen_task)?;
+
+                            // Get the read mode and wrap the handler to apply it
+                            let read_mode =
+                                listen_task.listen.read.as_deref().unwrap_or("envelope");
+                            let wrapped_handler = wrap_handler_with_read_mode(handler, read_mode);
+
+                            // Group by (bind_addr, proto_path, service_name)
+                            grpc_methods
+                                .entry((
+                                    bind_addr.clone(),
+                                    proto_path.clone(),
+                                    service_name.clone(),
+                                ))
+                                .or_default()
+                                .push((method_name, task_name.clone(), wrapped_handler));
                         }
-
-                        // Extract service and method from the path (e.g., "calculator.Calculator/Add")
-                        let method_path = parts.get(1).ok_or_else(|| Error::Listener {
-                            message: "gRPC URI must include service/method path".to_string(),
-                        })?;
-
-                        let method_parts: Vec<&str> = method_path.split('/').collect();
-                        if method_parts.len() != 2 {
-                            return Err(Error::Listener {
-                                message: "gRPC method path must be in format 'service.Name/Method'"
-                                    .to_string(),
-                            });
-                        }
-                        let service_name =
-                            (*method_parts.first().ok_or_else(|| Error::Listener {
-                                message: "Missing service name in gRPC method path".to_string(),
-                            })?)
-                            .to_string();
-                        let method_name =
-                            (*method_parts.get(1).ok_or_else(|| Error::Listener {
-                                message: "Missing method name in gRPC method path".to_string(),
-                            })?)
-                            .to_string();
-
-                        let proto_path = schema_path_opt.ok_or_else(|| Error::Listener {
-                            message: "gRPC listener requires proto schema".to_string(),
-                        })?;
-
-                        // Create handler for this method
-                        let handler = self.create_handler_from_listen_task(listen_task)?;
-
-                        // Get the read mode and wrap the handler to apply it
-                        let read_mode = listen_task.listen.read.as_deref().unwrap_or("envelope");
-                        let wrapped_handler = wrap_handler_with_read_mode(handler, read_mode);
-
-                        // Group by (bind_addr, proto_path, service_name)
-                        grpc_methods
-                            .entry((bind_addr.clone(), proto_path.clone(), service_name.clone()))
-                            .or_default()
-                            .push((method_name, task_name.clone(), wrapped_handler));
                     }
                 }
             }
         }
 
-        // Now create all HTTP listeners with their complete route tables
-        let mut http_listeners = self.http_listeners.write().await;
+        #[cfg(feature = "http-listener")]
+        {
+            // Now create all HTTP listeners with their complete route tables
+            let mut http_listeners = self.http_listeners.write().await;
 
-        for ((bind_addr, _openapi_path), routes) in http_routes {
-            // Build route handlers map
-            let mut route_handlers = std::collections::HashMap::new();
-            for (path, task_name, handler) in routes {
-                // Convert OpenAPI-style path params {param} to Axum-style :param
-                let axum_path = convert_path_params_to_axum(&path);
-                route_handlers.insert(axum_path.clone(), handler);
-                println!(
-                    "  Registering route {axum_path} (from {path}) for task {task_name} on {bind_addr}"
-                );
+            for ((bind_addr, _openapi_path), routes) in http_routes {
+                // Build route handlers map
+                let mut route_handlers = std::collections::HashMap::new();
+                for (path, task_name, handler) in routes {
+                    // axum 0.8 uses the OpenAPI `{param}` syntax, so paths are registered as written.
+                    println!("  Registering route {path} for task {task_name} on {bind_addr}");
+                    route_handlers.insert(path, handler);
+                }
+
+                // Create and start the listener with all routes
+                let listener = HttpListener::new_multi_route(bind_addr.clone(), route_handlers)?;
+                let listener_arc = Arc::new(listener);
+                listener_arc.start().await?;
+
+                // Wait a bit for the server to start
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+                http_listeners.insert(bind_addr.clone(), listener_arc);
+                println!("  HTTP listener started on {bind_addr}");
             }
-
-            // Create and start the listener with all routes
-            let listener = HttpListener::new_multi_route(bind_addr.clone(), route_handlers)?;
-            let listener_arc = Arc::new(listener);
-            listener_arc.start().await?;
-
-            // Wait a bit for the server to start
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
-            http_listeners.insert(bind_addr.clone(), listener_arc);
-            println!("  HTTP listener started on {bind_addr}");
         }
 
-        // Now create all gRPC listeners with their complete method tables
-        let mut grpc_listeners = self.grpc_listeners.write().await;
+        #[cfg(feature = "grpc-listener")]
+        {
+            // Now create all gRPC listeners with their complete method tables
+            let mut grpc_listeners = self.grpc_listeners.write().await;
 
-        for ((bind_addr, proto_path, service_name), methods) in grpc_methods {
-            use prost_reflect::DynamicMessage;
+            for ((bind_addr, proto_path, service_name), methods) in grpc_methods {
+                use prost_reflect::DynamicMessage;
 
-            // Compile proto file to get descriptors
-            let file_descriptor_set = protox::compile([proto_path.as_str()], ["."])?;
-            let pool =
-                prost_reflect::DescriptorPool::from_file_descriptor_set(file_descriptor_set)?;
+                // Compile proto file to get descriptors
+                let file_descriptor_set = protox::compile([proto_path.as_str()], ["."])?;
+                let pool =
+                    prost_reflect::DescriptorPool::from_file_descriptor_set(file_descriptor_set)?;
 
-            // Get service descriptor
-            let service_descriptor =
-                pool.get_service_by_name(&service_name)
-                    .ok_or_else(|| Error::Listener {
-                        message: format!("Service {service_name} not found in proto file"),
-                    })?;
+                // Get service descriptor
+                let service_descriptor =
+                    pool.get_service_by_name(&service_name)
+                        .ok_or_else(|| Error::Listener {
+                            message: format!("Service {service_name} not found in proto file"),
+                        })?;
 
-            // Build method handlers map - convert JSON handlers to DynamicMessage handlers
-            let mut method_handlers: std::collections::HashMap<
-                String,
-                Arc<
-                    dyn Fn(DynamicMessage) -> crate::listeners::Result<DynamicMessage>
-                        + Send
-                        + Sync,
-                >,
-            > = std::collections::HashMap::new();
+                // Build method handlers map - convert JSON handlers to DynamicMessage handlers
+                let mut method_handlers: std::collections::HashMap<
+                    String,
+                    Arc<
+                        dyn Fn(DynamicMessage) -> crate::listeners::Result<DynamicMessage>
+                            + Send
+                            + Sync,
+                    >,
+                > = std::collections::HashMap::new();
 
-            for (method_name, task_name, json_handler) in methods {
-                println!(
-                    "  Registering gRPC method {service_name}/{method_name} for task {task_name} on {bind_addr}"
-                );
+                for (method_name, task_name, json_handler) in methods {
+                    println!(
+                        "  Registering gRPC method {service_name}/{method_name} for task {task_name} on {bind_addr}"
+                    );
 
-                // Get method descriptor for this method
-                let method_descriptor = service_descriptor
-                    .methods()
-                    .find(|m| m.name() == method_name)
-                    .ok_or_else(|| Error::Listener {
-                        message: format!(
-                            "Method {method_name} not found in service {service_name}"
-                        ),
-                    })?;
+                    // Get method descriptor for this method
+                    let method_descriptor = service_descriptor
+                        .methods()
+                        .find(|m| m.name() == method_name)
+                        .ok_or_else(|| Error::Listener {
+                            message: format!(
+                                "Method {method_name} not found in service {service_name}"
+                            ),
+                        })?;
 
-                let output_descriptor = method_descriptor.output();
+                    let output_descriptor = method_descriptor.output();
 
-                // Clone the Arc so each closure gets its own reference
-                let json_handler_clone = json_handler.clone();
+                    // Clone the Arc so each closure gets its own reference
+                    let json_handler_clone = json_handler.clone();
 
-                // Create a wrapper that converts DynamicMessage to JSON, calls the JSON handler, then converts back
-                let wrapped_handler: Arc<
+                    // Create a wrapper that converts DynamicMessage to JSON, calls the JSON handler, then converts back
+                    let wrapped_handler: Arc<
                     dyn Fn(DynamicMessage) -> crate::listeners::Result<DynamicMessage>
                         + Send
                         + Sync,
@@ -291,24 +309,25 @@ impl DurableEngine {
                     },
                 );
 
-                method_handlers.insert(method_name.clone(), wrapped_handler);
+                    method_handlers.insert(method_name.clone(), wrapped_handler);
+                }
+
+                // Create and start the gRPC listener with all methods
+                let listener = GrpcListener::new_multi_method(
+                    bind_addr.clone(),
+                    &proto_path,
+                    &service_name,
+                    method_handlers,
+                )?;
+                let listener_arc = Arc::new(listener);
+                listener_arc.start().await?;
+
+                // Wait a bit for the server to start
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+                grpc_listeners.insert(bind_addr.clone(), listener_arc);
+                println!("  gRPC listener started on {bind_addr}");
             }
-
-            // Create and start the gRPC listener with all methods
-            let listener = GrpcListener::new_multi_method(
-                bind_addr.clone(),
-                &proto_path,
-                &service_name,
-                method_handlers,
-            )?;
-            let listener_arc = Arc::new(listener);
-            listener_arc.start().await?;
-
-            // Wait a bit for the server to start
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
-            grpc_listeners.insert(bind_addr.clone(), listener_arc);
-            println!("  gRPC listener started on {bind_addr}");
         }
 
         Ok(())
@@ -371,6 +390,7 @@ impl DurableEngine {
     ///
     /// Extracts the handler module and function from the first Call task in the foreach block
     #[allow(clippy::unused_self)]
+    #[cfg(any(feature = "http-listener", feature = "grpc-listener"))]
     fn create_handler_from_listen_task(
         &self,
         listen_task: &ListenTaskDefinition,
@@ -552,6 +572,7 @@ impl DurableEngine {
 }
 
 /// Convert a prost-reflect ``DynamicMessage`` to JSON
+#[cfg(feature = "grpc-listener")]
 fn dynamic_message_to_json(msg: &prost_reflect::DynamicMessage) -> serde_json::Value {
     use prost_reflect::{ReflectMessage, Value};
 
@@ -583,6 +604,7 @@ fn dynamic_message_to_json(msg: &prost_reflect::DynamicMessage) -> serde_json::V
 
 /// Convert JSON to a prost-reflect ``DynamicMessage`` using a message descriptor
 #[allow(clippy::cast_possible_truncation)]
+#[cfg(feature = "grpc-listener")]
 fn json_to_dynamic_message(
     json: &serde_json::Value,
     descriptor: &prost_reflect::MessageDescriptor,
@@ -624,6 +646,7 @@ fn json_to_dynamic_message(
 /// - `data`: Extract only the `data` field from CloudEvents
 /// - `envelope`: Pass the full CloudEvent (default)
 /// - `raw`: Pass the raw HTTP request body as-is
+#[cfg(any(feature = "http-listener", feature = "grpc-listener"))]
 fn wrap_handler_with_read_mode(
     handler: Arc<
         dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value> + Send + Sync,
@@ -658,6 +681,7 @@ fn wrap_handler_with_read_mode(
     )
 }
 
+#[cfg(any(feature = "http-listener", feature = "grpc-listener"))]
 /// Helper: Indent JSON output for logging
 fn indent_json(value: &serde_json::Value, indent: usize) -> String {
     let json_str = serde_json::to_string_pretty(value).unwrap_or_else(|_| "{}".to_string());

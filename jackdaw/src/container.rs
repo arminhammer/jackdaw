@@ -13,6 +13,8 @@ pub struct ContainerResult {
 }
 
 /// Container execution configuration
+// Read by the Docker provider.
+#[cfg_attr(not(feature = "docker"), allow(dead_code))]
 #[derive(Debug, Clone)]
 pub struct ContainerConfig {
     /// Container image name

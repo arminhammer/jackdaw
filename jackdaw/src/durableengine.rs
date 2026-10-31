@@ -7,14 +7,17 @@ use snafu::prelude::*;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
 
+#[cfg(feature = "grpc-listener")]
+use crate::listeners::grpc::GrpcListener;
+#[cfg(feature = "openapi")]
+use crate::providers::executors::OpenApiExecutor;
 use crate::{
     context::Context,
     execution_handle::ExecutionHandle,
     executor::Executor,
-    listeners::grpc::GrpcListener,
     output,
     persistence::PersistenceProvider,
-    providers::executors::{OpenApiExecutor, PythonExecutor, RestExecutor, TypeScriptExecutor},
+    providers::executors::{PythonExecutor, RestExecutor, TypeScriptExecutor},
     workflow::WorkflowEvent,
 };
 
@@ -73,9 +76,11 @@ pub enum Error {
     #[snafu(display("Listener setup error: {source}"))]
     ListenerSetup { source: crate::listeners::Error },
 
+    #[cfg(feature = "grpc-listener")]
     #[snafu(display("Protobuf compilation error: {source}"))]
     Protobuf { source: protox::Error },
 
+    #[cfg(feature = "grpc-listener")]
     #[snafu(display("Protobuf descriptor error: {source}"))]
     ProtobufDescriptor {
         source: prost_reflect::DescriptorError,
@@ -127,12 +132,14 @@ impl From<crate::listeners::Error> for Error {
     }
 }
 
+#[cfg(feature = "grpc-listener")]
 impl From<protox::Error> for Error {
     fn from(source: protox::Error) -> Self {
         Error::Protobuf { source }
     }
 }
 
+#[cfg(feature = "grpc-listener")]
 impl From<prost_reflect::DescriptorError> for Error {
     fn from(source: prost_reflect::DescriptorError) -> Self {
         Error::ProtobufDescriptor { source }
@@ -145,9 +152,11 @@ pub struct DurableEngine {
     cache: Arc<dyn CacheProvider>,
     /// Registry of active gRPC listeners, keyed by bind address
     /// Using `Arc<GrpcListener>` to allow adding methods progressively
+    #[cfg(feature = "grpc-listener")]
     grpc_listeners: Arc<RwLock<HashMap<String, Arc<GrpcListener>>>>,
     /// Registry of active HTTP listeners, keyed by bind address
     /// Using `Arc<HttpListener>` to allow adding routes progressively
+    #[cfg(feature = "http-listener")]
     http_listeners: Arc<RwLock<HashMap<String, Arc<crate::listeners::HttpListener>>>>,
     /// Registry of workflows for nested execution, keyed by "namespace/name/version"
     workflow_registry: Arc<RwLock<HashMap<String, WorkflowDefinition>>>,
@@ -195,6 +204,7 @@ impl DurableEngine {
             "rest".into(),
             Box::new(RestExecutor(reqwest::Client::new())),
         );
+        #[cfg(feature = "openapi")]
         executors.insert(
             "openapi".into(),
             Box::new(OpenApiExecutor(reqwest::Client::new())),
@@ -205,7 +215,9 @@ impl DurableEngine {
             executors: Arc::new(executors),
             persistence,
             cache,
+            #[cfg(feature = "grpc-listener")]
             grpc_listeners: Arc::new(RwLock::new(HashMap::new())),
+            #[cfg(feature = "http-listener")]
             http_listeners: Arc::new(RwLock::new(HashMap::new())),
             workflow_registry: Arc::new(RwLock::new(HashMap::new())),
             event_buffer_size,
@@ -401,7 +413,9 @@ impl DurableEngine {
         let persistence = self.persistence.clone();
         let cache = self.cache.clone();
         let workflow_registry = self.workflow_registry.clone();
+        #[cfg(feature = "grpc-listener")]
         let grpc_listeners = self.grpc_listeners.clone();
+        #[cfg(feature = "http-listener")]
         let http_listeners = self.http_listeners.clone();
 
         let instance_id_clone = instance_id.clone();
@@ -429,8 +443,14 @@ impl DurableEngine {
                 Ok(mut engine) => {
                     engine.executors = executors;
                     engine.workflow_registry = workflow_registry;
-                    engine.grpc_listeners = grpc_listeners;
-                    engine.http_listeners = http_listeners;
+                    #[cfg(feature = "grpc-listener")]
+                    {
+                        engine.grpc_listeners = grpc_listeners;
+                    }
+                    #[cfg(feature = "http-listener")]
+                    {
+                        engine.http_listeners = http_listeners;
+                    }
                     engine
                 }
                 Err(e) => {
@@ -484,9 +504,9 @@ impl DurableEngine {
                         | Error::Context { .. }
                         | Error::Expression { .. }
                         | Error::Serialization { .. }
-                        | Error::ListenerSetup { .. }
-                        | Error::Protobuf { .. }
-                        | Error::ProtobufDescriptor { .. } => e.to_string(),
+                        | Error::ListenerSetup { .. } => e.to_string(),
+                        #[cfg(feature = "grpc-listener")]
+                        Error::Protobuf { .. } | Error::ProtobufDescriptor { .. } => e.to_string(),
                     };
                     let _ = event_tx
                         .send(WorkflowEvent::WorkflowFailed {

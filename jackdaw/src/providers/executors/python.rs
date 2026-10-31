@@ -18,6 +18,7 @@ use crate::{
     task_output::TaskOutputStreamer,
 };
 
+#[cfg(any(feature = "http-listener", feature = "grpc-listener"))]
 /// A reference to a Python function for the external executor
 /// This stores the module and function name for later execution
 #[derive(Clone, Debug)]
@@ -54,6 +55,7 @@ impl PythonExtExecutor {
         Self { python_path }
     }
 
+    #[cfg(any(feature = "http-listener", feature = "grpc-listener"))]
     /// Load a Python function reference for later execution
     ///
     /// Unlike the embedded executor, this doesn't actually load or cache the function.
@@ -89,6 +91,7 @@ impl PythonExtExecutor {
         Ok(())
     }
 
+    #[cfg(any(feature = "http-listener", feature = "grpc-listener"))]
     /// Execute a Python function (used by listeners)
     ///
     /// Since this is an external executor, we need to serialize the function and arguments

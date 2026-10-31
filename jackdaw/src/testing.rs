@@ -13,10 +13,12 @@
 //!
 //! [`TestEngineBuilder::replace_task`] swaps a task for a fake, and [`TestEngine::crash_after_step`] with
 //! [`TestEngine::restart`] simulates a process dying mid-workflow and coming back on the same store.
+#[cfg(feature = "yaml")]
+use crate::api::CatalogDef;
 use crate::api::plumbing::{BoxFuture, NativeTask, RegisterTask};
 use crate::api::{
-    CatalogDef, Clock as EngineClock, Engine, EngineBuilder, Error, IntoTaskSet, Recovery, Store,
-    TaskDef, TaskError, WorkflowDef,
+    Clock as EngineClock, Engine, EngineBuilder, Error, IntoTaskSet, Recovery, Store, TaskDef,
+    TaskError, WorkflowDef,
 };
 use chrono::{DateTime, Utc};
 use std::future::Future;
@@ -234,6 +236,8 @@ impl TestEngineBuilder {
 
     /// As [`EngineBuilder::catalog`].
     #[must_use]
+    #[cfg(feature = "yaml")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "yaml")))]
     pub fn catalog<C: CatalogDef>(mut self) -> Self {
         self.inner = self.inner.catalog::<C>();
         self

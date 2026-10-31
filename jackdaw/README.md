@@ -98,6 +98,24 @@ workflows, durability, catalogs, YAML, testing, errors and events. The reference
 The [`examples`](https://github.com/arminhammer/jackdaw/tree/main/jackdaw/examples) directory has runnable programs:
 `cargo run --example quickstart`.
 
+## Features
+
+| Feature | Default | What it adds |
+|---|---|---|
+| `yaml` | yes | The Serverless Workflow interpreter: `dsl`, `api::Workflow` (`from_yaml`, `validate`), `ctx.run_definition`, catalogs (`#[catalog]`). Includes `http-client`. |
+| `redb` | yes | The `Redb` store. |
+| `http-client` | yes | `ctx.http`, YAML `call: http`, remote catalogs. |
+| `sqlite`, `postgres` | | The `Sqlite` and `Postgres` stores. |
+| `docker` | | `ctx.run_container` and YAML `run: container`. |
+| `openapi` | | YAML `call: openapi`. |
+| `http-listener`, `grpc-listener` | | YAML `listen` tasks on HTTP (OpenAPI) and gRPC. |
+| `metrics` | | Counters and histograms through the `metrics` facade. |
+| `full` | | All of the above. |
+
+Without `yaml`, the native Rust API (tasks, workflows, the engine, the in-memory store, `testing`) still works:
+`default-features = false` builds about 70 crates instead of about 150. A YAML workflow that needs a feature the build
+lacks, such as a `listen` task without `http-listener`, fails with an error that names the feature.
+
 ## Command line
 
 The `jackdaw-cli` crate installs a `jackdaw` binary that runs, validates and visualizes YAML workflows:
