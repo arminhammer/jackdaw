@@ -117,6 +117,7 @@ impl RequestRules {
     /// document's path that `route` ends with (`/api/v1/add` matches `/add`; the longest match wins). Without one,
     /// a body schema named in `components/schemas` (the listen task's `resource.name`) applies to every method, as
     /// `*`.
+    #[cfg(feature = "yaml")]
     pub(crate) fn for_route(
         document: &Value,
         route: &str,
