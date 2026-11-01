@@ -19,13 +19,10 @@ FROM docker.io/library/rust:1.99.0-alpine AS builder
 ARG TARGETPLATFORM
 ARG TARGETARCH
 
-# Install build dependencies for static compilation
+# Build dependencies for static compilation. musl-dev is the C toolchain for the two C dependencies, ring and the
+# bundled SQLite; nothing links OpenSSL.
 RUN apk add --no-cache \
     musl-dev \
-    openssl-dev \
-    openssl-libs-static \
-    pkgconfig \
-    git \
     ca-certificates
 
 RUN rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
