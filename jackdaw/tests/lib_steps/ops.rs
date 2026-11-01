@@ -814,6 +814,9 @@ async fn runs_again_same_key(world: &mut LibWorld) {
 
 #[when("a step completes and the engine is dropped immediately")]
 async fn step_then_drop(world: &mut LibWorld) {
+    // About Redb, which commits a step before the next one starts. A SQL store writes the record a moment after the
+    // task returns, so an engine dropped in that moment loses it, and the step rightly runs again on resume.
+    world.store = Some("redb".into());
     world.probe.script("b", |s| s.block = true);
     world
         .start_fixture("it", super::fixture("dur.abc"), json!(null))

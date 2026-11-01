@@ -679,15 +679,15 @@ async fn yaml_receives(world: &mut LibWorld) {
             } if task_name == "await" => Some(result.clone()),
             _ => None,
         });
-        if let Some(received) = received {
+        // The workflow's completion is stored a moment after the task's (later still on a slower store).
+        let completed = history
+            .iter()
+            .any(|event| matches!(event, Event::WorkflowCompleted { .. }));
+        if let Some(received) = received
+            && completed
+        {
             assert_eq!(received[0]["type"], json!("order.shipped"), "{received}");
             assert_eq!(received[0]["data"], json!({"order": "o-1"}), "{received}");
-            assert!(
-                history
-                    .iter()
-                    .any(|event| matches!(event, Event::WorkflowCompleted { .. })),
-                "{history:?}"
-            );
             return;
         }
         assert!(
