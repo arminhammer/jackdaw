@@ -10,6 +10,22 @@ use std::path::PathBuf;
 use std::process::Command;
 use tempfile::TempDir;
 
+/// Waits, for up to a minute, until container `name` logs that its listener started, or until `docker run` exits.
+/// A fixed sleep was not enough: under load, creating the container alone can take longer.
+fn wait_for_listener(name: &str, child: &mut std::process::Child) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while std::time::Instant::now() < deadline {
+        if matches!(child.try_wait(), Ok(Some(_))) {
+            return;
+        }
+        let logs = Command::new("docker").args(["logs", name]).output();
+        if logs.is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains("listener started")) {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+}
+
 #[test]
 fn test_docker_image_version() {
     // Test that the Docker image can run and report its version
@@ -567,8 +583,6 @@ fn test_docker_validate_openapi_typescript_listener() {
 fn test_docker_run_grpc_python_listener_with_client() {
     // End-to-end test: Start gRPC listener in Docker and make actual client calls
     use std::process::Stdio;
-    use std::thread;
-    use std::time::Duration;
 
     let fixture_path = PathBuf::from("tests/fixtures/docker");
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
@@ -608,8 +622,7 @@ fn test_docker_run_grpc_python_listener_with_client() {
         .spawn()
         .unwrap_or_else(|e| panic!("Failed to start docker container: {}", e));
 
-    // Wait for listener to start
-    thread::sleep(Duration::from_secs(5));
+    wait_for_listener("jackdaw-grpc-test", &mut child);
 
     // Make gRPC client call using grpcurl
     let grpc_result = Command::new("grpcurl")
@@ -656,8 +669,6 @@ fn test_docker_run_grpc_python_listener_with_client() {
 fn test_docker_run_openapi_python_listener_with_client() {
     // End-to-end test: Start OpenAPI listener in Docker and make actual HTTP client calls
     use std::process::Stdio;
-    use std::thread;
-    use std::time::Duration;
 
     let fixture_path = PathBuf::from("tests/fixtures/docker");
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
@@ -670,7 +681,7 @@ fn test_docker_run_openapi_python_listener_with_client() {
     );
 
     // Start jackdaw with HTTP listener in background
-    let child = Command::new("docker")
+    let mut child = Command::new("docker")
         .args([
             "run",
             "--rm",
@@ -699,8 +710,7 @@ fn test_docker_run_openapi_python_listener_with_client() {
         .spawn()
         .expect("Failed to start docker container");
 
-    // Wait for listener to start
-    thread::sleep(Duration::from_secs(5));
+    wait_for_listener("jackdaw-http-test", &mut child);
 
     // Make HTTP client call using curl
     let http_result = Command::new("curl")
@@ -762,8 +772,6 @@ fn test_docker_run_openapi_python_listener_with_client() {
 fn test_docker_run_grpc_typescript_listener_with_client() {
     // End-to-end test: Start gRPC listener with TypeScript handler and make client calls
     use std::process::Stdio;
-    use std::thread;
-    use std::time::Duration;
 
     let fixture_path = PathBuf::from("tests/fixtures/docker");
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
@@ -803,8 +811,7 @@ fn test_docker_run_grpc_typescript_listener_with_client() {
         .spawn()
         .expect("Failed to start docker container");
 
-    // Wait for listener to start
-    thread::sleep(Duration::from_secs(5));
+    wait_for_listener("jackdaw-grpc-ts-test", &mut child);
 
     // Check if container is still running
     let running_check = Command::new("docker")
@@ -909,8 +916,6 @@ fn test_docker_run_grpc_typescript_listener_with_client() {
 fn test_docker_run_openapi_typescript_listener_with_client() {
     // End-to-end test: Start OpenAPI listener with TypeScript handler and make client calls
     use std::process::Stdio;
-    use std::thread;
-    use std::time::Duration;
 
     let fixture_path = PathBuf::from("tests/fixtures/docker");
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
@@ -950,8 +955,7 @@ fn test_docker_run_openapi_typescript_listener_with_client() {
         .spawn()
         .expect("Failed to start docker container");
 
-    // Wait for listener to start
-    thread::sleep(Duration::from_secs(5));
+    wait_for_listener("jackdaw-http-ts-test", &mut child);
 
     // Check container logs to see if it started properly
     let logs_output = Command::new("docker")
