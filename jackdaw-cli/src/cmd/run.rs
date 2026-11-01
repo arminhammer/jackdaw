@@ -482,10 +482,7 @@ async fn run_workflows_internal(
 
     // Print banner (only in debug mode)
     if debug {
-        println!(
-            "{}\n",
-            style("Jackdaw Open Workflow Runtime").bold().cyan()
-        );
+        println!("{}\n", style("Jackdaw Open Workflow Runtime").bold().cyan());
     }
 
     // Discover workflow files
