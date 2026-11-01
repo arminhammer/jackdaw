@@ -185,8 +185,11 @@ jobs:
       - name: Verify Docker image is loaded
         run: docker images jackdaw:latest
 
+      # rust-src: the compile-fail tests' expected errors quote the standard library, which rustc shows only with it.
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@1.99.0
+        with:
+          components: rust-src
 
       - name: Set up Python 3.10
         uses: actions/setup-python@v5
