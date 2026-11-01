@@ -838,13 +838,22 @@ fn test_docker_run_grpc_typescript_listener_with_client() {
             )
         };
 
-        // Cleanup
+        // Cleanup. With --rm the container's logs are gone once it exits, so `docker run`'s own output is what
+        // shows why it stopped (or why it never started, such as a host port that is taken).
         let _ = child.kill();
-        let _ = child.wait();
+        let run_output = child.wait_with_output().ok();
+        let (run_out, run_err) = run_output
+            .map(|o| {
+                (
+                    String::from_utf8_lossy(&o.stdout).to_string(),
+                    String::from_utf8_lossy(&o.stderr).to_string(),
+                )
+            })
+            .unwrap_or_default();
 
         panic!(
-            "Container 'jackdaw-grpc-ts-test' is not running!\n\nContainer stdout:\n{}\n\nContainer stderr:\n{}",
-            logs, logs_err
+            "Container 'jackdaw-grpc-ts-test' is not running!\n\nContainer stdout:\n{}\n\nContainer stderr:\n{}\n\n`docker run` stdout:\n{}\n\n`docker run` stderr:\n{}",
+            logs, logs_err, run_out, run_err
         );
     }
 
