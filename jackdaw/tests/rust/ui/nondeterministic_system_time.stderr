@@ -1,0 +1,5 @@
+error: `std::time::SystemTime::now` is not allowed in a workflow's `#[run]`: the wall clock differs on every replay; use `ctx.now()` (audited code can opt out with `#[allow_nondeterminism]` on the statement)
+  --> tests/rust/ui/nondeterministic_system_time.rs:22:24
+   |
+22 |         let _started = std::time::SystemTime::now();
+   |                        ^^^

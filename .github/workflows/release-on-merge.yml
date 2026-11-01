@@ -117,13 +117,14 @@ jobs:
         run: |
           mkdir -p dist
           docker buildx build \
+            -f jackdaw-cli/Dockerfile \
             --platform linux/${{ matrix.arch }} \
             --target builder \
             --output type=local,dest=./dist \
             .
 
-          # The binary will be extracted to dist/build/jackdaw
-          mv dist/build/jackdaw dist/jackdaw-linux-${{ matrix.arch }}
+          # The binary will be extracted to dist/out/jackdaw
+          mv dist/out/jackdaw dist/jackdaw-linux-${{ matrix.arch }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -156,20 +157,6 @@ jobs:
         uses: dtolnay/rust-toolchain@1.99.0
         with:
           targets: ${{ matrix.target }}
-
-      - name: Set up Python 3.14
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.14'
-
-      - name: Setup Python library symlink
-        run: |
-          mkdir -p ~/lib
-          PYTHON_LIB=$(python3.14 -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
-          PYTHON_VERSION=$(python3.14 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
-          if [ -f "$PYTHON_LIB/libpython${PYTHON_VERSION}.dylib" ]; then
-            ln -sf "$PYTHON_LIB/libpython${PYTHON_VERSION}.dylib" ~/lib/libpython${PYTHON_VERSION}.dylib
-          fi
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -291,3 +278,37 @@ jobs:
             See the [commit history](https://github.com/${{ github.repository }}/commits/v${{ needs.check-changes.outputs.version }}) for details.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Publishes jackdaw-wf-macros, jackdaw-wf and jackdaw-cli (cargo orders them) after the GitHub release, so the
+  # binaries `cargo binstall jackdaw-cli` downloads already exist. Publishing cannot be undone (a version can only be
+  # yanked), so the job runs only once the repository variable PUBLISH_CRATES is "true": publish the first version by
+  # hand with `just publish-dry-run` and `just publish-crate`, then turn it on. Needs the CARGO_REGISTRY_TOKEN secret.
+  publish-crates:
+    name: Publish to crates.io
+    needs: [check-changes, create-release]
+    if: needs.check-changes.outputs.should_release == 'true' && vars.PUBLISH_CRATES == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.99.0
+
+      - name: Skip versions that are already published
+        id: published
+        run: |
+          VERSION="${{ needs.check-changes.outputs.version }}"
+          if curl -sf -A "jackdaw-release (github.com/arminhammer/jackdaw)" \
+              "https://crates.io/api/v1/crates/jackdaw-wf/$VERSION" > /dev/null; then
+            echo "jackdaw-wf $VERSION is already on crates.io"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish
+        if: steps.published.outputs.skip != 'true'
+        run: cargo publish --locked -p jackdaw-wf-macros -p jackdaw-wf -p jackdaw-cli
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

@@ -4,13 +4,5 @@ repos:
     hooks:
       - id: check-yaml
       - id: end-of-file-fixer
+        exclude: ^jackdaw/src/dsl/
 
-  # - repo: local
-  #   hooks:
-  #     - id: jackdaw-ci
-  #       name: Run Jackdaw CI Pipeline
-  #       entry: just ci
-  #       language: system
-  #       pass_filenames: false
-  #       always_run: true
-  #       verbose: true

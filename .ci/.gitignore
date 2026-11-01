@@ -1,5 +1,0 @@
-# Ignore CI runtime databases
-*.db
-
-# Ignore tar archives
-*.tar.gz

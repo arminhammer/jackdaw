@@ -1,0 +1,57 @@
+//! A cache in process memory, lost when the process ends.
+use crate::cache::{CacheEntry, CacheProvider, Result};
+use async_trait::async_trait;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+#[derive(Debug)]
+/// A cache in process memory.
+pub struct InMemoryCache {
+    store: Arc<Mutex<HashMap<String, CacheEntry>>>,
+}
+
+impl Default for InMemoryCache {
+    fn default() -> Self {
+        Self {
+            store: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+}
+
+impl InMemoryCache {
+    #[allow(dead_code)]
+    #[must_use]
+    /// An empty cache.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+#[async_trait]
+impl CacheProvider for InMemoryCache {
+    async fn get(&self, key: &str) -> Result<Option<CacheEntry>> {
+        let store = self
+            .store
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        Ok(store.get(key).cloned())
+    }
+
+    async fn set(&self, entry: CacheEntry) -> Result<()> {
+        let mut store = self
+            .store
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        store.insert(entry.key.clone(), entry);
+        Ok(())
+    }
+
+    async fn invalidate(&self, key: &str) -> Result<()> {
+        let mut store = self
+            .store
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        store.remove(key);
+        Ok(())
+    }
+}

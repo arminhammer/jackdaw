@@ -1,0 +1,5 @@
+error: `tokio::select` is not allowed in a workflow's `#[run]`: `tokio::select!` races without recording the winner; use `jackdaw::select!` (audited code can opt out with `#[allow_nondeterminism]` on the statement)
+  --> tests/rust/ui/nondeterministic_tokio_select.rs:22:9
+   |
+22 |         tokio::select! {
+   |         ^^^^^

@@ -1,0 +1,608 @@
+//! A store in a Postgres database, for several engine processes on one database.
+use crate::persistence::{
+    Error, JournalRecord, Lease, PersistenceProvider, Result, SerializationSnafu,
+};
+use crate::workflow::{WorkflowCheckpoint, WorkflowEvent};
+use async_trait::async_trait;
+use snafu::prelude::*;
+use sqlx::postgres::{PgPool, PgPoolOptions};
+
+#[derive(Debug)]
+#[allow(dead_code)]
+/// A store in a Postgres database.
+pub struct PostgresPersistence {
+    pool: PgPool,
+}
+
+#[allow(dead_code)]
+impl PostgresPersistence {
+    /// Create a new ``PostgreSQL`` persistence provider
+    ///
+    /// # Arguments
+    /// * `database_url` - ``PostgreSQL`` connection string (e.g., "<postgresql://user:pass@localhost/db>")
+    ///
+    /// # Errors
+    /// Returns an error if the database connection fails or if the schema initialization fails.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use jackdaw::providers::persistence::PostgresPersistence;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let persistence = PostgresPersistence::new("postgresql://user:password@localhost/mydb").await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn new(database_url: &str) -> Result<Self> {
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .connect(database_url)
+            .await
+            .map_err(|e| Error::Database {
+                message: format!("Failed to connect to PostgreSQL: {e}"),
+            })?;
+
+        // Initialize schema - execute statements individually since PostgreSQL
+        // prepared statements don't support multiple statements
+        let schema_sql = include_str!("./sql/persistence_postgres.sql");
+        for statement in schema_sql.split(';').filter(|s| !s.trim().is_empty()) {
+            sqlx::query(statement)
+                .execute(&pool)
+                .await
+                .map_err(|e| Error::Database {
+                    message: format!("Failed to execute schema statement: {e}"),
+                })?;
+        }
+
+        Ok(Self { pool })
+    }
+
+    /// Create a new ``PostgreSQL`` persistence provider with custom pool options
+    ///
+    /// # Errors
+    /// Returns an error if the schema initialization fails or if there are database connectivity issues.
+    pub async fn with_pool(pool: PgPool) -> Result<Self> {
+        // Initialize schema - execute statements individually since PostgreSQL
+        // prepared statements don't support multiple statements
+        let schema_sql = include_str!("./sql/persistence_postgres.sql");
+        for statement in schema_sql.split(';').filter(|s| !s.trim().is_empty()) {
+            sqlx::query(statement)
+                .execute(&pool)
+                .await
+                .map_err(|e| Error::Database {
+                    message: format!("Failed to execute schema statement: {e}"),
+                })?;
+        }
+
+        Ok(Self { pool })
+    }
+
+    /// Get the event type name for a ``WorkflowEvent``
+    fn get_event_type(event: &WorkflowEvent) -> &'static str {
+        match event {
+            WorkflowEvent::WorkflowStarted { .. } => "WorkflowStarted",
+            WorkflowEvent::TaskEntered { .. } => "TaskEntered",
+            WorkflowEvent::TaskCreated { .. } => "TaskCreated",
+            WorkflowEvent::TaskStarted { .. } => "TaskStarted",
+            WorkflowEvent::TaskRetried { .. } => "TaskRetried",
+            WorkflowEvent::TaskCompleted { .. } => "TaskCompleted",
+            WorkflowEvent::WorkflowCompleted { .. } => "WorkflowCompleted",
+            WorkflowEvent::WorkflowCorrelationStarted { .. } => "WorkflowCorrelationStarted",
+            WorkflowEvent::WorkflowCorrelationCompleted { .. } => "WorkflowCorrelationCompleted",
+            WorkflowEvent::WorkflowFailed { .. } => "WorkflowFailed",
+            WorkflowEvent::WorkflowCancelled { .. } => "WorkflowCancelled",
+            WorkflowEvent::WorkflowSuspended { .. } => "WorkflowSuspended",
+            WorkflowEvent::WorkflowResumed { .. } => "WorkflowResumed",
+            WorkflowEvent::TaskCancelled { .. } => "TaskCancelled",
+            WorkflowEvent::TaskSuspended { .. } => "TaskSuspended",
+            WorkflowEvent::TaskResumed { .. } => "TaskResumed",
+            WorkflowEvent::TaskFaulted { .. } => "TaskFaulted",
+            WorkflowEvent::WorkflowContinuedAsNew { .. } => "WorkflowContinuedAsNew",
+            WorkflowEvent::EventEmitted { .. } => "EventEmitted",
+        }
+    }
+}
+
+#[async_trait]
+impl PersistenceProvider for PostgresPersistence {
+    async fn save_event(&self, event: WorkflowEvent) -> Result<()> {
+        let instance_id = event.instance_id().to_string();
+        let event_type = Self::get_event_type(&event);
+        let event_data = serde_json::to_value(&event).context(SerializationSnafu)?;
+        let timestamp = chrono::Utc::now();
+
+        // Get the next sequence number for this instance
+        let sequence_number: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(MAX(sequence_number), -1) + 1 FROM workflow_events WHERE instance_id = $1"
+        )
+        .bind(&instance_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| Error::Database { message: format!("Failed to get sequence number: {e}") })?;
+
+        sqlx::query(
+            "INSERT INTO workflow_events (instance_id, event_type, event_data, timestamp, sequence_number) VALUES ($1, $2, $3, $4, $5)"
+        )
+        .bind(&instance_id)
+        .bind(event_type)
+        .bind(&event_data)
+        .bind(timestamp)
+        .bind(sequence_number)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| Error::Database { message: format!("Failed to save event: {e}") })?;
+
+        Ok(())
+    }
+
+    async fn get_events(&self, instance_id: &str) -> Result<Vec<WorkflowEvent>> {
+        let rows = sqlx::query_as::<_, (serde_json::Value,)>(
+            "SELECT event_data FROM workflow_events WHERE instance_id = $1 ORDER BY sequence_number ASC"
+        )
+        .bind(instance_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| Error::Database { message: format!("Failed to get events: {e}") })?;
+
+        let mut events = Vec::new();
+        for (event_data,) in rows {
+            let event: WorkflowEvent =
+                serde_json::from_value(event_data).context(SerializationSnafu)?;
+            events.push(event);
+        }
+
+        Ok(events)
+    }
+
+    async fn save_checkpoint(&self, checkpoint: WorkflowCheckpoint) -> Result<()> {
+        let data_json = serde_json::to_value(&checkpoint.data).context(SerializationSnafu)?;
+
+        sqlx::query(
+            r"
+            INSERT INTO workflow_checkpoints (instance_id, current_task, data, timestamp)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (instance_id) 
+            DO UPDATE SET
+                current_task = EXCLUDED.current_task,
+                data = EXCLUDED.data,
+                timestamp = EXCLUDED.timestamp
+            ",
+        )
+        .bind(&checkpoint.instance_id)
+        .bind(&checkpoint.current_task)
+        .bind(&data_json)
+        .bind(checkpoint.timestamp)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| Error::Database {
+            message: format!("Failed to save checkpoint: {e}"),
+        })?;
+
+        Ok(())
+    }
+
+    async fn get_checkpoint(&self, instance_id: &str) -> Result<Option<WorkflowCheckpoint>> {
+        let result = sqlx::query_as::<_, (String, String, serde_json::Value, chrono::DateTime<chrono::Utc>)>(
+            "SELECT instance_id, current_task, data, timestamp FROM workflow_checkpoints WHERE instance_id = $1"
+        )
+        .bind(instance_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| Error::Database { message: format!("Failed to get checkpoint: {e}") })?;
+
+        match result {
+            Some((instance_id, current_task, data, timestamp)) => Ok(Some(WorkflowCheckpoint {
+                instance_id,
+                current_task,
+                data,
+                timestamp,
+            })),
+            None => Ok(None),
+        }
+    }
+
+    async fn append_journal(&self, instance_id: &str, records: Vec<JournalRecord>) -> Result<()> {
+        let mut transaction = self.pool.begin().await.map_err(|e| Error::Database {
+            message: format!("Failed to begin a transaction: {e}"),
+        })?;
+        for (position, body) in records {
+            sqlx::query(
+                "INSERT INTO workflow_journal (instance_id, position, body) VALUES ($1, $2, $3)",
+            )
+            .bind(instance_id)
+            .bind(i64::try_from(position).unwrap_or(i64::MAX))
+            .bind(body)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|e| Error::Database {
+                message: format!("Failed to append a journal record: {e}"),
+            })?;
+        }
+        transaction.commit().await.map_err(|e| Error::Database {
+            message: format!("Failed to commit the journal: {e}"),
+        })
+    }
+
+    async fn load_journal(&self, instance_id: &str) -> Result<Vec<JournalRecord>> {
+        let rows = sqlx::query_as::<_, (i64, serde_json::Value)>(
+            "SELECT position, body FROM workflow_journal WHERE instance_id = $1 ORDER BY position ASC",
+        )
+        .bind(instance_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| Error::Database {
+            message: format!("Failed to load the journal: {e}"),
+        })?;
+        let mut records = Vec::with_capacity(rows.len());
+        for (position, body) in rows {
+            records.push((u64::try_from(position).unwrap_or(0), body));
+        }
+        Ok(records)
+    }
+
+    async fn prune_journal(&self, instance_id: &str, before: u64) -> Result<()> {
+        sqlx::query("DELETE FROM workflow_journal WHERE instance_id = $1 AND position < $2")
+            .bind(instance_id)
+            .bind(i64::try_from(before).unwrap_or(i64::MAX))
+            .execute(&self.pool)
+            .await
+            .map_err(|e| Error::Database {
+                message: format!("Failed to prune the journal: {e}"),
+            })?;
+        Ok(())
+    }
+
+    async fn create_checkpoint(&self, checkpoint: WorkflowCheckpoint) -> Result<bool> {
+        let result = sqlx::query("INSERT INTO workflow_checkpoints (instance_id, current_task, data, timestamp) VALUES ($1, $2, $3, $4) ON CONFLICT (instance_id) DO NOTHING")
+            .bind(&checkpoint.instance_id)
+            .bind(&checkpoint.current_task)
+            .bind(&checkpoint.data)
+            .bind(checkpoint.timestamp)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| Error::Database {
+                message: format!("Failed to create checkpoint: {e}"),
+            })?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    async fn list_instances(&self) -> Result<Option<Vec<String>>> {
+        let ids = sqlx::query_scalar::<_, String>("SELECT instance_id FROM workflow_checkpoints")
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| Error::Database {
+                message: format!("Failed to list instances: {e}"),
+            })?;
+        Ok(Some(ids))
+    }
+
+    async fn delete_instance(&self, instance_id: &str) -> Result<()> {
+        let mut transaction = self.pool.begin().await.map_err(|e| Error::Database {
+            message: format!("Failed to begin a transaction: {e}"),
+        })?;
+        for table in [
+            "workflow_checkpoints",
+            "workflow_events",
+            "workflow_journal",
+            "workflow_leases",
+        ] {
+            // `table` is one of the constants above, never input.
+            sqlx::query(sqlx::AssertSqlSafe(format!(
+                "DELETE FROM {table} WHERE instance_id = $1"
+            )))
+            .bind(instance_id)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|e| Error::Database {
+                message: format!("Failed to delete from {table}: {e}"),
+            })?;
+        }
+        transaction.commit().await.map_err(|e| Error::Database {
+            message: format!("Failed to commit the deletion: {e}"),
+        })
+    }
+
+    fn supports_leases(&self) -> bool {
+        true
+    }
+
+    async fn acquire_lease(
+        &self,
+        instance_id: &str,
+        owner: &str,
+        now: chrono::DateTime<chrono::Utc>,
+        until: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Lease> {
+        // One statement: insert, or take over a lease that is ours or has expired. Then read what is there.
+        sqlx::query(
+            "INSERT INTO workflow_leases (instance_id, owner, expires_at) VALUES ($1, $2, $3) \
+             ON CONFLICT (instance_id) DO UPDATE SET owner = excluded.owner, expires_at = excluded.expires_at \
+             WHERE workflow_leases.owner = excluded.owner OR workflow_leases.expires_at <= $4",
+        )
+        .bind(instance_id)
+        .bind(owner)
+        .bind(until.timestamp_millis())
+        .bind(now.timestamp_millis())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| Error::Database {
+            message: format!("Failed to take a lease: {e}"),
+        })?;
+        let (owner, expires_at): (String, i64) =
+            sqlx::query_as("SELECT owner, expires_at FROM workflow_leases WHERE instance_id = $1")
+                .bind(instance_id)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(|e| Error::Database {
+                    message: format!("Failed to read a lease: {e}"),
+                })?;
+        Ok(Lease {
+            owner,
+            expires_at: chrono::DateTime::from_timestamp_millis(expires_at).unwrap_or_default(),
+        })
+    }
+
+    async fn release_lease(&self, instance_id: &str, owner: &str) -> Result<()> {
+        sqlx::query("DELETE FROM workflow_leases WHERE instance_id = $1 AND owner = $2")
+            .bind(instance_id)
+            .bind(owner)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| Error::Database {
+                message: format!("Failed to release a lease: {e}"),
+            })?;
+        Ok(())
+    }
+
+    async fn post_message(&self, instance_id: &str, message: serde_json::Value) -> Result<()> {
+        sqlx::query("INSERT INTO workflow_messages (instance_id, body) VALUES ($1, $2)")
+            .bind(instance_id)
+            .bind(&message)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| Error::Database {
+                message: format!("Failed to post a message: {e}"),
+            })?;
+        Ok(())
+    }
+
+    async fn take_messages(&self, owner: &str) -> Result<Vec<(String, serde_json::Value)>> {
+        let mut transaction = self.pool.begin().await.map_err(|e| Error::Database {
+            message: format!("Failed to begin a transaction: {e}"),
+        })?;
+        let rows: Vec<(i64, String, serde_json::Value)> = sqlx::query_as(
+            "SELECT id, instance_id, body FROM workflow_messages WHERE instance_id IN \
+             (SELECT instance_id FROM workflow_leases WHERE owner = $1) ORDER BY id",
+        )
+        .bind(owner)
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(|e| Error::Database {
+            message: format!("Failed to read messages: {e}"),
+        })?;
+        let mut taken = Vec::with_capacity(rows.len());
+        for (id, instance_id, body) in rows {
+            sqlx::query("DELETE FROM workflow_messages WHERE id = $1")
+                .bind(id)
+                .execute(&mut *transaction)
+                .await
+                .map_err(|e| Error::Database {
+                    message: format!("Failed to remove a message: {e}"),
+                })?;
+
+            taken.push((instance_id, body));
+        }
+        transaction.commit().await.map_err(|e| Error::Database {
+            message: format!("Failed to commit taking messages: {e}"),
+        })?;
+        Ok(taken)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    #![allow(clippy::expect_used)]
+    #![allow(clippy::panic)]
+    #![allow(clippy::wildcard_enum_match_arm)]
+
+    use super::*;
+    use chrono::Utc;
+    use serial_test::serial;
+    use testcontainers::{GenericImage, ImageExt, runners::AsyncRunner};
+
+    async fn setup_postgres_container() -> (testcontainers::ContainerAsync<GenericImage>, String) {
+        use testcontainers::core::ContainerPort;
+
+        let postgres_image = GenericImage::new("postgres", "16-alpine")
+            .with_exposed_port(ContainerPort::Tcp(5432))
+            .with_env_var("POSTGRES_DB", "test_db")
+            .with_env_var("POSTGRES_USER", "postgres")
+            .with_env_var("POSTGRES_PASSWORD", "postgres");
+
+        let container = postgres_image
+            .start()
+            .await
+            .expect("Failed to start postgres container");
+        let port = container
+            .get_host_port_ipv4(ContainerPort::Tcp(5432))
+            .await
+            .expect("Failed to get port");
+        let database_url = format!("postgresql://postgres:postgres@localhost:{}/test_db", port);
+
+        // Retry connection with exponential backoff to ensure PostgreSQL is ready
+        let mut retries = 0;
+        let max_retries = 10;
+        loop {
+            match PgPoolOptions::new()
+                .max_connections(5)
+                .connect(&database_url)
+                .await
+            {
+                Ok(pool) => {
+                    // Successfully connected, close the test pool
+                    pool.close().await;
+                    break;
+                }
+                Err(e) if retries < max_retries => {
+                    retries += 1;
+                    let backoff_ms = 2u64.pow(retries) * 100; // 200ms, 400ms, 800ms, etc.
+                    eprintln!(
+                        "PostgreSQL not ready yet (attempt {}/{}): {}. Retrying in {}ms...",
+                        retries, max_retries, e, backoff_ms
+                    );
+                    tokio::time::sleep(tokio::time::Duration::from_millis(backoff_ms)).await;
+                }
+                Err(e) => {
+                    panic!(
+                        "Failed to connect to PostgreSQL after {} retries: {}",
+                        max_retries, e
+                    );
+                }
+            }
+        }
+
+        (container, database_url)
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_postgres_persistence_events() {
+        let (_container, database_url) = setup_postgres_container().await;
+        let persistence = PostgresPersistence::new(&database_url).await.unwrap();
+
+        let instance_id = "test-instance-1";
+
+        // Save events
+        let event1 = WorkflowEvent::WorkflowStarted {
+            instance_id: instance_id.to_string(),
+            workflow_id: "workflow1".to_string(),
+            timestamp: Utc::now(),
+            initial_data: serde_json::json!({"input": "data"}),
+        };
+
+        let event2 = WorkflowEvent::TaskStarted {
+            instance_id: instance_id.to_string(),
+            task_name: "task1".to_string(),
+            timestamp: Utc::now(),
+        };
+
+        persistence.save_event(event1).await.unwrap();
+        persistence.save_event(event2).await.unwrap();
+
+        // Retrieve events
+        let events = persistence.get_events(instance_id).await.unwrap();
+        assert_eq!(events.len(), 2);
+
+        match events.first() {
+            Some(WorkflowEvent::WorkflowStarted { workflow_id, .. }) => {
+                assert_eq!(workflow_id, "workflow1");
+            }
+            _ => panic!("Expected WorkflowStarted event"),
+        }
+
+        match events.get(1) {
+            Some(WorkflowEvent::TaskStarted { task_name, .. }) => {
+                assert_eq!(task_name, "task1");
+            }
+            _ => panic!("Expected TaskStarted event"),
+        }
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_postgres_persistence_checkpoint() {
+        let (_container, database_url) = setup_postgres_container().await;
+        let persistence = PostgresPersistence::new(&database_url).await.unwrap();
+
+        let checkpoint = WorkflowCheckpoint {
+            instance_id: "test-instance-2".to_string(),
+            current_task: "task2".to_string(),
+            data: serde_json::json!({"state": "active"}),
+            timestamp: Utc::now(),
+        };
+
+        persistence
+            .save_checkpoint(checkpoint.clone())
+            .await
+            .unwrap();
+
+        let retrieved = persistence
+            .get_checkpoint("test-instance-2")
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(retrieved.instance_id, "test-instance-2");
+        assert_eq!(retrieved.current_task, "task2");
+        assert_eq!(retrieved.data, serde_json::json!({"state": "active"}));
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_postgres_persistence_checkpoint_upsert() {
+        let (_container, database_url) = setup_postgres_container().await;
+        let persistence = PostgresPersistence::new(&database_url).await.unwrap();
+
+        let checkpoint1 = WorkflowCheckpoint {
+            instance_id: "test-instance-3".to_string(),
+            current_task: "task1".to_string(),
+            data: serde_json::json!({"step": 1}),
+            timestamp: Utc::now(),
+        };
+
+        persistence.save_checkpoint(checkpoint1).await.unwrap();
+
+        // Update checkpoint
+        let checkpoint2 = WorkflowCheckpoint {
+            instance_id: "test-instance-3".to_string(),
+            current_task: "task2".to_string(),
+            data: serde_json::json!({"step": 2}),
+            timestamp: Utc::now(),
+        };
+
+        persistence.save_checkpoint(checkpoint2).await.unwrap();
+
+        let retrieved = persistence
+            .get_checkpoint("test-instance-3")
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(retrieved.current_task, "task2");
+        assert_eq!(retrieved.data, serde_json::json!({"step": 2}));
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_postgres_persistence_event_ordering() {
+        let (_container, database_url) = setup_postgres_container().await;
+        let persistence = PostgresPersistence::new(&database_url).await.unwrap();
+
+        let instance_id = "test-instance-4";
+
+        // Save multiple events
+        for i in 0..5 {
+            let event = WorkflowEvent::TaskCompleted {
+                instance_id: instance_id.to_string(),
+                task_name: format!("task{}", i),
+                result: serde_json::json!({"step": i}),
+                timestamp: Utc::now(),
+                duration_ms: 100,
+            };
+            persistence.save_event(event).await.unwrap();
+        }
+
+        let events = persistence.get_events(instance_id).await.unwrap();
+        assert_eq!(events.len(), 5);
+
+        // Verify order
+        for (i, event) in events.iter().enumerate() {
+            match event {
+                WorkflowEvent::TaskCompleted { task_name, .. } => {
+                    assert_eq!(task_name, &format!("task{}", i));
+                }
+                _ => panic!("Expected TaskCompleted event"),
+            }
+        }
+    }
+}

@@ -1,0 +1,4 @@
+repository: https://github.com/arminhammer/sdk-rust.git
+ref: main
+revision: 6c3b00ad5579a890a47f9a363815dca64d6facfc
+path: core/src/models

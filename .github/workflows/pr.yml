@@ -34,6 +34,88 @@ jobs:
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
+  features:
+    name: Feature combinations
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.99.0
+        with:
+          components: clippy
+
+      - name: Install cargo-hack
+        uses: taiki-e/install-action@cargo-hack
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: features
+
+      # Each feature on its own (and none), so a gate that only works because another feature is on fails here. The
+      # tests always build with `full` (the crate's dev-dependency on itself), so this is where slim builds are checked.
+      - name: Clippy for each feature
+        run: cargo hack clippy -p jackdaw-wf --each-feature --no-dev-deps -- -D warnings
+
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.99.0
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: docs
+
+      # As docs.rs builds them (all features); a broken intra-doc link or a missing doc fails the job.
+      - name: Build the docs with warnings denied
+        run: cargo doc -p jackdaw-wf -p jackdaw-wf-macros --all-features --no-deps --locked
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  msrv:
+    name: Minimum Supported Rust Version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Keep in sync with `rust-version` in the root Cargo.toml.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.94
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: msrv
+
+      # `+1.94` because rust-toolchain.toml would otherwise select the pinned development toolchain.
+      - name: Check the workspace on the MSRV
+        run: cargo +1.94 check --workspace --all-features --locked
+
+  package:
+    name: Package (publish dry run)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.99.0
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Package and verify the published crates
+        run: cargo publish --dry-run --locked -p jackdaw-wf-macros -p jackdaw-wf -p jackdaw-cli
+
   build-docker-for-tests:
     name: Build Docker Image for Tests
     runs-on: ubuntu-latest
@@ -50,6 +132,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
+          file: jackdaw-cli/Dockerfile
           load: true
           tags: jackdaw:latest
           cache-from: type=gha
@@ -102,8 +185,11 @@ jobs:
       - name: Verify Docker image is loaded
         run: docker images jackdaw:latest
 
+      # rust-src: the compile-fail tests' expected errors quote the standard library, which rustc shows only with it.
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@1.99.0
+        with:
+          components: rust-src
 
       - name: Set up Python 3.10
         uses: actions/setup-python@v5
@@ -115,9 +201,6 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libpq-dev
-
           # Install grpcurl for gRPC integration tests
           wget https://github.com/fullstorydev/grpcurl/releases/download/v1.9.1/grpcurl_1.9.1_linux_amd64.deb
           sudo dpkg -i grpcurl_1.9.1_linux_amd64.deb
@@ -130,6 +213,48 @@ jobs:
 
       - name: Run doc tests
         run: cargo test --doc
+
+  specs-on-stores:
+    name: Library specs on ${{ matrix.store }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        store: [sqlite, postgres]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: jackdaw_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.99.0
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: specs-${{ matrix.store }}
+
+      # The specs run on the store the matrix names (the Test Suite job runs them on Redb). One scenario at a time:
+      # with several at once, the SQL stores stall (see library-refactor.md).
+      - name: Run the library specs
+        run: cargo test -p jackdaw-wf --test lib_features
+        env:
+          JACKDAW_TEST_STORE: ${{ matrix.store }}
+          JACKDAW_SCENARIO_CONCURRENCY: 1
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/jackdaw_test
 
   build:
     name: Build Check
@@ -163,13 +288,6 @@ jobs:
       - name: Install cargo-audit
         run: cargo install cargo-audit
 
+      # Fails on any vulnerability; unmaintained-crate warnings are reported, not fatal.
       - name: Run security audit
-        run: |
-          # Run audit but ignore specific advisories and warnings
-          cargo audit \
-            --ignore RUSTSEC-2023-0071 \
-            --ignore RUSTSEC-2025-0111 \
-            --ignore RUSTSEC-2025-0119 \
-            --ignore RUSTSEC-2024-0436 \
-            --ignore RUSTSEC-2025-0134 \
-            || echo "Security audit found issues - please review"
+        run: cargo audit
