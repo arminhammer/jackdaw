@@ -45,6 +45,16 @@ The workspace publishes three crates with the same version: `jackdaw-wf` (the li
   Before, a YAML script task's output went to the process's stdout and stderr, whatever the application did.
   `set_yaml_trace` is deprecated and does nothing. The gRPC listener's request diagnostics and the OpenAPI caller's
   request lines are `DEBUG` logs.
+- Engine OpenAPI listeners (`Listener::openapi`) check each request against its operation before a workflow
+  starts:
+  - required parameters;
+  - the schemas of path, query and header parameters;
+  - the JSON request body's schema, with `$ref`s into `components` resolved. An `openapi: 3.0` document's schemas are
+    read as JSON Schema draft 4, a 3.1 one's as 2020-12.
+  A request that does not match gets a `400` listing the problems. A document with an invalid schema is rejected
+  when the listener is built. This adds the `jsonschema` dependency to the `http-listener` feature, without its
+  default features (no remote `$ref`s, no C code). The listener docs now say to terminate TLS in a proxy or
+  sidecar.
 - The `jackdaw` CLI renders that trace as before, and now also prints warnings and errors from the library on stderr
   (everything with `--verbose`; `RUST_LOG` overrides).
 - `console` is no longer a dependency of the library.

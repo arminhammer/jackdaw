@@ -40,9 +40,16 @@
 //! # }
 //! ```
 //!
+//! A request is first checked against its operation in the document: required parameters, the schemas of its path,
+//! query and header parameters, and its JSON request body's schema (`$ref`s into `components` resolve; an `openapi:
+//! 3.0` document's schemas are read as JSON Schema draft 4, a 3.1 one's as 2020-12). One that does not match is a
+//! `400` whose body lists the problems, and no workflow starts.
+//!
 //! A request's input is its JSON body; path and query parameters are added to it (a body-less request is just its
 //! parameters). The workflow's output is the response body. Input the workflow cannot read is a `400`, a workflow
-//! that fails a `500`, and an engine that is shutting down a `503`. [`Engine::shutdown`] stops the listeners first and
+//! that fails a `500`, and an engine that is shutting down a `503`.
+//!
+//! Listeners serve plain HTTP and gRPC (h2c). For TLS, put a reverse proxy or a sidecar in front of them. [`Engine::shutdown`] stops the listeners first and
 //! waits for the requests they are serving; dropping the engine closes them at once.
 use super::engine::Engine;
 use super::error::Error;
@@ -84,6 +91,197 @@ struct Route {
     path: String,
     method: String,
     operation: String,
+    rules: Arc<RequestRules>,
+}
+
+/// What a request to one operation must look like: its parameters and its JSON body, from the OpenAPI document.
+#[cfg(feature = "http-listener")]
+struct RequestRules {
+    parameters: Vec<ParameterRule>,
+    body_required: bool,
+    body: Option<jsonschema::Validator>,
+}
+
+#[cfg(feature = "http-listener")]
+struct ParameterRule {
+    name: String,
+    /// `path`, `query` or `header` (cookie parameters are not checked).
+    location: String,
+    required: bool,
+    schema: Option<jsonschema::Validator>,
+}
+
+#[cfg(feature = "http-listener")]
+impl RequestRules {
+    /// Reads the rules of `operation` (under `path_item`) from `document`.
+    fn new(
+        document: &Value,
+        path_item: &Value,
+        operation: &Value,
+        what: &str,
+    ) -> Result<Self, Error> {
+        let draft = if document
+            .get("openapi")
+            .and_then(Value::as_str)
+            .is_some_and(|version| version.starts_with("3.0") || version.starts_with('2'))
+        {
+            jsonschema::Draft::Draft4
+        } else {
+            jsonschema::Draft::Draft202012
+        };
+        // `$ref`s in a schema point into the document's `components`, so each schema is compiled with them beside it.
+        let compile = |schema: &Value, of: &str| -> Result<jsonschema::Validator, Error> {
+            let mut root = resolve(document, schema).clone();
+            if let (Value::Object(fields), Some(components)) =
+                (&mut root, document.get("components"))
+            {
+                fields
+                    .entry("components")
+                    .or_insert_with(|| components.clone());
+            }
+            jsonschema::options()
+                .with_draft(draft)
+                .build(&root)
+                .map_err(|e| {
+                    Error::invalid(format!("{what}: the schema of {of} is not valid: {e}"))
+                })
+        };
+
+        // The path item's parameters, then the operation's, which override one with the same name and location.
+        let mut parameters: Vec<ParameterRule> = Vec::new();
+        for parameter in [path_item, operation]
+            .into_iter()
+            .filter_map(|item| item.get("parameters").and_then(Value::as_array))
+            .flatten()
+        {
+            let parameter = resolve(document, parameter);
+            let (Some(name), Some(location)) = (
+                parameter.get("name").and_then(Value::as_str),
+                parameter.get("in").and_then(Value::as_str),
+            ) else {
+                continue;
+            };
+            let rule = ParameterRule {
+                name: name.to_string(),
+                location: location.to_string(),
+                required: location == "path"
+                    || parameter.get("required").and_then(Value::as_bool) == Some(true),
+                schema: parameter
+                    .get("schema")
+                    .map(|schema| compile(schema, &format!("{location} parameter `{name}`")))
+                    .transpose()?,
+            };
+            parameters
+                .retain(|other| !(other.name == rule.name && other.location == rule.location));
+            parameters.push(rule);
+        }
+
+        let body = operation
+            .get("requestBody")
+            .map(|body| resolve(document, body));
+        let body_required = body
+            .and_then(|body| body.get("required"))
+            .and_then(Value::as_bool)
+            == Some(true);
+        let body_schema = body
+            .and_then(|body| body.pointer("/content/application~1json/schema"))
+            .map(|schema| compile(schema, "the request body"))
+            .transpose()?;
+        Ok(Self {
+            parameters,
+            body_required,
+            body: body_schema,
+        })
+    }
+
+    /// The ways a request breaks the rules; empty when it follows them.
+    fn check(
+        &self,
+        path: &axum::extract::RawPathParams,
+        query: &BTreeMap<String, String>,
+        headers: &axum::http::HeaderMap,
+        body: &[u8],
+    ) -> Vec<String> {
+        let mut problems = Vec::new();
+        for rule in &self.parameters {
+            let value = match rule.location.as_str() {
+                "path" => path
+                    .iter()
+                    .find(|(name, _)| *name == rule.name)
+                    .map(|(_, value)| value.to_string()),
+                "query" => query.get(&rule.name).cloned(),
+                "header" => headers
+                    .get(&rule.name)
+                    .and_then(|value| value.to_str().ok())
+                    .map(str::to_string),
+                _ => continue,
+            };
+            match (value, &rule.schema) {
+                (None, _) if rule.required => problems.push(format!(
+                    "the {} parameter `{}` is required",
+                    rule.location, rule.name
+                )),
+                (Some(text), Some(schema)) => {
+                    // Parameters arrive as text: `42` is valid for a string schema and for an integer one.
+                    let spelled = serde_json::from_str::<Value>(&text).ok();
+                    let as_text = Value::String(text);
+                    if !schema.is_valid(&as_text)
+                        && !spelled.as_ref().is_some_and(|value| schema.is_valid(value))
+                    {
+                        let shown = spelled.as_ref().unwrap_or(&as_text);
+                        let reasons: Vec<String> = schema
+                            .iter_errors(shown)
+                            .map(|error| error.to_string())
+                            .collect();
+                        problems.push(format!(
+                            "the {} parameter `{}`: {}",
+                            rule.location,
+                            rule.name,
+                            reasons.join("; ")
+                        ));
+                    }
+                }
+                (None, _) | (Some(_), None) => {}
+            }
+        }
+        if body.is_empty() {
+            if self.body_required {
+                problems.push("a request body is required".to_string());
+            }
+        } else if let Some(schema) = &self.body
+            && let Ok(value) = serde_json::from_slice::<Value>(body)
+        {
+            // A body that is not JSON is reported when the input is read.
+            for error in schema.iter_errors(&value) {
+                let at = error.instance_path().to_string();
+                problems.push(if at.is_empty() {
+                    format!("the request body: {error}")
+                } else {
+                    format!("the request body at `{at}`: {error}")
+                });
+            }
+        }
+        problems
+    }
+}
+
+/// `value`, or what its local `$ref` (`#/components/...`) points to in `document`.
+#[cfg(feature = "http-listener")]
+fn resolve<'a>(document: &'a Value, value: &'a Value) -> &'a Value {
+    let mut value = value;
+    // A chain of references, but not a cycle.
+    for _ in 0..8 {
+        match value
+            .get("$ref")
+            .and_then(Value::as_str)
+            .and_then(|reference| reference.strip_prefix('#'))
+            .and_then(|pointer| document.pointer(pointer))
+        {
+            Some(target) => value = target,
+            None => break,
+        }
+    }
+    value
 }
 
 impl fmt::Debug for Listener {
@@ -101,7 +299,8 @@ impl Listener {
     /// see [`Engine::listener_addr`]). Bind its operations, by `operationId`, with [`bind`](Self::bind).
     ///
     /// # Errors
-    /// `Error::Invalid` if the document does not parse or has no operations with an `operationId`.
+    /// `Error::Invalid` if the document does not parse, has no operations with an `operationId`, or has a parameter or
+    /// request body schema that is not valid JSON Schema.
     #[cfg(feature = "http-listener")]
     #[cfg_attr(docsrs, doc(cfg(feature = "http-listener")))]
     pub fn openapi(
@@ -126,15 +325,21 @@ impl Listener {
             .flatten()
         {
             for method in METHODS {
-                if let Some(operation) = item
-                    .get(method)
-                    .and_then(|operation| operation.get("operationId"))
-                    .and_then(Value::as_str)
-                {
+                let Some(operation) = item.get(method) else {
+                    continue;
+                };
+                if let Some(id) = operation.get("operationId").and_then(Value::as_str) {
+                    let rules = RequestRules::new(
+                        &document,
+                        item,
+                        operation,
+                        &format!("listener `{name}`: operation `{id}`"),
+                    )?;
                     routes.push(Route {
                         path: path.clone(),
                         method: method.to_string(),
-                        operation: operation.to_string(),
+                        operation: id.to_string(),
+                        rules: Arc::new(rules),
                     });
                 }
             }
@@ -376,11 +581,25 @@ async fn serve_http(
             _ => MethodFilter::TRACE,
         };
         let engine = engine.clone();
+        let rules = Arc::clone(&route.rules);
         let handler = move |params: RawPathParams,
                             Query(query): Query<BTreeMap<String, String>>,
+                            headers: axum::http::HeaderMap,
                             body: axum::body::Bytes| {
-            let (binding, engine) = (Arc::clone(&binding), engine.clone());
+            let (binding, engine, rules) =
+                (Arc::clone(&binding), engine.clone(), Arc::clone(&rules));
             async move {
+                let problems = rules.check(&params, &query, &headers, &body);
+                if !problems.is_empty() {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        axum::Json(serde_json::json!({
+                            "error": "the request does not match the OpenAPI document",
+                            "problems": problems,
+                        })),
+                    )
+                        .into_response();
+                }
                 let input = match crate::listeners::request_input(&params, query, &body) {
                     Ok(input) => input,
                     Err(message) => {

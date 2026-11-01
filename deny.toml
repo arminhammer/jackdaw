@@ -8,7 +8,6 @@ all-features = true
 # Every license in the dependency tree. A new one fails the job: check it is compatible with Apache-2.0, then add it.
 allow = [
     "Apache-2.0",
-    "BlueOak-1.0.0",
     "BSD-2-Clause",
     "BSD-3-Clause",
     "BSL-1.0",
@@ -16,6 +15,7 @@ allow = [
     "CDLA-Permissive-2.0",
     "ISC",
     "MIT",
+    "MIT-0",
     "Unicode-3.0",
     "Unlicense",
     "Zlib",

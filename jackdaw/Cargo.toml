@@ -63,6 +63,8 @@ bollard = { version = "0.21", optional = true }
 
 # http-listener
 axum = { version = "0.8", optional = true }
+# OpenAPI request validation in the engine's HTTP listener. Without default features: no remote `$ref`s, no C TLS.
+jsonschema = { version = "0.60", default-features = false, optional = true }
 
 # grpc-listener
 tonic = { version = "0.14", optional = true }
@@ -102,7 +104,7 @@ openapi = ["yaml", "dep:openapiv3-extended"]
 docker = ["dep:bollard"]
 # `api::Listener` (the engine serves HTTP routes or a gRPC service whose requests start workflows), and YAML
 # `listen` tasks on HTTP (OpenAPI) and gRPC.
-http-listener = ["dep:axum", "tokio/net", "tokio/rt-multi-thread"]
+http-listener = ["dep:axum", "tokio/net", "tokio/rt-multi-thread", "dep:jsonschema"]
 grpc-listener = ["dep:tonic", "dep:tonic-reflection", "dep:prost", "dep:prost-reflect", "dep:prost-types", "dep:protox", "dep:tower", "dep:http", "dep:http-body", "dep:http-body-util", "dep:hyper", "dep:hyper-util", "dep:bytes", "tokio/net", "tokio/rt-multi-thread"]
 
 # Counters and histograms through the `metrics` facade. The library never installs a recorder.
