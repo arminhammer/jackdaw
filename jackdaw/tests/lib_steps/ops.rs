@@ -554,6 +554,58 @@ async fn old_removed(world: &mut LibWorld) {
     assert!(engine.history(&old).await.expect("history").is_empty());
 }
 
+#[given(regex = r#"^a YAML workflow that published "order\.old" and finished 8 days ago$"#)]
+async fn old_yaml(world: &mut LibWorld) {
+    let engine = world.engine();
+    let id = super::helpers::emit_from_yaml(&engine, &[("order.old", "o-1")]).await;
+    world.notes.insert("old-yaml".into(), json!(id));
+    world.notes.insert(
+        "old-day".into(),
+        json!(world.clock.now().date_naive().to_string()),
+    );
+    world.pass(Duration::from_secs(7 * 86_400)).await;
+}
+
+#[given(regex = r#"^a YAML workflow that published "order\.new" 1 day ago$"#)]
+async fn new_yaml(world: &mut LibWorld) {
+    let engine = world.engine();
+    let id = super::helpers::emit_from_yaml(&engine, &[("order.new", "o-2")]).await;
+    world.notes.insert("new-yaml".into(), json!(id));
+    world.notes.insert(
+        "new-day".into(),
+        json!(world.clock.now().date_naive().to_string()),
+    );
+    world.pass(Duration::from_secs(86_400)).await;
+}
+
+#[then("the 8-day-old YAML instance is removed from the store")]
+async fn old_yaml_removed(world: &mut LibWorld) {
+    let old = world.notes["old-yaml"].as_str().expect("an id").to_string();
+    let new = world.notes["new-yaml"].as_str().expect("an id").to_string();
+    assert_eq!(world.notes["purged"], json!([old]));
+    let engine = world.engine();
+    assert!(engine.status(&old).await.is_err());
+    assert!(engine.history(&old).await.expect("history").is_empty());
+    assert_eq!(engine.status(&new).await.expect("kept"), Status::Completed);
+}
+
+#[then(regex = r#"^of the published events only "order\.new" is kept$"#)]
+async fn only_new_kept(world: &mut LibWorld) {
+    let engine = world.engine();
+    // The engine keeps published events in one stream per day.
+    let stream = |day: &Value| format!("__jackdaw_emitted__/{}", day.as_str().expect("a day"));
+    let old = engine
+        .history(&stream(&world.notes["old-day"]))
+        .await
+        .expect("history");
+    assert!(old.is_empty(), "{old:?}");
+    let new = engine
+        .history(&stream(&world.notes["new-day"]))
+        .await
+        .expect("history");
+    assert_eq!(new.len(), 1, "{new:?}");
+}
+
 #[then("the other two instances remain")]
 async fn others_remain(world: &mut LibWorld) {
     let engine = world.engine();

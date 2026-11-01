@@ -1,5 +1,3 @@
-use chrono::Utc;
-
 use std::collections::HashMap;
 
 use crate::cache::{CacheEntry, compute_cache_key};
@@ -154,7 +152,7 @@ pub async fn exec_call_task(
         key: cache_key.clone(),
         inputs: params,
         output: result.clone(),
-        timestamp: Utc::now(),
+        timestamp: ctx.services.clock.now(),
     };
     if cacheable {
         ctx.services.cache.set(cache_entry).await?;

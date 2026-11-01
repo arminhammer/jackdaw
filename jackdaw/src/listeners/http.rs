@@ -12,17 +12,43 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+/// A route's request rules, by lowercase method (`*` for every method), from its OpenAPI document.
+pub type RouteRules = std::collections::HashMap<String, crate::api::listener::RequestRules>;
+
 /// Create a method router that handles all HTTP methods (GET, POST, PUT, DELETE, PATCH, etc.)
 ///
-/// The handler gets the request's JSON body with the route's path parameters and query string added
-/// (see [`super::request_input`]).
+/// A request is checked against `rules` first, if the route has them (a `400` listing the problems); then the
+/// handler gets the request's JSON body with the route's path parameters and query string added (see
+/// [`super::request_input`]).
 fn create_method_router(
     handler: Arc<dyn Fn(serde_json::Value) -> Result<serde_json::Value> + Send + Sync>,
+    rules: Option<Arc<RouteRules>>,
 ) -> MethodRouter {
     any(
-        move |params: RawPathParams, Query(query): Query<BTreeMap<String, String>>, body: Bytes| {
-            let handler = handler.clone();
+        move |method: axum::http::Method,
+              headers: axum::http::HeaderMap,
+              params: RawPathParams,
+              Query(query): Query<BTreeMap<String, String>>,
+              body: Bytes| {
+            let (handler, rules) = (handler.clone(), rules.clone());
             async move {
+                let method = method.as_str().to_lowercase();
+                if let Some(rules) = rules
+                    .as_ref()
+                    .and_then(|rules| rules.get(&method).or_else(|| rules.get("*")))
+                {
+                    let problems = rules.check(&params, &query, &headers, &body);
+                    if !problems.is_empty() {
+                        return (
+                            StatusCode::BAD_REQUEST,
+                            Json(serde_json::json!({
+                                "error": "the request does not match the OpenAPI document",
+                                "problems": problems,
+                            })),
+                        )
+                            .into_response();
+                    }
+                }
                 let payload = match super::request_input(&params, query, &body) {
                     Ok(payload) => payload,
                     Err(message) => {
@@ -70,6 +96,9 @@ pub struct HttpListener {
         >,
     >,
 
+    /// Request rules by path, for the routes whose OpenAPI document could be read.
+    route_rules: std::collections::HashMap<String, Arc<RouteRules>>,
+
     /// Server handle for shutdown
     shutdown_tx: Arc<RwLock<Option<tokio::sync::oneshot::Sender<()>>>>,
 
@@ -108,10 +137,12 @@ impl HttpListener {
             String,
             Arc<dyn Fn(serde_json::Value) -> Result<serde_json::Value> + Send + Sync>,
         >,
+        route_rules: std::collections::HashMap<String, Arc<RouteRules>>,
     ) -> Result<Self> {
         Ok(Self {
             bind_addr,
             route_handlers: Arc::new(RwLock::new(route_handlers)),
+            route_rules,
             shutdown_tx: Arc::new(RwLock::new(None)),
             server_handle: Arc::new(RwLock::new(None)),
         })
@@ -154,7 +185,8 @@ impl Listener for HttpListener {
                 let path_str = path.clone();
 
                 // Create a unified handler that supports all HTTP methods
-                let method_router = create_method_router(handler_clone);
+                let method_router =
+                    create_method_router(handler_clone, self.route_rules.get(&path_str).cloned());
 
                 app = app.route(&path_str, method_router);
             }
@@ -241,7 +273,7 @@ impl std::fmt::Debug for HttpListener {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unwrap_used, clippy::indexing_slicing)]
     use super::*;
 
     #[tokio::test(flavor = "multi_thread")]
@@ -256,6 +288,7 @@ mod tests {
         let listener = HttpListener::new_multi_route(
             format!("127.0.0.1:{port}"),
             [("/orders/{orderId}/items/{item}".to_string(), echo)].into(),
+            std::collections::HashMap::new(),
         )
         .unwrap();
         listener.start().await.unwrap();
@@ -283,6 +316,79 @@ mod tests {
         );
         let bad = client.post(&url).body("not json").send().await.unwrap();
         assert_eq!(bad.status(), StatusCode::BAD_REQUEST);
+
+        listener.stop().await.unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn requests_are_checked_against_the_openapi_document() {
+        let document: serde_json::Value = serde_saphyr::from_str(
+            r#"
+openapi: 3.0.0
+info: { title: calculator, version: '1' }
+paths:
+  /add:
+    post:
+      operationId: add
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddRequest' }
+components:
+  schemas:
+    AddRequest:
+      type: object
+      required: [a, b]
+      properties: { a: { type: number }, b: { type: number } }
+"#,
+        )
+        .unwrap();
+        // The listen task's URI puts the operation under a base path.
+        let rules =
+            crate::api::listener::RequestRules::for_route(&document, "/api/v1/add", None).unwrap();
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let echo: Arc<dyn Fn(serde_json::Value) -> Result<serde_json::Value> + Send + Sync> =
+            Arc::new(Ok);
+        let listener = HttpListener::new_multi_route(
+            format!("127.0.0.1:{port}"),
+            [("/api/v1/add".to_string(), echo)].into(),
+            [("/api/v1/add".to_string(), Arc::new(rules))].into(),
+        )
+        .unwrap();
+        listener.start().await.unwrap();
+
+        let client = reqwest::Client::new();
+        let url = format!("http://127.0.0.1:{port}/api/v1/add");
+        let bad = client
+            .post(&url)
+            .json(&serde_json::json!({ "a": 1 }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(bad.status(), StatusCode::BAD_REQUEST);
+        let body: serde_json::Value = bad.json().await.unwrap();
+        assert!(
+            body["problems"][0].as_str().unwrap().contains("\"b\""),
+            "{body}"
+        );
+        let empty = client.post(&url).send().await.unwrap();
+        assert_eq!(
+            empty.status(),
+            StatusCode::BAD_REQUEST,
+            "the body is required"
+        );
+        let good = client
+            .post(&url)
+            .json(&serde_json::json!({ "a": 1, "b": 2 }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(good.status(), StatusCode::OK);
 
         listener.stop().await.unwrap();
     }

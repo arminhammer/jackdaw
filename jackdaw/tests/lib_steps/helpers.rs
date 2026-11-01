@@ -487,7 +487,7 @@ async fn listening(world: &mut LibWorld) {
 }
 
 /// Runs a YAML workflow that emits each `(type, order)` in turn on `engine`.
-async fn emit_from_yaml(engine: &Engine, events: &[(&str, &str)]) {
+pub async fn emit_from_yaml(engine: &Engine, events: &[(&str, &str)]) -> String {
     let tasks: String = events
         .iter()
         .enumerate()
@@ -501,12 +501,10 @@ async fn emit_from_yaml(engine: &Engine, events: &[(&str, &str)]) {
         "document: {{ dsl: '1.0.0', namespace: specs, name: emitter, version: '1.0.0' }}\ndo:\n{tasks}"
     );
     let workflow = Workflow::<Value, Value>::from_yaml(&yaml).expect("parses");
-    engine
-        .execute(&workflow, json!({}))
-        .await
-        .expect("starts")
-        .await
-        .expect("emits");
+    let handle = engine.execute(&workflow, json!({})).await.expect("starts");
+    let id = handle.id().to_string();
+    handle.await.expect("emits");
+    id
 }
 
 #[given(

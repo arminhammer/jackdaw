@@ -1,5 +1,4 @@
 use crate::dsl::workflow::WorkflowDefinition;
-use chrono::Utc;
 use snafu::prelude::*;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -63,6 +62,8 @@ pub struct WorkflowMetadata {
 #[derive(Clone)]
 pub struct ExecutionServices {
     pub persistence: Arc<dyn PersistenceProvider>,
+    /// The engine's clock, for the timestamps of the events and checkpoints this instance records.
+    pub clock: Arc<dyn crate::api::Clock>,
     pub cache: Arc<dyn CacheProvider>,
     pub history: Arc<ExecutionHistory>,
 }
@@ -101,6 +102,7 @@ impl Context {
         cache: Arc<dyn CacheProvider>,
         instance_id: Option<String>,
         initial_data: serde_json::Value,
+        clock: Arc<dyn crate::api::Clock>,
     ) -> Result<Self> {
         let instance_id = instance_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let events = persistence
@@ -128,7 +130,7 @@ impl Context {
                 .save_event(WorkflowEvent::WorkflowStarted {
                     instance_id: instance_id.clone(),
                     workflow_id: crate::durableengine::workflow_key(workflow),
-                    timestamp: Utc::now(),
+                    timestamp: clock.now(),
                     initial_data: initial_data.clone(),
                 })
                 .await
@@ -139,7 +141,7 @@ impl Context {
                     instance_id: instance_id.clone(),
                     current_task: first_task_name.clone(),
                     data: initial_data.clone(),
-                    timestamp: Utc::now(),
+                    timestamp: clock.now(),
                 })
                 .await
                 .context(PersistenceSnafu)?;
@@ -152,7 +154,7 @@ impl Context {
             RuntimeDescriptor::new("jackdaw".to_string(), env!("CARGO_PKG_VERSION").to_string());
 
         // Create workflow descriptor
-        let workflow_started_at = Utc::now();
+        let workflow_started_at = clock.now();
         let workflow_descriptor = WorkflowDescriptor::new(
             instance_id.clone(),
             serde_json::to_value(workflow).context(SerializationSnafu)?,
@@ -197,6 +199,7 @@ impl Context {
             services: ExecutionServices {
                 persistence,
                 cache,
+                clock,
                 history,
             },
             tracking: ExecutionTracking {
@@ -246,7 +249,7 @@ impl Context {
                 instance_id: self.metadata.instance_id.clone(),
                 current_task: task_name.to_string(),
                 data: data.clone(),
-                timestamp: Utc::now(),
+                timestamp: self.services.clock.now(),
             })
             .await
             .context(PersistenceSnafu)
@@ -269,7 +272,7 @@ impl Context {
             .save_event(WorkflowEvent::WorkflowCancelled {
                 instance_id: self.metadata.instance_id.clone(),
                 reason,
-                timestamp: Utc::now(),
+                timestamp: self.services.clock.now(),
             })
             .await
             .context(PersistenceSnafu)
@@ -298,7 +301,7 @@ impl Context {
                 instance_id: self.metadata.instance_id.clone(),
                 reason,
                 checkpoint_data: data,
-                timestamp: Utc::now(),
+                timestamp: self.services.clock.now(),
             })
             .await
             .context(PersistenceSnafu)
@@ -320,7 +323,7 @@ impl Context {
             .persistence
             .save_event(WorkflowEvent::WorkflowResumed {
                 instance_id: self.metadata.instance_id.clone(),
-                timestamp: Utc::now(),
+                timestamp: self.services.clock.now(),
             })
             .await
             .context(PersistenceSnafu)

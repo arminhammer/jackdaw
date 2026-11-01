@@ -446,12 +446,28 @@ impl EngineBuilder {
             .unwrap_or_else(|| Arc::new(InMemoryCache::new()) as Arc<dyn CacheProvider>);
 
         let clock = self.clock.unwrap_or_else(|| Arc::new(SystemClock));
+        // Chosen here, as the YAML interpreter's store checks its writes against the leases it names.
+        let owner = self
+            .engine_id
+            .clone()
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
         // YAML workflows run on the YAML interpreter, which calls native tasks and custom executors by name.
         #[cfg(feature = "yaml")]
         let yaml = {
+            // With leases, the interpreter writes for an instance only while this engine holds its lease.
+            let interpreter_store: Arc<dyn PersistenceProvider> = match self.lease {
+                Some(ttl) if persistence.supports_leases() => Arc::new(super::fence::LeaseFence {
+                    inner: Arc::clone(&persistence),
+                    owner: owner.clone(),
+                    ttl,
+                    clock: Arc::clone(&clock),
+                    held: std::sync::Mutex::new(HashMap::new()),
+                }),
+                Some(_) | None => Arc::clone(&persistence),
+            };
             let mut legacy = DurableEngine::new_with_config(
-                Arc::clone(&persistence),
+                interpreter_store,
                 Arc::clone(&cache),
                 self.event_buffer,
             )
@@ -503,9 +519,7 @@ impl EngineBuilder {
                 ));
             }
             shared.leasing = Some(super::runtime::Leasing {
-                owner: self
-                    .engine_id
-                    .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+                owner,
                 ttl,
                 poll: self.poll,
             });
@@ -1131,8 +1145,10 @@ impl Engine {
         Ok(())
     }
 
-    /// Purges every finished instance whose last change is older than the engine's
-    /// [`retention`](EngineBuilder::retention) period, and returns their ids. Running instances are never purged.
+    /// Purges every finished instance (Rust or YAML) whose last change is older than the engine's
+    /// [`retention`](EngineBuilder::retention) period, and returns their ids. Running instances are never purged. The
+    /// events published on the engine, which a YAML `listen` task that resumes after a restart reads, are kept for the
+    /// same period, by day.
     /// Call it periodically (for example from a timer in your service).
     ///
     /// # Errors
@@ -1151,6 +1167,38 @@ impl Engine {
             if journal.status != JournalStatus::Running && old_enough {
                 self.shared.persistence.delete_instance(&summary.id).await?;
                 purged.push(summary.id);
+            }
+        }
+        #[cfg(feature = "yaml")]
+        {
+            for id in self.yaml_ids().await? {
+                if self.shared.instance(&id).is_some() {
+                    continue;
+                }
+                let Some(record) = self.yaml_record(&id).await? else {
+                    continue;
+                };
+                let old_enough = record
+                    .info
+                    .updated_at
+                    .is_some_and(|at| super::clock::after(at, retention) <= now);
+                if record.info.status != Status::Running && old_enough {
+                    self.shared.persistence.delete_instance(&id).await?;
+                    purged.push(id);
+                }
+            }
+            // A resumed `listen` task reads the events published since it started, so they are kept as long as
+            // finished instances are.
+            if let Some(before) = chrono::Duration::from_std(retention)
+                .ok()
+                .and_then(|retention| now.checked_sub_signed(retention))
+            {
+                self.shared
+                    .yaml
+                    .legacy
+                    .prune_emitted(before)
+                    .await
+                    .map_err(|e| Error::Engine(e.to_string()))?;
             }
         }
         Ok(purged)

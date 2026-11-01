@@ -48,7 +48,7 @@ impl DurableEngine {
                     instance_id: ctx.metadata.instance_id.clone(),
                     task_name: task_name.to_string(),
                     reason: reason.clone(),
-                    timestamp: chrono::Utc::now(),
+                    timestamp: ctx.services.clock.now(),
                 })
                 .await?;
 
@@ -78,7 +78,7 @@ impl DurableEngine {
                 instance_id: ctx.metadata.instance_id.clone(),
                 task_name: task_name.to_string(),
                 task_type: task.type_name().to_string(),
-                timestamp: chrono::Utc::now(),
+                timestamp: ctx.services.clock.now(),
             })
             .await?;
 
@@ -168,7 +168,7 @@ impl DurableEngine {
                                 "Task '{}' timed out after {:?}",
                                 task_name, timeout_duration
                             ),
-                            timestamp: chrono::Utc::now(),
+                            timestamp: ctx.services.clock.now(),
                         })
                         .await?;
 

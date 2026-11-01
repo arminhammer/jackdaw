@@ -20,6 +20,17 @@ The workspace publishes three crates with the same version: `jackdaw-wf` (the li
 - The docs build without warnings when some features are off.
 - YAML instances appear in `Engine::list`, `Engine::status` and `Engine::describe`, read from the YAML engine's
   stored events. Before, those saw only Rust instances.
+- With leases on, the YAML interpreter's own store writes for an instance are checked against the lease, as a
+  Rust instance's are. An engine that lost the lease has its writes refused. Before, a stalled engine could write
+  until its next renewal noticed.
+- `Engine::sweep` also purges finished YAML instances older than the retention period. It also deletes the events
+  published on the engine, which are now kept in one store stream per day, after the same period.
+- The YAML interpreter stamps every event and checkpoint it stores with the engine's clock. Some used to take the
+  wall clock, so a custom or test clock gave an instance timestamps from two clocks.
+- The YAML interpreter's own HTTP listener checks requests against the listen task's OpenAPI document, as engine
+  listeners do. The operation is the document path that the listen URI's path ends with (`/api/v1/add` matches
+  `/add`); without one, the body schema named by `resource.name` applies. A document that cannot be read is
+  skipped with a warning.
 - YAML instances are leased like Rust ones under `EngineBuilder::lease`. An engine takes the lease before it starts
   or resumes one, and renews it while the run lasts. `Engine::recover` skips an instance whose lease another engine
   holds. Before, two engines could both resume the same YAML instance. The YAML interpreter writes to the store

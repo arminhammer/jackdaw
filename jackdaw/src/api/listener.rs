@@ -96,7 +96,7 @@ struct Route {
 
 /// What a request to one operation must look like: its parameters and its JSON body, from the OpenAPI document.
 #[cfg(feature = "http-listener")]
-struct RequestRules {
+pub(crate) struct RequestRules {
     parameters: Vec<ParameterRule>,
     body_required: bool,
     body: Option<jsonschema::Validator>,
@@ -113,6 +113,57 @@ struct ParameterRule {
 
 #[cfg(feature = "http-listener")]
 impl RequestRules {
+    /// The rules for a route of the YAML interpreter's HTTP listener, by lowercase method: the operations of the
+    /// document's path that `route` ends with (`/api/v1/add` matches `/add`; the longest match wins). Without one,
+    /// a body schema named in `components/schemas` (the listen task's `resource.name`) applies to every method, as
+    /// `*`.
+    pub(crate) fn for_route(
+        document: &Value,
+        route: &str,
+        schema_name: Option<&str>,
+    ) -> Result<std::collections::HashMap<String, Self>, Error> {
+        const METHODS: [&str; 8] = [
+            "get", "put", "post", "delete", "options", "head", "patch", "trace",
+        ];
+        let mut rules = std::collections::HashMap::new();
+        let item = document
+            .get("paths")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flatten()
+            .filter(|(path, _)| {
+                route == path.as_str() || (route.ends_with(path.as_str()) && path.starts_with('/'))
+            })
+            .max_by_key(|(path, _)| path.len());
+        if let Some((path, item)) = item {
+            for method in METHODS {
+                if let Some(operation) = item.get(method) {
+                    let what = format!("the OpenAPI document's `{method} {path}`");
+                    rules.insert(
+                        method.to_string(),
+                        Self::new(document, item, operation, &what)?,
+                    );
+                }
+            }
+        } else if let Some(name) = schema_name {
+            let operation = serde_json::json!({
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": { "$ref": format!("#/components/schemas/{name}") }
+                        }
+                    }
+                }
+            });
+            let what = format!("the OpenAPI document's schema `{name}`");
+            rules.insert(
+                "*".to_string(),
+                Self::new(document, &Value::Null, &operation, &what)?,
+            );
+        }
+        Ok(rules)
+    }
+
     /// Reads the rules of `operation` (under `path_item`) from `document`.
     fn new(
         document: &Value,
@@ -195,7 +246,7 @@ impl RequestRules {
     }
 
     /// The ways a request breaks the rules; empty when it follows them.
-    fn check(
+    pub(crate) fn check(
         &self,
         path: &axum::extract::RawPathParams,
         query: &BTreeMap<String, String>,

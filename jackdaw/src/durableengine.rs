@@ -23,9 +23,15 @@ use crate::{
 
 use super::cache::CacheProvider;
 
-/// The store stream that keeps the events published on an engine (see [`DurableEngine::publish`]). It has events and
-/// no checkpoint, so it is never listed as an instance.
+/// The store streams that keep the events published on an engine (see [`DurableEngine::publish`]), one per day:
+/// `__jackdaw_emitted__/2026-11-01`. They have events and no checkpoint, so they are never listed as instances, and a
+/// day's stream is deleted whole once it is older than the engine's retention (see `Engine::sweep`).
 pub(crate) const EMITTED_ID: &str = "__jackdaw_emitted__";
+
+/// The stream for the events published on `day`.
+fn emitted_stream(day: chrono::NaiveDate) -> String {
+    format!("{EMITTED_ID}/{day}")
+}
 
 // Submodules
 mod called;
@@ -170,6 +176,8 @@ pub struct DurableEngine {
     clock: Arc<dyn crate::api::Clock>,
     /// Events emitted on this engine (by `emit` tasks and `ctx.emit`), for the `listen` tasks waiting for them.
     events: tokio::sync::broadcast::Sender<serde_json::Value>,
+    /// The day up to which the streams of published events were deleted (see `prune_emitted`).
+    emitted_pruned: std::sync::Mutex<Option<chrono::NaiveDate>>,
 }
 
 impl std::fmt::Debug for DurableEngine {
@@ -231,17 +239,19 @@ impl DurableEngine {
             event_buffer_size,
             clock: Arc::new(crate::api::SystemClock),
             events: tokio::sync::broadcast::channel(256).0,
+            emitted_pruned: std::sync::Mutex::new(None),
         })
     }
 
     /// Delivers an emitted CloudEvent (as JSON) to the `listen` tasks waiting on this engine, and keeps it in the
-    /// store's [`EMITTED_ID`] stream for `listen` tasks that resume after a restart. A listen task sees only events
-    /// emitted after it first started.
+    /// store's stream for the day (see [`EMITTED_ID`]) for `listen` tasks that resume after a restart. A listen task
+    /// sees only events emitted after it first started.
     pub(crate) async fn publish(&self, event: serde_json::Value) {
+        let now = self.clock.now();
         let stored = WorkflowEvent::EventEmitted {
-            instance_id: EMITTED_ID.to_string(),
+            instance_id: emitted_stream(now.date_naive()),
             event: event.clone(),
-            timestamp: self.clock.now(),
+            timestamp: now,
         };
         if let Err(error) = self.persistence.save_event(stored).await {
             tracing::warn!(%error, "an emitted event could not be stored: a listen task that resumes later will miss it");
@@ -254,36 +264,44 @@ impl DurableEngine {
         &self,
         since: chrono::DateTime<chrono::Utc>,
     ) -> Result<Vec<serde_json::Value>> {
-        Ok(self
-            .persistence
-            .get_events(EMITTED_ID)
-            .await?
-            .into_iter()
-            .filter_map(|stored| match stored {
-                WorkflowEvent::EventEmitted {
-                    event, timestamp, ..
-                } if timestamp >= since => Some(event),
-                WorkflowEvent::EventEmitted { .. }
-                | WorkflowEvent::WorkflowStarted { .. }
-                | WorkflowEvent::TaskEntered { .. }
-                | WorkflowEvent::TaskCreated { .. }
-                | WorkflowEvent::TaskStarted { .. }
-                | WorkflowEvent::TaskRetried { .. }
-                | WorkflowEvent::TaskCompleted { .. }
-                | WorkflowEvent::WorkflowCompleted { .. }
-                | WorkflowEvent::WorkflowCorrelationStarted { .. }
-                | WorkflowEvent::WorkflowCorrelationCompleted { .. }
-                | WorkflowEvent::WorkflowFailed { .. }
-                | WorkflowEvent::WorkflowCancelled { .. }
-                | WorkflowEvent::WorkflowSuspended { .. }
-                | WorkflowEvent::WorkflowResumed { .. }
-                | WorkflowEvent::TaskCancelled { .. }
-                | WorkflowEvent::TaskSuspended { .. }
-                | WorkflowEvent::TaskResumed { .. }
-                | WorkflowEvent::TaskFaulted { .. }
-                | WorkflowEvent::WorkflowContinuedAsNew { .. } => None,
-            })
-            .collect())
+        let mut events = Vec::new();
+        let mut day = since.date_naive();
+        let today = self.clock.now().date_naive();
+        while day <= today {
+            for stored in self.persistence.get_events(&emitted_stream(day)).await? {
+                if let Some(event) = emitted_after(stored, since) {
+                    events.push(event);
+                }
+            }
+            let Some(next) = day.succ_opt() else { break };
+            day = next;
+        }
+        Ok(events)
+    }
+
+    /// Deletes the streams of published events for the days before `before` (`Engine::sweep`, with the engine's
+    /// retention). Looks back a year the first time, then only at the days since the last prune.
+    pub(crate) async fn prune_emitted(
+        &self,
+        before: chrono::DateTime<chrono::Utc>,
+    ) -> Result<usize> {
+        let end = before.date_naive();
+        let start = {
+            let pruned = lock_pruned(&self.emitted_pruned);
+            pruned.unwrap_or_else(|| end.checked_sub_days(chrono::Days::new(366)).unwrap_or(end))
+        };
+        let mut deleted = 0;
+        let mut day = start;
+        while day < end {
+            self.persistence
+                .delete_instance(&emitted_stream(day))
+                .await?;
+            deleted += 1;
+            let Some(next) = day.succ_opt() else { break };
+            day = next;
+        }
+        *lock_pruned(&self.emitted_pruned) = Some(end);
+        Ok(deleted)
     }
 
     /// Uses the engine's clock (a test clock, for example) instead of the system clock.
@@ -564,7 +582,7 @@ impl DurableEngine {
                         .send(WorkflowEvent::WorkflowFailed {
                             instance_id: instance_id_clone.clone(),
                             error: format!("Failed to create engine: {}", e),
-                            timestamp: Utc::now(),
+                            timestamp: clock.now(),
                         })
                         .await;
                     return;
@@ -589,7 +607,7 @@ impl DurableEngine {
                         .send(WorkflowEvent::WorkflowCompleted {
                             instance_id: instance_id_clone,
                             final_data,
-                            timestamp: Utc::now(),
+                            timestamp: temp_engine.clock.now(),
                             duration_ms,
                         })
                         .await;
@@ -617,7 +635,7 @@ impl DurableEngine {
                     let failed = WorkflowEvent::WorkflowFailed {
                         instance_id: instance_id_clone,
                         error: error_msg,
-                        timestamp: Utc::now(),
+                        timestamp: temp_engine.clock.now(),
                     };
                     // Stored, so recovery knows the instance ended and does not resume it.
                     let _ = temp_engine.persistence.save_event(failed.clone()).await;
@@ -672,6 +690,7 @@ impl DurableEngine {
             self.cache.clone(),
             instance_id,
             initial_data,
+            Arc::clone(&self.clock),
         )
         .await?;
 
@@ -706,7 +725,7 @@ impl DurableEngine {
                 .save_event(WorkflowEvent::TaskEntered {
                     instance_id: ctx.metadata.instance_id.clone(),
                     task_name: task_name.clone(),
-                    timestamp: Utc::now(),
+                    timestamp: ctx.services.clock.now(),
                 })
                 .await?;
 
@@ -724,7 +743,7 @@ impl DurableEngine {
                             instance_id: ctx.metadata.instance_id.clone(),
                             task_name: task_name.clone(),
                             error: e.to_string(),
-                            timestamp: Utc::now(),
+                            timestamp: ctx.services.clock.now(),
                         })
                         .await;
 
@@ -737,7 +756,7 @@ impl DurableEngine {
             *ctx.state.data.write().await = original_context;
 
             // Calculate task duration
-            let task_end_time = Utc::now();
+            let task_end_time = ctx.services.clock.now();
 
             // Find the TaskStarted event to calculate duration
             let events = ctx
@@ -857,7 +876,7 @@ impl DurableEngine {
         }
 
         // Calculate workflow duration
-        let workflow_end_time = Utc::now();
+        let workflow_end_time = ctx.services.clock.now();
         let events = ctx
             .services
             .persistence
@@ -899,4 +918,43 @@ pub(crate) fn workflow_key(workflow: &WorkflowDefinition) -> String {
         "{}/{}/{}",
         workflow.document.namespace, workflow.document.name, workflow.document.version
     )
+}
+
+/// The event an [`EventEmitted`](WorkflowEvent::EventEmitted) record holds, if it was published at `since` or later.
+fn emitted_after(
+    stored: WorkflowEvent,
+    since: chrono::DateTime<chrono::Utc>,
+) -> Option<serde_json::Value> {
+    match stored {
+        WorkflowEvent::EventEmitted {
+            event, timestamp, ..
+        } if timestamp >= since => Some(event),
+        WorkflowEvent::EventEmitted { .. }
+        | WorkflowEvent::WorkflowStarted { .. }
+        | WorkflowEvent::TaskEntered { .. }
+        | WorkflowEvent::TaskCreated { .. }
+        | WorkflowEvent::TaskStarted { .. }
+        | WorkflowEvent::TaskRetried { .. }
+        | WorkflowEvent::TaskCompleted { .. }
+        | WorkflowEvent::WorkflowCompleted { .. }
+        | WorkflowEvent::WorkflowCorrelationStarted { .. }
+        | WorkflowEvent::WorkflowCorrelationCompleted { .. }
+        | WorkflowEvent::WorkflowFailed { .. }
+        | WorkflowEvent::WorkflowCancelled { .. }
+        | WorkflowEvent::WorkflowSuspended { .. }
+        | WorkflowEvent::WorkflowResumed { .. }
+        | WorkflowEvent::TaskCancelled { .. }
+        | WorkflowEvent::TaskSuspended { .. }
+        | WorkflowEvent::TaskResumed { .. }
+        | WorkflowEvent::TaskFaulted { .. }
+        | WorkflowEvent::WorkflowContinuedAsNew { .. } => None,
+    }
+}
+
+fn lock_pruned(
+    pruned: &std::sync::Mutex<Option<chrono::NaiveDate>>,
+) -> std::sync::MutexGuard<'_, Option<chrono::NaiveDate>> {
+    pruned
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
