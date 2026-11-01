@@ -68,7 +68,7 @@ axum = { version = "0.8", optional = true }
 # grpc-listener
 tonic = { version = "0.14", optional = true }
 tonic-reflection = { version = "0.14", optional = true }
-prost = { version = "0.13", optional = true }
+prost = { version = "0.14", optional = true }
 prost-reflect = { version = "0.14", features = ["serde"], optional = true }
 prost-types = { version = "0.13", optional = true }
 protox = { version = "0.7", optional = true }
