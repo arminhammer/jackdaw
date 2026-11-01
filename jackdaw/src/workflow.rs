@@ -241,6 +241,32 @@ impl WorkflowEvent {
             | WorkflowEvent::EventEmitted { instance_id, .. } => instance_id,
         }
     }
+
+    /// When the event happened.
+    #[must_use]
+    pub fn timestamp(&self) -> DateTime<Utc> {
+        match self {
+            WorkflowEvent::WorkflowCorrelationStarted { started_at, .. } => *started_at,
+            WorkflowEvent::WorkflowCorrelationCompleted { completed_at, .. } => *completed_at,
+            WorkflowEvent::WorkflowStarted { timestamp, .. }
+            | WorkflowEvent::TaskEntered { timestamp, .. }
+            | WorkflowEvent::TaskCreated { timestamp, .. }
+            | WorkflowEvent::TaskStarted { timestamp, .. }
+            | WorkflowEvent::TaskRetried { timestamp, .. }
+            | WorkflowEvent::TaskCompleted { timestamp, .. }
+            | WorkflowEvent::WorkflowCompleted { timestamp, .. }
+            | WorkflowEvent::WorkflowFailed { timestamp, .. }
+            | WorkflowEvent::WorkflowCancelled { timestamp, .. }
+            | WorkflowEvent::WorkflowSuspended { timestamp, .. }
+            | WorkflowEvent::WorkflowResumed { timestamp, .. }
+            | WorkflowEvent::TaskCancelled { timestamp, .. }
+            | WorkflowEvent::TaskSuspended { timestamp, .. }
+            | WorkflowEvent::TaskResumed { timestamp, .. }
+            | WorkflowEvent::TaskFaulted { timestamp, .. }
+            | WorkflowEvent::WorkflowContinuedAsNew { timestamp, .. }
+            | WorkflowEvent::EventEmitted { timestamp, .. } => *timestamp,
+        }
+    }
 }
 
 /// The latest state of an instance, replaced on every write.

@@ -301,15 +301,15 @@ impl MultiMethodGrpcService {
         let input_descriptor = method.input();
         let _output_descriptor = method.output();
 
-        println!(
-            "  Method: {}, input descriptor: {}",
+        tracing::debug!(
+            "Method: {}, input descriptor: {}",
             method_name,
             input_descriptor.full_name()
         );
-        println!("  Input fields:");
+        tracing::debug!("Input fields:");
         for field in input_descriptor.fields() {
-            println!(
-                "    - {} (field {}, kind: {:?})",
+            tracing::debug!(
+                "- {} (field {}, kind: {:?})",
                 field.name(),
                 field.number(),
                 field.kind()
@@ -319,9 +319,9 @@ impl MultiMethodGrpcService {
         // Get the handler for this method
         let handler = {
             let handlers = self.method_handlers.read().await;
-            println!("  Looking up handler for method: {method_name}");
-            println!(
-                "  Available handlers: {:?}",
+            tracing::debug!("Looking up handler for method: {method_name}");
+            tracing::debug!(
+                "Available handlers: {:?}",
                 handlers.keys().collect::<Vec<_>>()
             );
             handlers.get(method_name).cloned().ok_or_else(|| {
@@ -329,18 +329,18 @@ impl MultiMethodGrpcService {
             })?
         };
 
-        println!(
-            "  About to decode {} bytes into {}",
+        tracing::debug!(
+            "About to decode {} bytes into {}",
             request_bytes.len(),
             input_descriptor.full_name()
         );
         // Decode request bytes into DynamicMessage
         let request_msg =
             DynamicMessage::decode(input_descriptor.clone(), request_bytes).map_err(|e| {
-                eprintln!("  Decode error: {e}");
+                tracing::warn!("Decode error: {e}");
                 Status::invalid_argument(format!("Failed to decode request: {e}"))
             })?;
-        println!("  Successfully decoded request");
+        tracing::debug!("Successfully decoded request");
 
         // Call the handler
         let response_msg = (handler)(request_msg)
@@ -377,12 +377,12 @@ impl TowerService<http::Request<BoxBody>> for MultiMethodServiceWrapper {
         &mut self,
         _cx: &mut TaskContext<'_>,
     ) -> Poll<std::result::Result<(), Self::Error>> {
-        println!("  MultiMethodServiceWrapper::poll_ready called");
+        tracing::debug!("MultiMethodServiceWrapper::poll_ready called");
         Poll::Ready(Ok(()))
     }
 
     fn call(&mut self, req: http::Request<BoxBody>) -> Self::Future {
-        println!("  MultiMethodServiceWrapper::call invoked!");
+        tracing::debug!("MultiMethodServiceWrapper::call invoked!");
         let inner = self.inner.clone();
         let service_name = inner.service_descriptor.full_name().to_string();
 
@@ -390,12 +390,12 @@ impl TowerService<http::Request<BoxBody>> for MultiMethodServiceWrapper {
             // Parse path to extract service and method name: /{service}/{method}
             let path = req.uri().path().to_string();
 
-            println!("  gRPC request path: {path}");
+            tracing::debug!("gRPC request path: {path}");
 
             // Extract method name from path (format: /package.Service/Method)
             let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
             if parts.len() != 2 {
-                println!("  Invalid gRPC path format - returning 404");
+                tracing::debug!("Invalid gRPC path format - returning 404");
                 let body = Full::new(Bytes::new())
                     .map_err(|_: std::convert::Infallible| Status::internal("unreachable"));
                 let boxed = BoxBody::new(body);
@@ -414,7 +414,7 @@ impl TowerService<http::Request<BoxBody>> for MultiMethodServiceWrapper {
             let request_service_name = match parts.first() {
                 Some(name) => *name,
                 None => {
-                    println!("  Missing service name in path - returning 400");
+                    tracing::debug!("Missing service name in path - returning 400");
                     let body = Full::new(Bytes::new())
                         .map_err(|_: std::convert::Infallible| Status::internal("unreachable"));
                     let boxed = BoxBody::new(body);
@@ -435,7 +435,7 @@ impl TowerService<http::Request<BoxBody>> for MultiMethodServiceWrapper {
             let method_name = match parts.get(1) {
                 Some(name) => *name,
                 None => {
-                    println!("  Missing method name in path - returning 400");
+                    tracing::debug!("Missing method name in path - returning 400");
                     let body = Full::new(Bytes::new())
                         .map_err(|_: std::convert::Infallible| Status::internal("unreachable"));
                     let boxed = BoxBody::new(body);
@@ -454,12 +454,12 @@ impl TowerService<http::Request<BoxBody>> for MultiMethodServiceWrapper {
                 }
             };
 
-            println!("  Request service: {request_service_name}, method: {method_name}");
-            println!("  Our service descriptor: {service_name}");
+            tracing::debug!("Request service: {request_service_name}, method: {method_name}");
+            tracing::debug!("Our service descriptor: {service_name}");
 
             // Check if this request is for our service
             if *request_service_name != service_name {
-                println!("  Service name mismatch - returning 404");
+                tracing::debug!("Service name mismatch - returning 404");
                 let body = Full::new(Bytes::new())
                     .map_err(|_: std::convert::Infallible| Status::internal("unreachable"));
                 let boxed = BoxBody::new(body);
@@ -504,21 +504,21 @@ impl TowerService<http::Request<BoxBody>> for MultiMethodServiceWrapper {
             };
             let mut request_bytes = body_bytes.to_bytes();
 
-            println!("  Raw body length: {}", request_bytes.len());
+            tracing::debug!("Raw body length: {}", request_bytes.len());
             if let Some(first_bytes) = request_bytes.get(0..5) {
-                println!("  First 5 bytes: {:?}", first_bytes);
+                tracing::debug!("First 5 bytes: {:?}", first_bytes);
             }
 
             // gRPC uses a 5-byte frame: [compressed flag (1 byte)][message length (4 bytes)][message]
             // Skip the 5-byte gRPC frame header
             if request_bytes.len() >= 5 {
                 request_bytes = request_bytes.slice(5..);
-                println!(
-                    "  After skipping frame header, message length: {}",
+                tracing::debug!(
+                    "After skipping frame header, message length: {}",
                     request_bytes.len()
                 );
                 if !request_bytes.is_empty() {
-                    println!("  Message bytes: {:?}", &request_bytes[..]);
+                    tracing::debug!("Message bytes: {:?}", &request_bytes[..]);
                 }
             }
 
@@ -622,11 +622,11 @@ where
             // - /grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo
             // - /grpc.reflection.v1.ServerReflection/ServerReflectionInfo
             if path.contains("grpc.reflection") || path.contains("ServerReflection") {
-                println!("  Routing to reflection service: {path}");
+                tracing::debug!("Routing to reflection service: {path}");
                 reflection.call(req).await
             } else {
                 // All other requests go to our dynamic handler
-                println!("  Routing to dynamic handler: {path}");
+                tracing::debug!("Routing to dynamic handler: {path}");
                 router.call(req).await
             }
         })
@@ -785,8 +785,8 @@ impl GrpcListener {
         let addr = tcp_listener.local_addr()?;
 
         // Spawn gRPC server in background
-        tokio::spawn(async move {
-            println!("  Spawning gRPC server task for {bind_addr}");
+        crate::api::observe::spawn(async move {
+            tracing::debug!("Spawning gRPC server task for {bind_addr}");
 
             // Create a multi-method dynamic gRPC service handler
             let service = MultiMethodGrpcService {
@@ -794,7 +794,7 @@ impl GrpcListener {
                 service_descriptor,
             };
 
-            println!("  gRPC server about to listen on {addr}");
+            tracing::debug!("gRPC server about to listen on {addr}");
             tracing::info!("gRPC server listening on {}", addr);
 
             let service_wrapper = service.into_service();
@@ -808,13 +808,13 @@ impl GrpcListener {
             {
                 Ok(service) => service,
                 Err(e) => {
-                    eprintln!("  Failed to build reflection service: {e}");
+                    tracing::warn!("Failed to build reflection service: {e}");
                     tracing::error!("Failed to build reflection service: {e}");
                     return;
                 }
             };
 
-            println!("  Starting tonic server on {addr} with reflection support");
+            tracing::debug!("Starting tonic server on {addr} with reflection support");
 
             // Wrap reflection service to convert its body type to BoxBody
             let reflection_adapted = ReflectionAdapter {
@@ -832,14 +832,14 @@ impl GrpcListener {
             use hyper_util::rt::TokioIo;
             use hyper_util::server::conn::auto;
 
-            println!("  gRPC server listening on {addr}");
+            tracing::debug!("gRPC server listening on {addr}");
 
             let result = async move {
                 loop {
                     let (tcp_stream, _remote_addr) = match tcp_listener.accept().await {
                         Ok(conn) => conn,
                         Err(e) => {
-                            eprintln!("  Failed to accept connection: {e}");
+                            tracing::warn!("Failed to accept connection: {e}");
                             continue;
                         }
                     };
@@ -856,7 +856,7 @@ impl GrpcListener {
                             .serve_connection(io, svc)
                             .await
                         {
-                            eprintln!("  Error serving connection: {:?}", err);
+                            tracing::warn!("Error serving connection: {:?}", err);
                         }
                     });
                 }
@@ -865,10 +865,10 @@ impl GrpcListener {
             tokio::select! {
                 _ = result => {},
                 _ = shutdown_rx => {
-                    println!("  gRPC server on {addr} received shutdown signal");
+                    tracing::debug!("gRPC server on {addr} received shutdown signal");
                 }
             }
-            println!("  gRPC server on {addr} exited cleanly");
+            tracing::debug!("gRPC server on {addr} exited cleanly");
         });
 
         Ok(())

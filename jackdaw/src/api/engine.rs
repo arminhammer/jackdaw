@@ -286,6 +286,10 @@ impl EngineBuilder {
     /// the stalled engine's writes are then rejected. Signals sent through an engine that does not run the instance
     /// reach it through the store.
     ///
+    /// YAML instances are leased too, but the YAML interpreter writes to the store directly: an engine that lost a
+    /// YAML instance's lease stops it at its next renewal (see [`poll_interval`](Self::poll_interval)) rather than
+    /// having its writes rejected.
+    ///
     /// The store must support leases (all built-in stores do). Without this setting an engine assumes it is the only
     /// one on its store.
     #[must_use]
@@ -866,7 +870,43 @@ impl Engine {
     /// which names the workflow; its definition has to be registered with [`EngineBuilder::yaml_workflow`].
     #[cfg(feature = "yaml")]
     async fn recover_yaml(&self, recovery: &mut Recovery) -> Result<(), Error> {
-        use crate::workflow::WorkflowEvent;
+        for id in self.yaml_ids().await? {
+            if self.shared.instance(&id).is_some() {
+                continue;
+            }
+            let Some(record) = self.yaml_record(&id).await? else {
+                continue;
+            };
+            if record.info.status != Status::Running {
+                continue;
+            }
+            if self.shared.take_lease(&id).await?.is_some() {
+                // Another engine holds the instance's lease: it is running there.
+                continue;
+            }
+            match self.shared.yaml.legacy.registered(&record.key).await {
+                Some(definition) => {
+                    self.shared
+                        .resume_definition(&definition, id.clone(), record.input)
+                        .await?;
+                    recovery.resumed.push(id);
+                }
+                None => recovery.unrecoverable.push(Unrecoverable {
+                    reason: format!(
+                        "YAML workflow {} is not registered on this engine (EngineBuilder::yaml_workflow)",
+                        record.key
+                    ),
+                    workflow: record.key,
+                    id,
+                }),
+            }
+        }
+        Ok(())
+    }
+
+    /// The ids in the store that are not native journals: the YAML engine's instances.
+    #[cfg(feature = "yaml")]
+    async fn yaml_ids(&self) -> Result<Vec<String>, Error> {
         let native: std::collections::HashSet<String> = self
             .shared
             .summaries()
@@ -874,51 +914,68 @@ impl Engine {
             .into_iter()
             .map(|summary| summary.id)
             .collect();
-        for id in self.shared.indexed().await? {
-            if native.contains(&id) || self.shared.instance(&id).is_some() {
-                continue;
+        Ok(self
+            .shared
+            .indexed()
+            .await?
+            .into_iter()
+            .filter(|id| !native.contains(id))
+            .collect())
+    }
+
+    /// What the YAML engine's stored events say about instance `id`; `None` if it has no `WorkflowStarted`.
+    #[cfg(feature = "yaml")]
+    async fn yaml_record(&self, id: &str) -> Result<Option<YamlRecord>, Error> {
+        use crate::workflow::WorkflowEvent;
+        let events = self.shared.persistence.get_events(id).await?;
+        let Some((key, input, started_at)) = events.iter().find_map(|event| {
+            if let WorkflowEvent::WorkflowStarted {
+                workflow_id,
+                initial_data,
+                timestamp,
+                ..
+            } = event
+            {
+                Some((workflow_id.clone(), initial_data.clone(), *timestamp))
+            } else {
+                None
             }
-            let events = self.shared.persistence.get_events(&id).await?;
-            let Some((key, input)) = events.iter().find_map(|event| {
-                if let WorkflowEvent::WorkflowStarted {
-                    workflow_id,
-                    initial_data,
-                    ..
-                } = event
-                {
-                    Some((workflow_id.clone(), initial_data.clone()))
+        }) else {
+            return Ok(None);
+        };
+        let status = events
+            .iter()
+            .find_map(|event| {
+                if matches!(event, WorkflowEvent::WorkflowCompleted { .. }) {
+                    Some(Status::Completed)
+                } else if matches!(event, WorkflowEvent::WorkflowFailed { .. }) {
+                    Some(Status::Faulted)
+                } else if matches!(event, WorkflowEvent::WorkflowCancelled { .. }) {
+                    Some(Status::Cancelled)
                 } else {
                     None
                 }
-            }) else {
-                continue;
-            };
-            let ended = events.iter().any(|event| {
-                matches!(
-                    event,
-                    WorkflowEvent::WorkflowCompleted { .. }
-                        | WorkflowEvent::WorkflowFailed { .. }
-                        | WorkflowEvent::WorkflowCancelled { .. }
-                )
-            });
-            if ended {
-                continue;
-            }
-            match self.shared.yaml.legacy.registered(&key).await {
-                Some(definition) => {
-                    self.shared.resume_definition(&definition, id.clone(), input).await?;
-                    recovery.resumed.push(id);
-                }
-                None => recovery.unrecoverable.push(Unrecoverable {
-                    reason: format!(
-                        "YAML workflow {key} is not registered on this engine (EngineBuilder::yaml_workflow)"
-                    ),
-                    workflow: key,
-                    id,
-                }),
-            }
-        }
-        Ok(())
+            })
+            .unwrap_or(Status::Running);
+        // The key is `namespace/name/version`, as `WorkflowStarted` records it.
+        let mut parts = key.splitn(3, '/');
+        let workflow = WorkflowId {
+            namespace: parts.next().unwrap_or_default().to_string(),
+            name: parts.next().unwrap_or_default().to_string(),
+            version: parts.next().unwrap_or_default().to_string(),
+        };
+        Ok(Some(YamlRecord {
+            info: InstanceInfo {
+                id: id.to_string(),
+                workflow,
+                status,
+                started_at: Some(started_at),
+                updated_at: events.iter().map(WorkflowEvent::timestamp).max(),
+                parent: None,
+            },
+            key,
+            input,
+        }))
     }
 
     /// The instances in the store that match `filter`, oldest first.
@@ -941,6 +998,14 @@ impl Engine {
             })
             .filter(|info| filter.matches(info))
             .collect();
+        #[cfg(feature = "yaml")]
+        for id in self.yaml_ids().await? {
+            if let Some(record) = self.yaml_record(&id).await?
+                && filter.matches(&record.info)
+            {
+                found.push(record.info);
+            }
+        }
         found.sort_by(|a, b| a.started_at.cmp(&b.started_at).then(a.id.cmp(&b.id)));
         Ok(found
             .into_iter()
@@ -954,11 +1019,41 @@ impl Engine {
     /// # Errors
     /// If there is no such instance or the store cannot be read.
     pub async fn describe(&self, id: &str) -> Result<InstanceDetails, Error> {
-        let journal = self
-            .shared
-            .load_journal(id)
-            .await?
-            .ok_or_else(|| Error::Engine(format!("workflow instance `{id}` was not found")))?;
+        let Some(journal) = self.shared.load_journal(id).await? else {
+            #[cfg(feature = "yaml")]
+            if let Some(record) = self.yaml_record(id).await? {
+                // The YAML engine keeps no journal: its steps are its completed tasks, and its timers are not listed.
+                let steps = self
+                    .shared
+                    .persistence
+                    .get_events(id)
+                    .await?
+                    .iter()
+                    .filter(|event| {
+                        matches!(event, crate::workflow::WorkflowEvent::TaskCompleted { .. })
+                    })
+                    .count();
+                let status = match self.shared.instance(id) {
+                    Some(core) => core.status().into(),
+                    None => record.info.status,
+                };
+                return Ok(InstanceDetails {
+                    id: record.info.id,
+                    workflow: record.info.workflow,
+                    status,
+                    run: 1,
+                    steps,
+                    timers: Vec::new(),
+                    pending_events: 0,
+                    started_at: record.info.started_at,
+                    updated_at: record.info.updated_at,
+                    parent: None,
+                });
+            }
+            return Err(Error::Engine(format!(
+                "workflow instance `{id}` was not found"
+            )));
+        };
         Ok(InstanceDetails {
             id: id.to_string(),
             status: journal.status.into(),
@@ -1180,12 +1275,16 @@ impl Engine {
         if let Some(core) = self.shared.instance(id) {
             return Ok(core.status().into());
         }
-        match self.shared.load_journal(id).await? {
-            Some(journal) => Ok(journal.status.into()),
-            None => Err(Error::Engine(format!(
-                "workflow instance `{id}` was not found"
-            ))),
+        if let Some(journal) = self.shared.load_journal(id).await? {
+            return Ok(journal.status.into());
         }
+        #[cfg(feature = "yaml")]
+        if let Some(record) = self.yaml_record(id).await? {
+            return Ok(record.info.status);
+        }
+        Err(Error::Engine(format!(
+            "workflow instance `{id}` was not found"
+        )))
     }
 
     /// The events recorded for an instance.
@@ -1461,6 +1560,15 @@ pub struct InstanceInfo {
     pub parent: Option<String>,
 }
 
+/// A YAML instance as the YAML engine's stored events describe it.
+#[cfg(feature = "yaml")]
+struct YamlRecord {
+    info: InstanceInfo,
+    /// `namespace/name/version`, the key its definition is registered under.
+    key: String,
+    input: Value,
+}
+
 /// Which instances [`Engine::list`] returns. The default lists every top-level instance.
 #[derive(Debug, Clone, Default)]
 pub struct ListFilter {
@@ -1622,11 +1730,13 @@ pub struct PendingTimer {
     pub fires_at: DateTime<Utc>,
 }
 
-/// Prints the YAML interpreter's task-by-task trace (inputs, outputs, timings) to the terminal, for every engine in the
-/// process. Off by default; the `jackdaw` CLI turns it on with `--debug`. Rust workflows report through
-/// [`tracing`](https://docs.rs/tracing) instead.
+/// Does nothing. The YAML interpreter's task-by-task trace is now [`tracing`](https://docs.rs/tracing) events on the
+/// `jackdaw::yaml` target (see the [events chapter](crate::guide::events) of the guide), which a subscriber shows or
+/// filters like any other.
 #[cfg(feature = "yaml")]
 #[cfg_attr(docsrs, doc(cfg(feature = "yaml")))]
-pub fn set_yaml_trace(enabled: bool) {
-    crate::output::set_debug_mode(enabled);
-}
+#[deprecated(
+    since = "0.2.1",
+    note = "the YAML trace is `tracing` events on the `jackdaw::yaml` target; enable that target in your subscriber"
+)]
+pub fn set_yaml_trace(_enabled: bool) {}

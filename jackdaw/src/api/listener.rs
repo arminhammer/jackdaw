@@ -283,10 +283,10 @@ impl Listener {
         let task = match self.kind {
             #[cfg(feature = "http-listener")]
             Kind::OpenApi(routes) => {
-                tokio::spawn(serve_http(socket, routes, bindings, engine, stopped))
+                super::observe::spawn(serve_http(socket, routes, bindings, engine, stopped))
             }
             #[cfg(feature = "grpc-listener")]
-            Kind::Grpc { service, files } => tokio::spawn(serve_grpc(
+            Kind::Grpc { service, files } => super::observe::spawn(serve_grpc(
                 socket, service, files, bindings, engine, stopped,
             )),
         };

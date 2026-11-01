@@ -18,9 +18,26 @@ The workspace publishes three crates with the same version: `jackdaw-wf` (the li
 - `#[catalog]` in a build without the `yaml` feature fails with one error that names the feature, instead of errors
   about missing `__private` items.
 - The docs build without warnings when some features are off.
+- YAML instances appear in `Engine::list`, `Engine::status` and `Engine::describe`, read from the YAML engine's
+  stored events. Before, those saw only Rust instances.
+- YAML instances are leased like Rust ones under `EngineBuilder::lease`. An engine takes the lease before it starts
+  or resumes one, and renews it while the run lasts. `Engine::recover` skips an instance whose lease another engine
+  holds. Before, two engines could both resume the same YAML instance. The YAML interpreter writes to the store
+  directly, so its writes are not checked against the lease. An engine that loses a lease stops the run at its next
+  renewal.
+- YAML runs, the readers of a script's output, and listener servers keep the caller's `tracing` subscriber, as Rust
+  workflows already did.
 
 ### Changed
 
+- The library no longer prints. The YAML interpreter's trace, the lines a script task prints and listener startup
+  are `tracing` events on the `jackdaw::yaml` target (see "Logs and traces" in the events chapter of the guide).
+  Before, a YAML script task's output went to the process's stdout and stderr, whatever the application did.
+  `set_yaml_trace` is deprecated and does nothing. The gRPC listener's request diagnostics and the OpenAPI caller's
+  request lines are `DEBUG` logs.
+- The `jackdaw` CLI renders that trace as before, and now also prints warnings and errors from the library on stderr
+  (everything with `--verbose`; `RUST_LOG` overrides).
+- `console` is no longer a dependency of the library.
 - CI checks the public API against the latest release with `cargo semver-checks`, and dependency licenses and
   sources with `cargo deny` (`deny.toml`).
 

@@ -224,7 +224,7 @@ impl DurableEngine {
                 let mut route_handlers = std::collections::HashMap::new();
                 for (path, task_name, handler) in routes {
                     // axum 0.8 uses the OpenAPI `{param}` syntax, so paths are registered as written.
-                    println!("  Registering route {path} for task {task_name} on {bind_addr}");
+                    crate::output::listener_route(&format!("route {path}"), &task_name, &bind_addr);
                     route_handlers.insert(path, handler);
                 }
 
@@ -237,7 +237,7 @@ impl DurableEngine {
                 tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
                 http_listeners.insert(bind_addr.clone(), listener_arc);
-                println!("  HTTP listener started on {bind_addr}");
+                crate::output::listener_started("HTTP", &bind_addr);
             }
         }
 
@@ -268,8 +268,10 @@ impl DurableEngine {
                 > = std::collections::HashMap::new();
 
                 for (method_name, task_name, json_handler) in methods {
-                    println!(
-                        "  Registering gRPC method {service_name}/{method_name} for task {task_name} on {bind_addr}"
+                    crate::output::listener_route(
+                        &format!("gRPC method {service_name}/{method_name}"),
+                        &task_name,
+                        &bind_addr,
                     );
 
                     // Get method descriptor for this method
@@ -316,7 +318,7 @@ impl DurableEngine {
                 tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
                 grpc_listeners.insert(bind_addr.clone(), listener_arc);
-                println!("  gRPC listener started on {bind_addr}");
+                crate::output::listener_started("gRPC", &bind_addr);
             }
         }
 
@@ -459,14 +461,8 @@ impl DurableEngine {
                     dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value> + Send + Sync,
                 > = Arc::new(
                     move |payload: serde_json::Value| -> crate::listeners::Result<serde_json::Value> {
-                        // Log task execution if debug mode is enabled
-                        if crate::output::is_debug_mode() {
-                            eprintln!("\n{}", "─".repeat(80));
-                            eprintln!("  ▸ Task: {} [call]", task_name_clone);
-                            eprintln!("{}", "┄".repeat(80));
-                            eprintln!("  Input:");
-                            eprintln!("{}", indent_json(&payload, 4));
-                        }
+                        crate::output::format_task_start(&task_name_clone, "call");
+                        crate::output::format_task_input(&payload);
 
                         let start_time = std::time::Instant::now();
 
@@ -476,18 +472,8 @@ impl DurableEngine {
                         let result = python_executor.execute_function(&func, &[payload])
                             .map_err(|e| crate::listeners::Error::Execution { message: format!("Failed to execute Python function: {e}") })?;
 
-                        if crate::output::is_debug_mode() {
-                            let duration_ms = start_time.elapsed().as_millis() as i64;
-                            let duration_str = if duration_ms < 1000 {
-                                format!("{}ms", duration_ms)
-                            } else {
-                                format!("{:.2}s", duration_ms as f64 / 1000.0)
-                            };
-                            eprintln!("  Output ({})", duration_str);
-                            eprintln!("{}", "┄".repeat(80));
-                            eprintln!("{}", indent_json(&result, 4));
-                            eprintln!("  ✓ Completed '{}'", task_name_clone);
-                        }
+                        let duration_ms = i64::try_from(start_time.elapsed().as_millis()).unwrap_or(i64::MAX);
+                        crate::output::format_task_output(&result, duration_ms);
 
                         Ok(result)
                     },
@@ -503,14 +489,8 @@ impl DurableEngine {
                     dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value> + Send + Sync,
                 > = Arc::new(
                     move |payload: serde_json::Value| -> crate::listeners::Result<serde_json::Value> {
-                        // Log task execution if debug mode is enabled
-                        if crate::output::is_debug_mode() {
-                            eprintln!("\n{}", "─".repeat(80));
-                            eprintln!("  ▸ Task: {} [call]", task_name_clone);
-                            eprintln!("{}", "┄".repeat(80));
-                            eprintln!("  Input:");
-                            eprintln!("{}", indent_json(&payload, 4));
-                        }
+                        crate::output::format_task_start(&task_name_clone, "call");
+                        crate::output::format_task_input(&payload);
 
                         let start_time = std::time::Instant::now();
 
@@ -528,18 +508,8 @@ impl DurableEngine {
                             )
                         }).map_err(|e| crate::listeners::Error::Execution { message: format!("Failed to execute JavaScript/TypeScript function: {e}") })?;
 
-                        if crate::output::is_debug_mode() {
-                            let duration_ms = start_time.elapsed().as_millis() as i64;
-                            let duration_str = if duration_ms < 1000 {
-                                format!("{}ms", duration_ms)
-                            } else {
-                                format!("{:.2}s", duration_ms as f64 / 1000.0)
-                            };
-                            eprintln!("  Output ({})", duration_str);
-                            eprintln!("{}", "┄".repeat(80));
-                            eprintln!("{}", indent_json(&result, 4));
-                            eprintln!("  ✓ Completed '{}'", task_name_clone);
-                        }
+                        let duration_ms = i64::try_from(start_time.elapsed().as_millis()).unwrap_or(i64::MAX);
+                        crate::output::format_task_output(&result, duration_ms);
 
                         Ok(result)
                     },
@@ -669,18 +639,6 @@ fn wrap_handler_with_read_mode(
             handler(transformed_payload)
         },
     )
-}
-
-#[cfg(any(feature = "http-listener", feature = "grpc-listener"))]
-/// Helper: Indent JSON output for logging
-fn indent_json(value: &serde_json::Value, indent: usize) -> String {
-    let json_str = serde_json::to_string_pretty(value).unwrap_or_else(|_| "{}".to_string());
-    let indent_str = " ".repeat(indent);
-    json_str
-        .lines()
-        .map(|line| format!("{indent_str}{line}"))
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 /// Whether a `listen` task serves an endpoint (HTTP or gRPC, named by `with.source.uri`), as opposed to waiting for

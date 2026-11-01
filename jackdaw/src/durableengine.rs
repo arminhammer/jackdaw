@@ -474,8 +474,8 @@ impl DurableEngine {
 
         let instance_id_clone = instance_id.clone();
 
-        // Spawn workflow execution in background
-        let run = tokio::spawn(async move {
+        // Spawn workflow execution in background (with the caller's subscriber, for the trace)
+        let run = crate::api::observe::spawn(async move {
             let opening = if resuming {
                 WorkflowEvent::WorkflowResumed {
                     instance_id: instance_id_clone.clone(),

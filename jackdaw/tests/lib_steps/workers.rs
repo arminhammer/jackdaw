@@ -73,7 +73,7 @@ pub fn fixtures() -> Vec<Fixture> {
 const LEASE: Duration = Duration::from_secs(30);
 
 /// The engine called `name`: `worker-1` is the scenario's engine, the others are built on the same store.
-fn worker(world: &mut LibWorld, name: &str) -> Engine {
+pub(super) fn worker(world: &mut LibWorld, name: &str) -> Engine {
     if name == "worker-1" {
         return world.engine();
     }

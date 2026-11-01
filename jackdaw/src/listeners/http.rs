@@ -169,7 +169,7 @@ impl Listener for HttpListener {
         let listener = super::bind(addr).await?;
 
         // Spawn server in background
-        let server_handle = tokio::spawn(async move {
+        let server_handle = crate::api::observe::spawn(async move {
             tracing::info!("HTTP server listening on {}", addr);
 
             // Convert the stateless router into a make_service

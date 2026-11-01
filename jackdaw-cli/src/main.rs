@@ -6,6 +6,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 mod cmd;
 mod config;
+mod trace;
 mod visualization;
 
 use cmd::{RunArgs, ValidateArgs, VisualizeArgs, handle_run, handle_validate, handle_visualize};
@@ -51,21 +52,38 @@ enum Commands {
     Visualize(VisualizeArgs),
 }
 
-/// Initialize tracing/logging with indicatif integration
-fn init_tracing(verbose: bool) {
+/// Sets up the terminal output: progress bars, the library's YAML trace ([`trace`]; its task-by-task part only with
+/// `debug`) and log lines on stderr (warnings, or everything at `verbose`; `RUST_LOG` overrides).
+fn init_tracing(verbose: bool, debug: bool) {
+    use tracing_subscriber::Layer as _;
+    use tracing_subscriber::filter::{LevelFilter, Targets};
+
     let indicatif_layer = tracing_indicatif::IndicatifLayer::new();
 
-    let filter_layer = if verbose {
-        tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("debug"))
+    let trace_level = if debug {
+        LevelFilter::DEBUG
     } else {
-        tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"))
+        LevelFilter::INFO
     };
+    let trace_layer =
+        trace::YamlTrace.with_filter(Targets::new().with_target(trace::TARGET, trace_level));
+
+    let default_logs = if verbose { "debug" } else { "warn" };
+    let log_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(default_logs))
+        .add_directive(
+            format!("{}=off", trace::TARGET)
+                .parse()
+                .unwrap_or_else(|_| LevelFilter::OFF.into()),
+        );
+    let log_layer = tracing_subscriber::fmt::layer()
+        .with_writer(indicatif_layer.get_stderr_writer())
+        .with_filter(log_filter);
 
     tracing_subscriber::registry()
-        .with(filter_layer)
         .with(indicatif_layer)
+        .with(trace_layer)
+        .with(log_layer)
         .init();
 }
 
@@ -95,7 +113,7 @@ async fn main() -> Result<(), Error> {
             let config = args.merge_with_config(global_config);
 
             // Initialize tracing/logging with indicatif bridge
-            init_tracing(config.verbose);
+            init_tracing(config.verbose, debug);
 
             // Initialize MultiProgress for coordinating progress bars and logs/traces
             let multi_progress = MultiProgress::new();
@@ -120,13 +138,13 @@ async fn main() -> Result<(), Error> {
         }
         Commands::Validate(args) => {
             // Initialize tracing/logging with indicatif bridge
-            init_tracing(args.verbose);
+            init_tracing(args.verbose, false);
 
             handle_validate(args).await.context(ValidateSnafu)
         }
         Commands::Visualize(args) => {
             // Initialize tracing/logging with indicatif bridge
-            init_tracing(args.verbose);
+            init_tracing(args.verbose, false);
 
             handle_visualize(args).await.context(VisualizeSnafu)
         }

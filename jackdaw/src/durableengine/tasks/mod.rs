@@ -315,14 +315,14 @@ async fn exec_listen_task(
             // If until evaluates to false, block indefinitely
             // This keeps the workflow (and container) alive while background listeners process events
             if let Some(false) = until_value.as_bool() {
-                eprintln!("DEBUG: Blocking forever because until = false");
+                tracing::debug!("Blocking forever because until = false");
                 use tokio::time::Duration;
                 loop {
                     tokio::time::sleep(Duration::from_secs(3600)).await;
                 }
             } else {
-                eprintln!(
-                    "DEBUG: NOT blocking, until_value.as_bool() = {:?}",
+                tracing::debug!(
+                    "NOT blocking, until_value.as_bool() = {:?}",
                     until_value.as_bool()
                 );
             }

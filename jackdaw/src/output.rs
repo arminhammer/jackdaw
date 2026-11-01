@@ -1,147 +1,63 @@
-//! Pretty output formatting for workflow execution
+//! The YAML interpreter's trace, as [`tracing`] events on the [`TARGET`] target.
 //!
-//! This module provides structured, colorized output for all workflow execution events.
+//! Each event has an `event` field naming what happened (`task_start`, `task_output`, ...) and the values a renderer
+//! needs; JSON values are fields holding compact JSON text. The trace is at `DEBUG` (it carries inputs and outputs),
+//! except the lines a script prints (`script_line`) and listener startup (`listener_started`), which are at `INFO`. The
+//! `jackdaw` CLI renders them; a library user sees them only through their own subscriber.
 
-use console::style;
 use serde_json::Value;
-use std::sync::atomic::{AtomicBool, Ordering};
 
-/// Global debug mode flag
-static DEBUG_MODE: AtomicBool = AtomicBool::new(false);
+/// The target of every trace event.
+pub const TARGET: &str = "jackdaw::yaml";
 
-/// Enable debug mode to show detailed execution information
-pub fn set_debug_mode(enabled: bool) {
-    DEBUG_MODE.store(enabled, Ordering::Relaxed);
+/// Displays a JSON value as compact JSON text, for an event field.
+struct Json<'a>(&'a Value);
+
+impl std::fmt::Display for Json<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&serde_json::to_string(self.0).unwrap_or_else(|_| "null".to_string()))
+    }
 }
 
-/// Check if debug mode is enabled
-pub fn is_debug_mode() -> bool {
-    DEBUG_MODE.load(Ordering::Relaxed)
-}
-
-/// Format workflow resumption message
+/// A workflow instance resumed from its checkpoint.
 pub fn format_workflow_resume(instance_id: &str, from_task: Option<&str>) {
-    if !is_debug_mode() {
-        return;
-    }
-    println!("\n{}", "═".repeat(80));
-    println!(
-        "{} {}",
-        style("↻").yellow().bold(),
-        style("Resuming Workflow").bold()
-    );
-    println!(
-        "  {} {}",
-        style("Instance ID:").dim(),
-        style(instance_id).dim()
-    );
-    if let Some(task) = from_task {
-        println!("  {} {}", style("From task:").dim(), style(task).yellow());
-    }
-    println!("{}", "─".repeat(80));
+    tracing::debug!(target: TARGET, event = "workflow_resume", instance = instance_id, from_task);
 }
 
-/// Format workflow output
+/// A workflow finished with `output`.
 pub fn format_workflow_output(output: &Value, duration_ms: i64) {
-    if !is_debug_mode() {
-        return;
-    }
-
-    let duration_str = if duration_ms < 1000 {
-        format!("{}ms", duration_ms)
-    } else if duration_ms < 60_000 {
-        format!("{:.2}s", duration_ms as f64 / 1000.0)
-    } else {
-        let minutes = duration_ms / 60_000;
-        let seconds = (duration_ms % 60_000) as f64 / 1000.0;
-        format!("{}m {:.2}s", minutes, seconds)
-    };
-
-    println!("\n{}", "═".repeat(80));
-    println!(
-        "{} {}",
-        style("Workflow Completed").green().bold(),
-        style(format!("({})", duration_str)).dim()
+    tracing::debug!(
+        target: TARGET,
+        event = "workflow_output",
+        output = %Json(&filter_internal_fields(output)),
+        duration_ms
     );
-    println!("{}", "─".repeat(80));
-
-    let filtered = filter_internal_fields(output);
-
-    // Only show output section if there's meaningful data to display
-    // Skip if it's just stdout/stderr/exitCode (which was already streamed)
-    if let Some(obj) = filtered.as_object() {
-        let is_just_script_output = obj.len() <= 3
-            && obj.contains_key("stdout")
-            && obj.contains_key("stderr")
-            && obj.contains_key("exitCode");
-
-        if !is_just_script_output && !obj.is_empty() {
-            println!("{}", style("Output").bold());
-            println!("{}", "┄".repeat(80));
-            println!("{}", indent_json(&filtered, 2));
-        }
-    } else if !filtered.is_null() {
-        println!("{}", style("Output").bold());
-        println!("{}", "┄".repeat(80));
-        println!("{}", indent_json(&filtered, 2));
-    }
-
-    println!("{}", "═".repeat(80));
 }
 
-/// Format task execution start
+/// A task started.
 pub fn format_task_start(task_name: &str, task_type: &str) {
-    if !is_debug_mode() {
-        return;
-    }
-    println!("\n{}", "─".repeat(80));
-    println!(
-        "{} {} {} {}",
-        style("▸").cyan(),
-        style("Task:").bold(),
-        style(task_name).cyan(),
-        style(format!("[{task_type}]")).dim()
-    );
-    println!("{}", "┄".repeat(80));
+    tracing::debug!(target: TARGET, event = "task_start", task = task_name, kind = task_type);
 }
 
-/// Format task already completed (from checkpoint)
+/// A task was skipped because its checkpoint says it already completed.
 pub fn format_task_skipped(task_name: &str) {
-    if !is_debug_mode() {
-        return;
-    }
-    println!(
-        "  {} {}",
-        style("⤼").yellow(),
-        style(format!("Skipping '{task_name}' (already completed)")).yellow()
+    tracing::debug!(target: TARGET, event = "task_skipped", task = task_name);
+}
+
+/// A task's result came from the cache.
+pub fn format_cache_hit(task_name: &str, key: &str, timestamp: Option<&str>) {
+    tracing::debug!(
+        target: TARGET,
+        event = "cache_hit",
+        task = task_name,
+        key,
+        cached_at = timestamp
     );
 }
 
-/// Format cache hit
-pub fn format_cache_hit(_task_name: &str, key: &str, timestamp: Option<&str>) {
-    if !is_debug_mode() {
-        return;
-    }
-    println!("  {}", style("Cache Hit").yellow().bold());
-    println!("  {}", "·".repeat(78));
-    println!("    {} {}", style("Key:").yellow(), style(key).yellow());
-    if let Some(ts) = timestamp {
-        println!(
-            "    {} {}",
-            style("Cached at:").yellow(),
-            style(ts).yellow()
-        );
-    }
-}
-
-/// Format cache miss
-pub fn format_cache_miss(_task_name: &str, key: &str) {
-    if !is_debug_mode() {
-        return;
-    }
-    println!("  {}", style("Cache Miss").yellow());
-    println!("  {}", "·".repeat(78));
-    println!("    {} {}", style("Key:").yellow(), style(key).yellow());
+/// A task's result was not in the cache.
+pub fn format_cache_miss(task_name: &str, key: &str) {
+    tracing::debug!(target: TARGET, event = "cache_miss", task = task_name, key);
 }
 
 /// Filter out internal descriptor fields from display
@@ -159,216 +75,78 @@ pub fn filter_internal_fields(value: &Value) -> Value {
     }
 }
 
-/// Format task context
+/// The context a task starts with.
 pub fn format_task_context(context: &Value) {
-    if !is_debug_mode() {
-        return;
-    }
-    println!("  {}", style("Context").white());
-    println!("  {}", "·".repeat(78));
-    let filtered = filter_internal_fields(context);
-    if let Some(obj) = filtered.as_object() {
-        if obj.is_empty() {
-            println!("    {}", style("(empty)").dim());
-        } else {
-            for (key, value) in obj {
-                println!("    {}", style(format!("{key}:")).white());
-                println!("{}", colorize_json(value, 6, "white"));
-            }
-        }
-    } else {
-        println!("{}", colorize_json(&filtered, 4, "white"));
-    }
+    tracing::debug!(
+        target: TARGET,
+        event = "task_context",
+        context = %Json(&filter_internal_fields(context))
+    );
 }
 
-/// Format task input
+/// The input a task starts with.
 pub fn format_task_input(input: &Value) {
-    if !is_debug_mode() {
-        return;
-    }
-    println!("  {}", style("Input").cyan());
-    println!("  {}", "·".repeat(78));
-    let filtered = filter_internal_fields(input);
-    if let Some(obj) = filtered.as_object() {
-        if obj.is_empty() {
-            println!("    {}", style("(empty)").dim());
-        } else {
-            for (key, value) in obj {
-                println!("    {}", style(format!("{key}:")).cyan());
-                println!("{}", colorize_json(value, 6, "cyan"));
-            }
-        }
-    } else {
-        println!("{}", colorize_json(&filtered, 4, "cyan"));
-    }
+    tracing::debug!(
+        target: TARGET,
+        event = "task_input",
+        input = %Json(&filter_internal_fields(input))
+    );
 }
 
-/// Format run task parameters (stdin, arguments, environment)
+/// A `run` task's language, stdin, arguments and environment.
 pub fn format_run_task_params(
     language: Option<&str>,
     stdin: Option<&str>,
     arguments: Option<&Value>,
     environment: Option<&Value>,
 ) {
-    if !is_debug_mode() {
-        return;
-    }
-    if let Some(lang) = language {
-        println!("  {} {}", style("Language:").cyan(), style(lang).cyan());
-    }
-
-    if let Some(stdin_val) = stdin {
-        println!(
-            "  {} {}",
-            style("Stdin:").cyan(),
-            style(format!("\"{stdin_val}\"")).cyan()
-        );
-    }
-
-    if let Some(arr) = arguments
-        .and_then(|args| args.as_array())
-        .filter(|a| !a.is_empty())
-    {
-        println!("  {}", style("Arguments:").cyan());
-        for arg in arr {
-            if let Some(s) = arg.as_str() {
-                println!("    {}", style(format!("- {s}")).cyan());
-            }
-        }
-    }
-
-    if let Some(obj) = environment
-        .and_then(|env| env.as_object())
-        .filter(|o| !o.is_empty())
-    {
-        println!("  {}", style("Environment:").cyan());
-        for (key, value) in obj {
-            if let Some(s) = value.as_str() {
-                println!(
-                    "    {} {}",
-                    style(format!("{key}:")).cyan(),
-                    style(s).cyan()
-                );
-            }
-        }
-    }
-}
-
-/// Format task output
-pub fn format_task_output(output: &Value, duration_ms: i64) {
-    if !is_debug_mode() {
-        return;
-    }
-
-    let duration_str = if duration_ms < 1000 {
-        format!("{}ms", duration_ms)
-    } else if duration_ms < 60_000 {
-        format!("{:.2}s", duration_ms as f64 / 1000.0)
-    } else {
-        let minutes = duration_ms / 60_000;
-        let seconds = (duration_ms % 60_000) as f64 / 1000.0;
-        format!("{}m {:.2}s", minutes, seconds)
-    };
-
-    println!(
-        "  {} {}",
-        style("Output").green(),
-        style(format!("({})", duration_str)).dim()
+    tracing::debug!(
+        target: TARGET,
+        event = "run_params",
+        language,
+        stdin,
+        arguments = arguments.map(|value| tracing::field::display(Json(value))),
+        environment = environment.map(|value| tracing::field::display(Json(value))),
     );
-    println!("  {}", "·".repeat(78));
+}
 
-    let filtered = filter_internal_fields(output);
-
-    // For streamed output, show stdout/stderr based on exit code
-    if output
+/// A task finished with `output`. Output a script streamed while it ran is marked `streamed`, so a renderer need not
+/// show its stdout again.
+pub fn format_task_output(output: &Value, duration_ms: i64) {
+    let streamed = output
         .get("__streamed")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false)
-    {
-        if let Some(obj) = filtered.as_object() {
-            let exit_code = obj
-                .get("exitCode")
-                .and_then(serde_json::Value::as_i64)
-                .unwrap_or(0);
-
-            if exit_code == 0 {
-                // Success: Only show stdout value (no stderr, no exitCode)
-                if let Some(stdout) = obj.get("stdout").and_then(serde_json::Value::as_str) {
-                    if stdout.is_empty() {
-                        println!("    {}", style("(empty)").dim());
-                    } else {
-                        println!("    {}", style(format!("\"{stdout}\"")).green());
-                    }
-                } else {
-                    println!("    {}", style("(empty)").dim());
-                }
-            } else {
-                // Failure: Show both stdout and stderr for debugging (no exitCode)
-                if let Some(stdout) = obj
-                    .get("stdout")
-                    .and_then(serde_json::Value::as_str)
-                    .filter(|s| !s.is_empty())
-                {
-                    println!("    {}", style("stdout:").green());
-                    println!("      {}", style(format!("\"{stdout}\"")).green());
-                }
-                if let Some(stderr) = obj
-                    .get("stderr")
-                    .and_then(serde_json::Value::as_str)
-                    .filter(|s| !s.is_empty())
-                {
-                    println!("    {}", style("stderr:").green());
-                    println!("      {}", style(format!("\"{stderr}\"")).green());
-                }
-            }
-        }
-        return;
-    }
-
-    // For non-streamed output, show full structure
-    if let Some(obj) = filtered.as_object() {
-        if obj.is_empty() {
-            println!("    {}", style("(empty)").dim());
-        } else {
-            for (key, value) in obj {
-                println!("    {}", style(format!("{key}:")).green());
-                println!("{}", colorize_json(value, 6, "green"));
-            }
-        }
-    } else {
-        println!("{}", colorize_json(&filtered, 4, "green"));
-    }
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    tracing::debug!(
+        target: TARGET,
+        event = "task_output",
+        output = %Json(&filter_internal_fields(output)),
+        duration_ms,
+        streamed
+    );
 }
 
-/// Helper: Indent JSON output
-fn indent_json(value: &Value, indent: usize) -> String {
-    let json_str = serde_json::to_string_pretty(value).unwrap_or_else(|_| "{}".to_string());
-    let indent_str = " ".repeat(indent);
-    json_str
-        .lines()
-        .map(|line| format!("{indent_str}{line}"))
-        .collect::<Vec<_>>()
-        .join("\n")
+/// A line a script task printed while it ran (`stream` is `stdout` or `stderr`). `index` tells concurrent tasks
+/// apart.
+pub fn script_line(task_name: &str, index: usize, stream: &str, line: &str) {
+    tracing::info!(
+        target: TARGET,
+        event = "script_line",
+        task = task_name,
+        index,
+        stream,
+        line
+    );
 }
 
-/// Helper: Colorize JSON output
-fn colorize_json(value: &Value, indent: usize, color: &str) -> String {
-    let json_str = serde_json::to_string_pretty(value).unwrap_or_else(|_| "{}".to_string());
-    let indent_str = " ".repeat(indent);
-    let styled_lines: Vec<String> = json_str
-        .lines()
-        .map(|line| {
-            let styled = match color {
-                "white" => style(line).white(),
-                "cyan" => style(line).cyan(),
-                "blue" => style(line).blue(),
-                "green" => style(line).green(),
-                "red" => style(line).red(),
-                "yellow" => style(line).yellow(),
-                _ => style(line),
-            };
-            format!("{indent_str}{styled}")
-        })
-        .collect();
-    styled_lines.join("\n")
+/// A `listen` task's server is accepting requests (`protocol` is `HTTP` or `gRPC`).
+#[cfg(any(feature = "http-listener", feature = "grpc-listener"))]
+pub fn listener_started(protocol: &str, addr: &str) {
+    tracing::info!(target: TARGET, event = "listener_started", protocol, addr);
+}
+
+/// A `listen` task's server routes `what` (`route /pets/{id}`, `gRPC method pets.Pets/Get`) to `task`.
+#[cfg(any(feature = "http-listener", feature = "grpc-listener"))]
+pub fn listener_route(what: &str, task: &str, addr: &str) {
+    tracing::info!(target: TARGET, event = "listener_route", route = what, task, addr);
 }

@@ -29,6 +29,7 @@ serde-saphyr = { version = "2", default-features = false, features = ["deseriali
 snafu = "0.9.2"
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
+tracing = "0.1"
 tracing-indicatif = "0.3"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 

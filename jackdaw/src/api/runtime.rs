@@ -1055,7 +1055,8 @@ impl Shared {
     pub(crate) async fn renew_leases(&self) {
         let cores: Vec<Arc<InstanceCore>> = lock(&self.instances).values().cloned().collect();
         for core in cores {
-            if core.ephemeral || core.remote.get().is_some() || core.has_ended() {
+            let leased = !core.ephemeral || core.leased.load(Ordering::SeqCst);
+            if !leased || core.remote.get().is_some() || core.has_ended() {
                 continue;
             }
             match self.take_lease(&core.id).await {
@@ -1343,6 +1344,9 @@ impl Shared {
         id: Option<String>,
     ) -> Result<Launched, Error> {
         self.validate_definition(definition)?;
+        if let Some(id) = &id {
+            self.lease_yaml(id).await?;
+        }
         let legacy = match id {
             Some(id) => {
                 self.yaml
@@ -1362,6 +1366,8 @@ impl Shared {
             // Stores that cannot list instances find them through the index; recovery looks there.
             self.add_to_index(legacy.instance_id()).await?;
         }
+        // A generated id is new, so its lease is free.
+        self.lease_yaml(legacy.instance_id()).await?;
         Ok(self.mirror_definition(definition, input, legacy))
     }
 
@@ -1374,6 +1380,7 @@ impl Shared {
         id: String,
         input: Value,
     ) -> Result<Launched, Error> {
+        self.lease_yaml(&id).await?;
         let legacy = self
             .yaml
             .legacy
@@ -1381,6 +1388,19 @@ impl Shared {
             .await
             .map_err(|e| Error::Engine(e.to_string()))?;
         Ok(self.mirror_definition(definition, input, legacy))
+    }
+
+    /// Takes the lease on a YAML instance before it runs here (with leases on). The YAML engine writes to the store
+    /// directly, so its writes are not checked against the lease as a native instance's are: an engine that loses
+    /// the lease stops the run when it next renews (within the poll interval).
+    #[cfg(feature = "yaml")]
+    async fn lease_yaml(&self, id: &str) -> Result<(), Error> {
+        match self.take_lease(id).await? {
+            None => Ok(()),
+            Some((holder, _)) => Err(Error::invalid(format!(
+                "instance `{id}` is run by engine `{holder}`"
+            ))),
+        }
     }
 
     /// Mirrors a YAML engine run's events and result into one instance of this engine.
@@ -1413,6 +1433,8 @@ impl Shared {
             let mut result = Err(Error::Engine(
                 "the workflow ended without producing a result".to_string(),
             ));
+            // Without a terminal event the run was stopped (the engine dropped): its lease runs out on its own.
+            let mut ended = false;
             while let Some(stored) = legacy.next_event().await {
                 if let crate::workflow::WorkflowEvent::WorkflowCompleted { final_data, .. } =
                     &stored
@@ -1431,6 +1453,7 @@ impl Shared {
                 let terminal = event.is_terminal();
                 for_task.log.push(event);
                 if terminal {
+                    ended = true;
                     break;
                 }
             }
@@ -1439,8 +1462,22 @@ impl Shared {
             publish.0.publish(result);
             if let Some(shared) = weak.upgrade() {
                 shared.forget(&publish.0.id);
+                if ended
+                    && let Some(leasing) = &shared.leasing
+                    && let Err(error) = shared
+                        .persistence
+                        .release_lease(&publish.0.id, &leasing.owner)
+                        .await
+                {
+                    tracing::warn!(instance.id = %publish.0.id, %error, "a lease could not be released");
+                }
             }
         });
+        if let Some(leasing) = &self.leasing {
+            core.leased.store(true, Ordering::SeqCst);
+            *lock(&core.lease_until) = Some(super::clock::after(self.clock.now(), leasing.ttl));
+        }
+        let _ = core.abort.set(handle.abort_handle());
         self.remember(&core, handle);
         Launched { core }
     }
@@ -1717,6 +1754,9 @@ pub(crate) struct InstanceCore {
     pub abort: OnceLock<tokio::task::AbortHandle>,
     /// For a handle to an instance another engine runs: that engine's id.
     pub remote: OnceLock<String>,
+    /// Set on the mirror of a YAML run (which is otherwise `ephemeral`): it holds the instance's lease, renewed like a
+    /// native instance's.
+    pub leased: std::sync::atomic::AtomicBool,
 }
 
 /// A step, ready to run.
@@ -1806,6 +1846,7 @@ impl InstanceCore {
             lost: std::sync::atomic::AtomicBool::new(false),
             abort: OnceLock::new(),
             remote: OnceLock::new(),
+            leased: std::sync::atomic::AtomicBool::new(false),
         })
     }
 

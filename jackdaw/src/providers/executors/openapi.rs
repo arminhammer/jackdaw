@@ -46,7 +46,7 @@ impl Executor for OpenApiExecutor {
             .and_then(|v| v.as_str())
             .unwrap_or("content");
 
-        println!("  OpenAPI call: {operation_id} at {doc_endpoint}");
+        tracing::debug!("OpenAPI call: {operation_id} at {doc_endpoint}");
 
         // Fetch the OpenAPI spec
         let spec_text = self
@@ -63,8 +63,8 @@ impl Executor for OpenApiExecutor {
                 message: format!("Failed to read spec text: {e}"),
             })?;
 
-        println!(
-            "  Fetched spec (first 200 chars): {}",
+        tracing::debug!(
+            "Fetched spec (first 200 chars): {}",
             spec_text.chars().take(200).collect::<String>()
         );
 
@@ -81,7 +81,7 @@ impl Executor for OpenApiExecutor {
             .and_then(|v| v.as_str())
             .is_some_and(|s| s.starts_with("2."))
         {
-            println!("  Detected Swagger 2.0 spec, converting to OpenAPI 3.x");
+            tracing::debug!("Detected Swagger 2.0 spec, converting to OpenAPI 3.x");
             return execute_swagger_v2_spec(
                 &self.0,
                 task_name,
@@ -103,7 +103,7 @@ impl Executor for OpenApiExecutor {
         // Upgrade to OpenAPI 3.x if it's a Swagger 2.0 spec
         let spec: OpenAPI = versioned_spec.upgrade();
 
-        println!("  Parsed OpenAPI spec successfully");
+        tracing::debug!("Parsed OpenAPI spec successfully");
 
         execute_openapi_v3_spec(
             &self.0,
@@ -188,7 +188,7 @@ async fn execute_swagger_v2_spec(
     let mut url = format!("{base_url}{path_pattern}");
     let mut query_params = Vec::new();
 
-    println!("  Parameters: {parameters:?}");
+    tracing::debug!("Parameters: {parameters:?}");
 
     // Process parameters
     if let Some(params_array) = operation.get("parameters").and_then(|p| p.as_array()) {
@@ -223,7 +223,7 @@ async fn execute_swagger_v2_spec(
         url = format!("{}?{}", url, query_params.join("&"));
     }
 
-    println!("  Request: {} {}", method.to_uppercase(), url);
+    tracing::debug!("Request: {} {}", method.to_uppercase(), url);
 
     // Make the HTTP request
     let response = match method.to_uppercase().as_str() {
@@ -279,7 +279,7 @@ async fn execute_swagger_v2_spec(
     let status = response.status();
     let headers = response.headers().clone();
 
-    println!("  Response status: {status}");
+    tracing::debug!("Response status: {status}");
 
     if !status.is_success() {
         let error_obj = serde_json::json!({
@@ -403,7 +403,7 @@ async fn execute_openapi_v3_spec(
         url = format!("{}?{}", url, query_params.join("&"));
     }
 
-    println!("  Request: {} {}", method.to_uppercase(), url);
+    tracing::debug!("Request: {} {}", method.to_uppercase(), url);
 
     // Make the HTTP request
     let response = match method.to_uppercase().as_str() {
@@ -459,7 +459,7 @@ async fn execute_openapi_v3_spec(
     let status = response.status();
     let headers = response.headers().clone();
 
-    println!("  Response status: {status}");
+    tracing::debug!("Response status: {status}");
 
     if !status.is_success() {
         let error_obj = serde_json::json!({

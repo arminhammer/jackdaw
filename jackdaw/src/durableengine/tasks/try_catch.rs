@@ -15,7 +15,7 @@ pub async fn exec_try_task(
 
     for entry in &try_task.try_.entries {
         for (subtask_name, subtask) in entry {
-            println!("    Executing try subtask: {subtask_name}");
+            tracing::debug!("Executing try subtask: {subtask_name}");
 
             // Box the async call to avoid infinite recursion
             let exec_future = engine.exec_task(subtask_name, subtask, ctx);
