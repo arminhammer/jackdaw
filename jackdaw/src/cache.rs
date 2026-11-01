@@ -102,7 +102,15 @@ pub fn compute_cache_key(task_name: &str, inputs: &serde_json::Value) -> String 
     hasher.update(format!("{task_name}:{inputs_json}"));
     let result = hasher.finalize();
 
-    format!("{}:{:x}", task_name, result)
+    // Lowercase hex, two digits a byte (the digest no longer implements `LowerHex`); keys stay as they were.
+    let hex = result
+        .iter()
+        .fold(String::with_capacity(64), |mut hex, byte| {
+            use std::fmt::Write as _;
+            let _ = write!(hex, "{byte:02x}");
+            hex
+        });
+    format!("{task_name}:{hex}")
 }
 
 /// Normalize JSON by recursively sorting object keys for deterministic serialization
@@ -128,3 +136,18 @@ fn normalize_json(value: &serde_json::Value) -> serde_json::Value {
 }
 
 // pub const CACHE_TABLE: redb::TableDefinition<&str, &[u8]> = redb::TableDefinition::new("cache");
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The key is `<task>:<SHA-256 of "<task>:<input with sorted keys>">` in lowercase hex. Changing it would make
+    // every stored cache entry miss.
+    #[test]
+    fn cache_keys_are_stable() {
+        assert_eq!(
+            compute_cache_key("greet", &serde_json::json!({ "b": 2, "a": 1 })),
+            "greet:af718860577c19b49a68154a775afca783ee9c54be5ae5836a347f51c4deb336"
+        );
+    }
+}

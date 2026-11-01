@@ -61,6 +61,8 @@ an optional part of the same engine. The CLI is now a separate crate built on th
   and the HTTP listener uses axum 0.8.
 - `jackdaw run` prints its result when the output is not a terminal.
 - The minimum supported Rust version is 1.94.
+- **Breaking:** Redb stores use redb 4, whose file format replaces the one redb 2 wrote; a Redb database from 0.1
+  cannot be opened.
 - YAML is parsed with `serde-saphyr`, a pure-Rust parser, instead of the deprecated `serde_yaml` (and the
   unmaintained `unsafe-libyaml` under it).
 - The documentation uses the specification's new name, the Open Workflow Specification (formerly Serverless Workflow),
