@@ -2820,7 +2820,7 @@ impl InstanceCore {
                 if let Ok(shared) = self.shared()
                     && let Ok(json) = serde_json::to_value(&event)
                 {
-                    shared.yaml.legacy.publish(json);
+                    shared.yaml.legacy.publish(json).await;
                 }
                 self.emit(Event::Emitted {
                     instance_id: self.id.clone(),

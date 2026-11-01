@@ -27,6 +27,16 @@ The workspace publishes three crates with the same version: `jackdaw-wf` (the li
   renewal.
 - YAML runs, the readers of a script's output, and listener servers keep the caller's `tracing` subscriber, as Rust
   workflows already did.
+- A YAML `listen` task for events emitted on the engine follows more of the spec:
+  - A string in `with` is a regular expression that the whole attribute must match.
+  - A runtime expression in `with` is evaluated against the workflow's data, and its value is matched the same way.
+  - `correlate` is supported. A `from` value must equal `expect`, or without `expect`, the value the first matching
+    event gave.
+  - A listen task that resumes after a restart also sees the events emitted since it first started. The engine keeps
+    published events in the store for this.
+  - A YAML `emit` task stamps `time` from the engine's clock.
+  - Before, `with` matched only by equality, `correlate` was ignored, and an event emitted while the listening
+    instance's engine was down was lost.
 
 ### Changed
 

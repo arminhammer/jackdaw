@@ -3,6 +3,7 @@ use crate::dsl::task::TaskDefinition;
 use crate::context::Context;
 use crate::output;
 use crate::task_ext::TaskDefinitionExt;
+use std::collections::HashMap;
 
 use super::{DurableEngine, Result};
 
@@ -287,12 +288,12 @@ async fn exec_do_task(
 #[allow(clippy::unnecessary_wraps)]
 async fn exec_listen_task(
     engine: &DurableEngine,
-    _task_name: &str,
+    task_name: &str,
     listen_task: &crate::dsl::task::ListenTaskDefinition,
     ctx: &Context,
 ) -> Result<serde_json::Value> {
     if !super::listeners::is_endpoint(listen_task) {
-        return listen_for_events(engine, listen_task).await;
+        return listen_for_events(engine, task_name, listen_task, ctx).await;
     }
     // Listen tasks are initialized at workflow startup via initialize_listeners()
     // The listener is already running in the background.
@@ -335,11 +336,21 @@ async fn exec_listen_task(
 }
 
 /// A `listen` task for events emitted on this engine: waits for the events its strategy names (`one`, `any` or `all`
-/// of the filters) and returns them, as CloudEvents or (with `read: data`) their data. A filter matches an event that
-/// has each attribute of its `with` set to the given value.
+/// of the filters) and returns them, as CloudEvents or (with `read: data`) their data.
+///
+/// A filter's `with` attributes match an event's attribute of the same name: a string is a regular expression the
+/// whole attribute must match, a runtime expression is evaluated against the workflow's data and its value matched
+/// the same way, and any other value must be equal. Its `correlate` keys extract a value from the event (`from`,
+/// evaluated against the event) that must equal `expect` (a constant or a runtime expression), or, without `expect`,
+/// the value the first matching event gave.
+///
+/// A task that resumes after a restart also sees the events emitted since it first started (they are kept in the
+/// store), so an event sent while the engine was down is not lost.
 async fn listen_for_events(
     engine: &DurableEngine,
+    task_name: &str,
     listen_task: &crate::dsl::task::ListenTaskDefinition,
+    ctx: &Context,
 ) -> Result<serde_json::Value> {
     let to = &listen_task.listen.to;
     let (filters, needs_all) = match (&to.one, &to.any, &to.all) {
@@ -355,15 +366,38 @@ async fn listen_for_events(
             });
         }
     };
-    let matches = |filter: &crate::dsl::event::EventFilterDefinition, event: &serde_json::Value| {
-        filter.with.as_ref().is_none_or(|with| {
-            with.iter()
-                .all(|(attribute, expected)| event.get(attribute) == Some(expected))
-        })
+    let data = ctx.state.data.read().await.clone();
+    let filters = filters
+        .iter()
+        .map(|filter| CompiledFilter::new(filter, &data))
+        .collect::<Result<Vec<_>>>()?;
+    let mut matcher = Matcher {
+        filters,
+        consumed: Vec::new(),
+        correlations: HashMap::new(),
+        seen: std::collections::HashSet::new(),
     };
+    matcher.consumed = vec![None; matcher.filters.len()];
+    let done = |matcher: &Matcher| {
+        if needs_all {
+            matcher.consumed.iter().all(Option::is_some)
+        } else {
+            matcher.consumed.iter().any(Option::is_some)
+        }
+    };
+
+    // Subscribed before reading the store, so an event published in between is not missed (it is seen twice, and
+    // the second time dropped).
     let mut events = engine.events.subscribe();
-    let mut consumed: Vec<Option<serde_json::Value>> = vec![None; filters.len()];
-    loop {
+    if let Some(since) = ctx.services.history.started_at(task_name) {
+        for event in engine.emitted_since(since).await? {
+            matcher.offer(&event)?;
+            if done(&matcher) {
+                break;
+            }
+        }
+    }
+    while !done(&matcher) {
         let event = match events.recv().await {
             Ok(event) => event,
             Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
@@ -373,35 +407,159 @@ async fn listen_for_events(
                 });
             }
         };
-        for (filter, slot) in filters.iter().zip(consumed.iter_mut()) {
-            if slot.is_none() && matches(filter, &event) {
-                *slot = Some(event.clone());
-                break;
+        matcher.offer(&event)?;
+    }
+    let read_data = listen_task.listen.read.as_deref() == Some("data");
+    Ok(serde_json::Value::Array(
+        matcher
+            .consumed
+            .into_iter()
+            .flatten()
+            .map(|event| {
+                if read_data {
+                    event
+                        .get("data")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null)
+                } else {
+                    event
+                }
+            })
+            .collect(),
+    ))
+}
+
+/// One attribute of a filter's `with`.
+enum Expected {
+    /// Matches a string attribute that the whole pattern matches.
+    Pattern(regex::Regex),
+    /// Matches an attribute equal to the value.
+    Equal(serde_json::Value),
+}
+
+impl Expected {
+    fn new(value: &serde_json::Value, data: &serde_json::Value) -> Result<Self> {
+        let value = match value.as_str() {
+            Some(text) if is_runtime_expression(text) => {
+                crate::expressions::evaluate_expression(text, data)?
             }
-        }
-        let done = if needs_all {
-            consumed.iter().all(Option::is_some)
-        } else {
-            consumed.iter().any(Option::is_some)
+            Some(_) | None => value.clone(),
         };
-        if done {
-            let read_data = listen_task.listen.read.as_deref() == Some("data");
-            return Ok(serde_json::Value::Array(
-                consumed
-                    .into_iter()
-                    .flatten()
-                    .map(|event| {
-                        if read_data {
-                            event
-                                .get("data")
-                                .cloned()
-                                .unwrap_or(serde_json::Value::Null)
-                        } else {
-                            event
-                        }
-                    })
-                    .collect(),
-            ));
+        let Some(pattern) = value.as_str() else {
+            return Ok(Self::Equal(value));
+        };
+        let compiled = regex::Regex::new(&format!("^(?:{pattern})$")).map_err(|e| {
+            super::Error::Configuration {
+                message: format!("`{pattern}` in a listen filter is not a regular expression: {e}"),
+            }
+        })?;
+        Ok(Self::Pattern(compiled))
+    }
+
+    fn matches(&self, actual: Option<&serde_json::Value>) -> bool {
+        match (self, actual) {
+            (Self::Pattern(pattern), Some(serde_json::Value::String(actual))) => {
+                pattern.is_match(actual)
+            }
+            (Self::Equal(expected), Some(actual)) => expected == actual,
+            (Self::Pattern(_), Some(_) | None) | (Self::Equal(_), None) => false,
         }
+    }
+}
+
+fn is_runtime_expression(text: &str) -> bool {
+    let text = text.trim();
+    text.starts_with("${") && text.ends_with('}')
+}
+
+/// A `listen` filter, with its patterns compiled and its expressions evaluated.
+struct CompiledFilter {
+    with: Vec<(String, Expected)>,
+    /// Correlation key, the expression that extracts it from an event, and its expected value if set.
+    correlate: Vec<(String, String, Option<serde_json::Value>)>,
+}
+
+impl CompiledFilter {
+    fn new(
+        filter: &crate::dsl::event::EventFilterDefinition,
+        data: &serde_json::Value,
+    ) -> Result<Self> {
+        let with = filter
+            .with
+            .iter()
+            .flatten()
+            .map(|(attribute, value)| Ok((attribute.clone(), Expected::new(value, data)?)))
+            .collect::<Result<_>>()?;
+        let correlate = filter
+            .correlate
+            .iter()
+            .flatten()
+            .map(|(key, correlation)| {
+                let expect = correlation
+                    .expect
+                    .as_ref()
+                    .map(|expect| crate::expressions::evaluate_expression(expect, data))
+                    .transpose()?;
+                Ok((key.clone(), correlation.from.clone(), expect))
+            })
+            .collect::<Result<_>>()?;
+        Ok(Self { with, correlate })
+    }
+}
+
+/// The state of one `listen` task: the event each filter consumed, and the correlation values seen so far.
+struct Matcher {
+    filters: Vec<CompiledFilter>,
+    consumed: Vec<Option<serde_json::Value>>,
+    correlations: HashMap<String, serde_json::Value>,
+    /// `source` and `id` of the events already offered, so one replayed from the store and also received live counts
+    /// once.
+    seen: std::collections::HashSet<(String, String)>,
+}
+
+impl Matcher {
+    /// Gives `event` to the first filter that has not consumed one and matches it.
+    fn offer(&mut self, event: &serde_json::Value) -> Result<()> {
+        let attribute = |name: &str| {
+            event
+                .get(name)
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string()
+        };
+        let identity = (attribute("source"), attribute("id"));
+        if !identity.1.is_empty() && !self.seen.insert(identity) {
+            return Ok(());
+        }
+        for (index, filter) in self.filters.iter().enumerate() {
+            if self.consumed.get(index).is_none_or(Option::is_some)
+                || !filter
+                    .with
+                    .iter()
+                    .all(|(attribute, expected)| expected.matches(event.get(attribute)))
+            {
+                continue;
+            }
+            let mut correlated = Vec::new();
+            let mut matches = true;
+            for (key, from, expect) in &filter.correlate {
+                let value = crate::expressions::evaluate_expression(from, event)?;
+                let expected = expect.as_ref().or_else(|| self.correlations.get(key));
+                if expected.is_some_and(|expected| *expected != value) {
+                    matches = false;
+                    break;
+                }
+                correlated.push((key.clone(), value));
+            }
+            if !matches {
+                continue;
+            }
+            self.correlations.extend(correlated);
+            if let Some(slot) = self.consumed.get_mut(index) {
+                *slot = Some(event.clone());
+            }
+            break;
+        }
+        Ok(())
     }
 }

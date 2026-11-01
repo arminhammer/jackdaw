@@ -60,6 +60,21 @@ Feature: External events and the event stream
     Then I get the same events the stream delivered
 
   @implemented @yaml
+  Scenario: A YAML listen task matches patterns and correlates events
+    Given a YAML workflow on the engine that listens for all of "order\.placed" and "order\.pa.*", correlated by order
+    When a YAML workflow emits "order.placed" for "o-1", "order.paid" for "o-2" and "order.paid" for "o-1"
+    Then the YAML listener consumes "order.placed" and "order.paid" for "o-1"
+
+  @implemented @yaml
+  Scenario: A YAML listen task resumed after a restart sees events emitted while it was down
+    Given an engine with a Redb store
+    And a durable YAML workflow on the engine that listens for "order.shipped"
+    When the engine stops while it listens
+    And a workflow on a new engine emits "order.shipped" for "o-1"
+    And the new engine calls "Engine::recover()"
+    Then the YAML workflow receives the event and completes
+
+  @implemented @yaml
   Scenario: Rust workflows can emit events
     Given a YAML workflow on the engine that listens for "order.shipped"
     And a workflow that calls "ctx.emit(CloudEvent { type: \"order.shipped\", .. })"

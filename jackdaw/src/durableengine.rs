@@ -23,6 +23,10 @@ use crate::{
 
 use super::cache::CacheProvider;
 
+/// The store stream that keeps the events published on an engine (see [`DurableEngine::publish`]). It has events and
+/// no checkpoint, so it is never listed as an instance.
+pub(crate) const EMITTED_ID: &str = "__jackdaw_emitted__";
+
 // Submodules
 mod called;
 mod catalog;
@@ -230,10 +234,56 @@ impl DurableEngine {
         })
     }
 
-    /// Delivers an emitted CloudEvent (as JSON) to the `listen` tasks waiting on this engine. An event nobody waits for
-    /// is dropped: it is not kept for listeners that start later.
-    pub(crate) fn publish(&self, event: serde_json::Value) {
+    /// Delivers an emitted CloudEvent (as JSON) to the `listen` tasks waiting on this engine, and keeps it in the
+    /// store's [`EMITTED_ID`] stream for `listen` tasks that resume after a restart. A listen task sees only events
+    /// emitted after it first started.
+    pub(crate) async fn publish(&self, event: serde_json::Value) {
+        let stored = WorkflowEvent::EventEmitted {
+            instance_id: EMITTED_ID.to_string(),
+            event: event.clone(),
+            timestamp: self.clock.now(),
+        };
+        if let Err(error) = self.persistence.save_event(stored).await {
+            tracing::warn!(%error, "an emitted event could not be stored: a listen task that resumes later will miss it");
+        }
         let _ = self.events.send(event);
+    }
+
+    /// The events published on the engine since `since`, from the store, oldest first.
+    pub(crate) async fn emitted_since(
+        &self,
+        since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<serde_json::Value>> {
+        Ok(self
+            .persistence
+            .get_events(EMITTED_ID)
+            .await?
+            .into_iter()
+            .filter_map(|stored| match stored {
+                WorkflowEvent::EventEmitted {
+                    event, timestamp, ..
+                } if timestamp >= since => Some(event),
+                WorkflowEvent::EventEmitted { .. }
+                | WorkflowEvent::WorkflowStarted { .. }
+                | WorkflowEvent::TaskEntered { .. }
+                | WorkflowEvent::TaskCreated { .. }
+                | WorkflowEvent::TaskStarted { .. }
+                | WorkflowEvent::TaskRetried { .. }
+                | WorkflowEvent::TaskCompleted { .. }
+                | WorkflowEvent::WorkflowCompleted { .. }
+                | WorkflowEvent::WorkflowCorrelationStarted { .. }
+                | WorkflowEvent::WorkflowCorrelationCompleted { .. }
+                | WorkflowEvent::WorkflowFailed { .. }
+                | WorkflowEvent::WorkflowCancelled { .. }
+                | WorkflowEvent::WorkflowSuspended { .. }
+                | WorkflowEvent::WorkflowResumed { .. }
+                | WorkflowEvent::TaskCancelled { .. }
+                | WorkflowEvent::TaskSuspended { .. }
+                | WorkflowEvent::TaskResumed { .. }
+                | WorkflowEvent::TaskFaulted { .. }
+                | WorkflowEvent::WorkflowContinuedAsNew { .. } => None,
+            })
+            .collect())
     }
 
     /// Uses the engine's clock (a test clock, for example) instead of the system clock.
