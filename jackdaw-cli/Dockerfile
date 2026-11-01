@@ -12,7 +12,8 @@
 # =============================================================================
 # Builder Stage - Static compilation with Alpine + musl
 # =============================================================================
-FROM rust:alpine AS builder
+# The toolchain matches rust-toolchain.toml.
+FROM docker.io/library/rust:1.99.0-alpine AS builder
 
 # Set platform args (provided by buildx)
 ARG TARGETPLATFORM
@@ -27,10 +28,7 @@ RUN apk add --no-cache \
     git \
     ca-certificates
 
-# Install Rust nightly for edition 2024 support
-RUN rustup toolchain install nightly && \
-    rustup default nightly && \
-    rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
+RUN rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
 
 # Set working directory
 WORKDIR /build
@@ -42,13 +40,15 @@ WORKDIR /build
 # =============================================================================
 COPY Cargo.toml Cargo.lock ./
 COPY jackdaw/Cargo.toml ./jackdaw/Cargo.toml
+COPY jackdaw-macros/Cargo.toml ./jackdaw-macros/Cargo.toml
 COPY jackdaw-cli/Cargo.toml ./jackdaw-cli/Cargo.toml
 
 # Create dummy source files to build dependencies
 # This allows cargo to compile all dependencies without the actual source.
 # The jackdaw manifest declares [[test]] targets, and cargo requires their files to exist.
-RUN mkdir -p jackdaw/src jackdaw/tests jackdaw-cli/src && \
+RUN mkdir -p jackdaw/src jackdaw/tests jackdaw-macros/src jackdaw-cli/src && \
     echo "pub fn lib() {}" > jackdaw/src/lib.rs && \
+    touch jackdaw-macros/src/lib.rs && \
     echo "fn main() {}" > jackdaw-cli/src/main.rs && \
     for t in $(sed -n '/^\[\[test\]\]/{n;s/name = "\(.*\)"/\1/p}' jackdaw/Cargo.toml); do \
       echo "fn main() {}" > "jackdaw/tests/$t.rs"; \
@@ -69,7 +69,7 @@ RUN if [ -z "$RUST_TARGET" ]; then \
 
 # Clean up the dummy sources but keep the dependency cache.
 # The dummy jackdaw/tests files stay: cargo needs them to load the manifest, and `cargo build` never compiles them.
-RUN rm -rf jackdaw/src jackdaw-cli/src
+RUN rm -rf jackdaw/src jackdaw-macros/src jackdaw-cli/src
 
 # =============================================================================
 # ACTUAL BUILD LAYER
@@ -77,6 +77,7 @@ RUN rm -rf jackdaw/src jackdaw-cli/src
 # This layer only rebuilds if source code changes
 # =============================================================================
 COPY jackdaw/src ./jackdaw/src
+COPY jackdaw-macros/src ./jackdaw-macros/src
 COPY jackdaw-cli/src ./jackdaw-cli/src
 
 # Build the actual jackdaw binary with static linking
@@ -103,7 +104,7 @@ RUN ldd /out/jackdaw || echo "Static binary (no dependencies)"
 # =============================================================================
 # Final Stage - Minimal runtime image with Python + Node.js
 # =============================================================================
-FROM alpine:latest AS final
+FROM docker.io/library/alpine:latest AS final
 
 # Install Python 3 and Node.js for script execution
 # These are required by the external executors
@@ -146,5 +147,5 @@ LABEL org.opencontainers.image.description="A durable, cached, graph-based execu
 LABEL org.opencontainers.image.authors="Armin Graf"
 LABEL org.opencontainers.image.source="https://github.com/arminhammer/jackdaw"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
-LABEL org.opencontainers.image.version="0.1.0"
+LABEL org.opencontainers.image.version="0.2.0"
 LABEL org.opencontainers.image.vendor="Jackdaw Project"
