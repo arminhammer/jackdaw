@@ -27,7 +27,7 @@ pub enum Error {
 #[command(name = "jackdaw")]
 #[command(author = "Armin Graf")]
 #[command(version = env!("CARGO_PKG_VERSION"))]
-#[command(about = "A durable, cached, graph-based execution engine for Serverless Workflow", long_about = None)]
+#[command(about = "A durable, cached, graph-based execution engine for the Open Workflow DSL (formerly Serverless Workflow)", long_about = None)]
 #[command(help_template = "\
 {before-help}{name} {version}
 {about-with-newline}

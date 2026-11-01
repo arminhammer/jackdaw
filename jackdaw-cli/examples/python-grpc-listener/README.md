@@ -16,7 +16,7 @@ The workflow uses gRPC listeners to receive requests, validates them against a p
 ```
 python-grpc-listener/
 ├── Dockerfile                 # Container image definition
-├── calculator-api.sw.yaml     # Serverless Workflow definition
+├── calculator-api.sw.yaml     # Open Workflow definition
 ├── spec.proto                 # Protobuf service specification
 ├── pyproject.toml             # Python package configuration (includes requests dep)
 ├── calculator/                # Python handler package

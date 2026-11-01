@@ -8,7 +8,7 @@
 //! | [`workflows`] | writing workflows in Rust: steps, parallelism, signals, queries, child workflows |
 //! | [`durability`] | what replay is, the rules your code follows, and how to change a running workflow |
 //! | [`catalogs`] | importing versioned tasks and workflows with types |
-//! | [`yaml`] | running workflows written in the Serverless Workflow DSL from Rust |
+//! | [`yaml`] | running workflows written in the Open Workflow DSL from Rust |
 //! | [`testing`] | testing workflows without waiting, with replay checked for free |
 //! | [`errors`] | the error types and how to match them |
 //! | [`events`] | watching a run |

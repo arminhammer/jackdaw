@@ -1,6 +1,6 @@
 # jackdaw
 
-`jackdaw` is a workflow execution engine for the [Serverless Workflow](https://serverlessworkflow.io/) specification. It supports durable execution of workflows through a persistence layer, as well as caching execution to prevent duplicate execution of expensive workflow tasks. `jackdaw` is written in Rust, and is designed for extensibility, performance, and ease of deployment into many execution contexts. 
+`jackdaw` is a workflow execution engine for the [Open Workflow Specification](https://open-workflow-specification.org/) (formerly Serverless Workflow). It supports durable execution of workflows through a persistence layer, as well as caching execution to prevent duplicate execution of expensive workflow tasks. `jackdaw` is written in Rust, and is designed for extensibility, performance, and ease of deployment into many execution contexts. 
 
 `jackdaw` is distributed as a static binary, as well as a Docker container image. It is cross-compiled for Linux AMD64 & ARM64, as well as a MacOS Universal Binary. It does not have a server component that needs to be installed, and is a self-contained CLI tool. This should make it easy to run as a standalone workflow executor, as well as embedded as part of a larger program.
 
@@ -8,11 +8,11 @@
 
 Many modern software applications can be represented conceptually as a "workflow" (or [DAG](https://en.wikipedia.org/wiki/Directed_acyclic_graph)). Workflows are useful because they can help abstract away execution and integration details from the user's business logic. In addition, durable workflow execution engines have proven popular because they are able to handle the state management of long-running business processes. Unfortunately there are many workflow engines, and most have cumbersome server components that need to be deployed and maintained. Most have their own specific way of implementing workflows that make it hard to switch to other engines. Open Workflow is a DSL that attempts to provide a standard way of representing a workflow that is not tied to any particular engine implementation. 
 
-Although `jackdaw` does not have a server component itself, it fully supports Open Workflow [Listeners](https://github.com/serverlessworkflow/specification/blob/main/dsl-reference.md#listen). This makes it possible to use `jackdaw` as a server that can trigger off of event types supported by Open Workflow, notably OpenAPI and gRPC specifications.
+Although `jackdaw` does not have a server component itself, it fully supports Open Workflow [Listeners](https://github.com/open-workflow-specification/specification/blob/main/dsl-reference.md#listen). This makes it possible to use `jackdaw` as a server that can trigger off of event types supported by Open Workflow, notably OpenAPI and gRPC specifications.
 
 ## Getting started
 
-Let's start off with the simplest Serverless Workflow we can imagine, a simple and classic Hello World:
+Let's start off with the simplest workflow we can imagine, a simple and classic Hello World:
 
 ```yaml
 document:
@@ -124,7 +124,7 @@ In order to execute a python script, the `python` binary must be available in th
 
 #### Javascript
 
-Serverless Workflow support scripts written in Javascript ES2024. `jackdaw` supports javascript scripts by calling `node`, which must be present in the system PATH. This makes it possible to embed inlined javascript scripts into a workflow task:
+Open Workflow supports scripts written in Javascript ES2024. `jackdaw` supports javascript scripts by calling `node`, which must be present in the system PATH. This makes it possible to embed inlined javascript scripts into a workflow task:
 
 ```bash
 jackdaw run jackdaw-cli/examples/javascript/javascript-basics.sw.yaml
@@ -133,7 +133,7 @@ jackdaw run jackdaw-cli/examples/javascript/javascript-basics.sw.yaml
 
 #### Nested workflows
 
-Serverless Workflow can nest other workflows, making reuse very powerful. In the following example, Workflow A imports Workflow B, which in turn imports Workflow C.
+The Open Workflow DSL can nest other workflows, making reuse very powerful. In the following example, Workflow A imports Workflow B, which in turn imports Workflow C.
 
 Workflow C:
 ```yaml

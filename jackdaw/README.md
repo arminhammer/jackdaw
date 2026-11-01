@@ -1,7 +1,7 @@
 # jackdaw-wf
 
 Durable workflows in Rust. Write workflows as ordinary async functions, or in the
-[Serverless Workflow](https://serverlessworkflow.io/) YAML DSL, and run both on one engine that records every step, so
+[Open Workflow](https://open-workflow-specification.org/) YAML DSL (formerly Serverless Workflow), and run both on one engine that records every step, so
 a workflow that is interrupted continues where it stopped.
 
 - **Strongly typed.** Tasks and workflows have typed inputs and outputs, checked by the compiler. Signals, queries,
@@ -102,7 +102,7 @@ The [`examples`](https://github.com/arminhammer/jackdaw/tree/main/jackdaw/exampl
 
 | Feature | Default | What it adds |
 |---|---|---|
-| `yaml` | yes | The Serverless Workflow interpreter: `dsl`, `api::Workflow` (`from_yaml`, `validate`), `ctx.run_definition`, catalogs (`#[catalog]`). Includes `http-client`. |
+| `yaml` | yes | The Open Workflow interpreter: `dsl`, `api::Workflow` (`from_yaml`, `validate`), `ctx.run_definition`, catalogs (`#[catalog]`). Includes `http-client`. |
 | `redb` | yes | The `Redb` store. |
 | `http-client` | yes | `ctx.http`, YAML `call: http`, remote catalogs. |
 | `sqlite`, `postgres` | | The `Sqlite` and `Postgres` stores. |
@@ -128,5 +128,5 @@ jackdaw validate workflow.yaml
 
 ## License
 
-Apache-2.0. `src/dsl` is vendored from the [Serverless Workflow Rust SDK](https://github.com/serverlessworkflow/sdk-rust),
+Apache-2.0. `src/dsl` is vendored from the [Open Workflow Specification Rust SDK](https://github.com/open-workflow-specification/sdk-rust),
 also Apache-2.0; see `src/dsl/LICENSE`.

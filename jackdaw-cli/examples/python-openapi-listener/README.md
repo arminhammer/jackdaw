@@ -16,7 +16,7 @@ The workflow uses HTTP listeners to receive requests, validates them against an 
 ```
 python-openapi-listener/
 ├── Dockerfile                 # Container image definition
-├── calculator-api.sw.yaml     # Serverless Workflow definition
+├── calculator-api.sw.yaml     # Open Workflow definition
 ├── openapi.spec.yaml          # OpenAPI 3.0 specification
 ├── pyproject.toml             # Python package configuration (includes requests dep)
 ├── calculator/                # Python handler package

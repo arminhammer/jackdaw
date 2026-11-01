@@ -1,7 +1,7 @@
 @interop @ctx
 Feature: Workflow context helpers for the other task types
   As a library user writing Rust workflows
-  I want the Serverless Workflow task types as ctx methods
+  I want the Open Workflow task types as ctx methods
   So that I do not have to write a YAML workflow to use them
 
   Background:

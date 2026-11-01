@@ -1,6 +1,6 @@
 //! # YAML workflows
 //!
-//! jackdaw runs the [Serverless Workflow](https://serverlessworkflow.io) DSL, and the same engine runs Rust
+//! jackdaw runs the [Open Workflow](https://open-workflow-specification.org/) DSL, and the same engine runs Rust
 //! workflows. This chapter is about the YAML side from Rust code. Rust and YAML share one engine, one event log and
 //! one store.
 //!

@@ -7,7 +7,7 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "A durable, cached, graph-based execution engine for Serverless Workflow"
+description = "A durable, cached, graph-based execution engine for the Open Workflow DSL (formerly Serverless Workflow)"
 documentation = "https://docs.rs/jackdaw-wf"
 readme = "README.md"
 # An allowlist, so tests, fixtures and work in progress stay out of the published crate.
@@ -85,7 +85,7 @@ default = ["yaml", "redb", "http-client"]
 # Everything, as the CLI uses it.
 full = ["yaml", "redb", "sqlite", "postgres", "http-client", "openapi", "docker", "http-listener", "grpc-listener", "metrics"]
 
-# The Serverless Workflow YAML interpreter: `jackdaw::dsl`, `api::Workflow` (`from_yaml`, `validate`),
+# The Open Workflow YAML interpreter: `jackdaw::dsl`, `api::Workflow` (`from_yaml`, `validate`),
 # `ctx.run_definition` and the engine's YAML registrations. YAML `call: http` needs an HTTP client, so this
 # includes `http-client`.
 yaml = ["http-client", "dep:serde_derive", "dep:jaq-core", "dep:jaq-std", "dep:jaq-json", "dep:regex", "dep:petgraph", "dep:async-recursion", "dep:console", "tokio/rt-multi-thread"]

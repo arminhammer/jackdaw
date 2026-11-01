@@ -1,7 +1,7 @@
 //! # Jackdaw
 //!
 //! Durable workflows in Rust. Write workflows as ordinary async functions, or in the
-//! [Serverless Workflow](https://serverlessworkflow.io/) YAML DSL, and run both on one engine that records every step,
+//! [Open Workflow](https://open-workflow-specification.org/) YAML DSL (formerly Serverless Workflow), and run both on one engine that records every step,
 //! so a workflow that is interrupted continues where it stopped.
 //!
 //! - **Strongly typed.** Tasks and workflows have typed inputs and outputs, checked by the compiler. Signals, queries,
@@ -108,7 +108,7 @@
 //!
 //! | Feature | Default | What it adds |
 //! |---|---|---|
-//! | `yaml` | yes | The Serverless Workflow interpreter: `dsl`, `api::Workflow` (`from_yaml`, `validate`), `ctx.run_definition`, catalogs (`#[catalog]`). Includes `http-client`. |
+//! | `yaml` | yes | The Open Workflow interpreter: `dsl`, `api::Workflow` (`from_yaml`, `validate`), `ctx.run_definition`, catalogs (`#[catalog]`). Includes `http-client`. |
 //! | `redb` | yes | The `Redb` store. |
 //! | `http-client` | yes | `ctx.http`, YAML `call: http`, remote catalogs. |
 //! | `sqlite`, `postgres` | | The `Sqlite` and `Postgres` stores. |
@@ -135,14 +135,14 @@
 
 pub mod api;
 pub mod cache;
-/// The Serverless Workflow DSL (1.0.3) as Rust types.
+/// The Open Workflow DSL (1.0.3) as Rust types.
 ///
 /// [`dsl::workflow::WorkflowDefinition`] is the root: what [`api::Workflow::from_yaml`] parses a document into and
 /// [`api::Workflow::definition`] hands back. The types mirror the
-/// [DSL reference](https://github.com/serverlessworkflow/specification/blob/main/dsl-reference.md) field for field.
+/// [DSL reference](https://github.com/open-workflow-specification/specification/blob/main/dsl-reference.md) field for field.
 ///
 /// Vendored verbatim from `core/src/models` of the
-/// [Serverless Workflow Rust SDK](https://github.com/serverlessworkflow/sdk-rust) (Apache-2.0, copyright The
+/// [Open Workflow Specification Rust SDK](https://github.com/open-workflow-specification/sdk-rust) (Apache-2.0, copyright The
 /// Serverless Workflow Authors; see `src/dsl/LICENSE`, and `src/dsl/UPSTREAM` for the commit). Do not edit these
 /// files; run `just update-dsl` to pull a new revision.
 #[cfg(feature = "yaml")]

@@ -84,7 +84,7 @@ pub enum WorkflowEvent {
     },
     /// Emitted when a workflow starts correlating events
     ///
-    /// Spec-compliant event following the Serverless Workflow specification.
+    /// Spec-compliant event following the Open Workflow Specification.
     WorkflowCorrelationStarted {
         /// The instance.
         instance_id: String,
@@ -95,7 +95,7 @@ pub enum WorkflowEvent {
     },
     /// Emitted when a workflow completes correlating events
     ///
-    /// Spec-compliant event following the Serverless Workflow specification,
+    /// Spec-compliant event following the Open Workflow Specification,
     /// with a jackdaw extension field `correlation_output` for library convenience.
     WorkflowCorrelationCompleted {
         /// The instance.

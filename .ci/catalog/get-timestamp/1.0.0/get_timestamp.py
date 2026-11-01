@@ -1,6 +1,6 @@
 """
 Get current timestamp for cache invalidation.
-Strongly typed implementation with Serverless Workflow spec compliance.
+Strongly typed implementation with Open Workflow Specification compliance.
 """
 import json
 from datetime import datetime
@@ -22,7 +22,7 @@ def handler() -> GetTimestampOutput:
     return GetTimestampOutput(timestamp=datetime.now().isoformat())
 
 
-# Serverless Workflow script execution
+# Open Workflow script execution
 if __name__ == '__main__':
     # Execute strongly-typed handler
     output = handler()

@@ -484,7 +484,7 @@ async fn run_workflows_internal(
     if debug {
         println!(
             "{}\n",
-            style("Jackdaw Serverless Workflow Runtime").bold().cyan()
+            style("Jackdaw Open Workflow Runtime").bold().cyan()
         );
     }
 

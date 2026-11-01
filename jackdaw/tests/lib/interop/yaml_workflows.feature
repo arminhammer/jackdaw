@@ -1,7 +1,7 @@
 @interop @yaml
 Feature: Rust and YAML workflows on one engine
   As a library user
-  I want to run Serverless Workflow YAML from Rust and call Rust from YAML
+  I want to run Open Workflow YAML from Rust and call Rust from YAML
   So that both styles share storage, events and tasks
 
   Background:

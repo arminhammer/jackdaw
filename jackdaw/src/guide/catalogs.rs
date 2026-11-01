@@ -1,6 +1,6 @@
 //! # Catalogs
 //!
-//! A catalog is a source of versioned tasks and workflows, written as plain Serverless Workflow YAML, so other runtimes
+//! A catalog is a source of versioned tasks and workflows, written as plain Open Workflow YAML, so other runtimes
 //! can use the same entries. jackdaw lets Rust import them **with types**.
 //!
 //! A catalog is a directory (or a web location) laid out as `<name>/<version>/function.yaml`:
@@ -89,6 +89,6 @@
 //!
 //! ---
 //!
-//! **Next:** [YAML workflows](super::yaml), running Serverless Workflow YAML from Rust.
+//! **Next:** [YAML workflows](super::yaml), running Open Workflow YAML from Rust.
 //!
 //! [`JsonSchema`]: crate::prelude::JsonSchema

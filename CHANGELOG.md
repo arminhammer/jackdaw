@@ -13,7 +13,7 @@ The workspace publishes three crates with the same version: `jackdaw-wf` (the li
 
 Set the date when the release is tagged.
 
-Jackdaw becomes a library first: durable workflows written in Rust, with the Serverless Workflow YAML interpreter as
+Jackdaw becomes a library first: durable workflows written in Rust, with the Open Workflow YAML interpreter as
 an optional part of the same engine. The CLI is now a separate crate built on the library's public API.
 
 ### Added
@@ -42,7 +42,7 @@ an optional part of the same engine. The CLI is now a separate crate built on th
 - Observability: `tracing` spans per instance and step, and `metrics` counters and histograms (`metrics` feature).
 - Cargo features: `yaml`, `redb` and `http-client` by default; `sqlite`, `postgres`, `docker`, `openapi`,
   `http-listener`, `grpc-listener` and `metrics` on request; `full` for everything.
-- `jackdaw::dsl`, the Serverless Workflow 1.0.3 types, vendored from the Rust SDK (`just update-dsl` refreshes it).
+- `jackdaw::dsl`, the Open Workflow DSL 1.0.3 types, vendored from the Rust SDK (`just update-dsl` refreshes it).
 - A guide in the rustdoc (`jackdaw::guide`) and runnable examples.
 - `jackdaw visualize` now renders a workflow, and with `-i` the task states of a stored run.
 
@@ -60,6 +60,8 @@ an optional part of the same engine. The CLI is now a separate crate built on th
 - The minimum supported Rust version is 1.94.
 - YAML is parsed with `serde-saphyr`, a pure-Rust parser, instead of the deprecated `serde_yaml` (and the
   unmaintained `unsafe-libyaml` under it).
+- The documentation uses the specification's new name, the Open Workflow Specification (formerly Serverless Workflow),
+  and links to open-workflow-specification.org and the `open-workflow-specification` GitHub organization.
 
 ### Removed
 

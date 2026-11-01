@@ -10,7 +10,7 @@
 
 The development toolchain is pinned in `rust-toolchain.toml`; the oldest supported one is the workspace's
 `rust-version` (1.94), checked in CI. Run `just init` once for the cross-compilation tools and `just submodules` for
-the Serverless Workflow specification and conformance tests.
+the Open Workflow Specification and conformance tests.
 
 ## Tests
 
@@ -33,7 +33,7 @@ denies wildcard matches on enums, indexing that can panic, and a few other lints
 
 ## Vendored code
 
-`jackdaw/src/dsl` is the Serverless Workflow SDK's model, copied verbatim. Do not edit it: change it upstream (or in
+`jackdaw/src/dsl` is the Open Workflow Specification Rust SDK's model, copied verbatim. Do not edit it: change it upstream (or in
 the fork that `just update-dsl` pulls from) and run `just update-dsl [repo] [ref]`, which records the commit in
 `jackdaw/src/dsl/UPSTREAM`.
 
@@ -44,7 +44,7 @@ Jackdaw is before 1.0, so a minor version may break the API; the changelog marks
 - **Meant to be stable** (changed only with a minor version and a changelog entry): `jackdaw::api`, `jackdaw::prelude`,
   `jackdaw::testing`, the macros' attributes, the store traits (`PersistenceProvider`, `CacheProvider`, `Store`), and
   the journal format, which a new release keeps reading (see the durability chapter of the guide).
-- **Follows the specification, not jackdaw's own pace:** `jackdaw::dsl` mirrors the Serverless Workflow DSL and moves
+- **Follows the specification, not jackdaw's own pace:** `jackdaw::dsl` mirrors the Open Workflow DSL and moves
   with it.
 - **Not part of the API:** `jackdaw::__private` (what the macros expand to) and anything `#[doc(hidden)]`.
 

@@ -1,6 +1,6 @@
 """
 Compute file hashes for CI cache invalidation.
-Strongly typed implementation with Serverless Workflow spec compliance.
+Strongly typed implementation with Open Workflow Specification compliance.
 """
 import hashlib
 import glob
@@ -58,7 +58,7 @@ def handler(request: ComputeHashesInput) -> Dict[str, str]:
     return results
 
 
-# Serverless Workflow script execution
+# Open Workflow script execution
 # Arguments are passed via sys.argv (after script name at index 0)
 if __name__ == '__main__':
     import sys

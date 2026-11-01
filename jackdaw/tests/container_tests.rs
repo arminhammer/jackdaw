@@ -8,7 +8,7 @@ use crate::yaml_engine::YamlEngine;
 use crate::yaml_engine::YamlEngineBuilder;
 /// Container Task Feature Tests
 ///
-/// Tests for container advanced features per Serverless Workflow spec:
+/// Tests for container advanced features per the Open Workflow Specification:
 /// - Volume mappings (host paths mounted in container)
 /// - Environment variables (key-value pairs passed to container)
 /// - Expression evaluation in environment variables

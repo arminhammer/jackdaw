@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// Runtime descriptor as per Serverless Workflow spec
+/// Runtime descriptor as per the Open Workflow Specification
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeDescriptor {
     /// A human friendly name for the runtime
@@ -32,7 +32,7 @@ impl RuntimeDescriptor {
     }
 }
 
-/// ``DateTime`` descriptor as per Serverless Workflow spec
+/// ``DateTime`` descriptor as per the Open Workflow Specification
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DateTimeDescriptor {
     /// ISO 8601 formatted timestamp
@@ -62,7 +62,7 @@ impl From<DateTime<Utc>> for DateTimeDescriptor {
     }
 }
 
-/// Workflow descriptor as per Serverless Workflow spec
+/// Workflow descriptor as per the Open Workflow Specification
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkflowDescriptor {
     /// Unique ID of the workflow execution
@@ -88,7 +88,7 @@ impl WorkflowDescriptor {
     }
 }
 
-/// Task descriptor as per Serverless Workflow spec
+/// Task descriptor as per the Open Workflow Specification
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(dead_code)]
 pub struct TaskDescriptor {

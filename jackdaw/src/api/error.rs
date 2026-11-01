@@ -11,7 +11,7 @@ use std::time::Duration;
 
 /// The spec's error type URIs, for [`Fault::kind`] and [`TaskError::fault`].
 ///
-/// These are the error types the Serverless Workflow specification defines. A `try`/`catch` in a YAML workflow filters
+/// These are the error types the Open Workflow Specification defines. A `try`/`catch` in a YAML workflow filters
 /// on them, and so can a Rust workflow by matching [`Fault::kind`].
 pub mod error_types {
     /// A configuration problem, such as a missing or invalid setting.
@@ -38,7 +38,7 @@ pub mod error_types {
     pub const RUNTIME: &str = "https://open-workflow-specification.org/dsl/errors/types/runtime";
 }
 
-/// A workflow-level error with the fields of an [RFC 7807] problem, as the Serverless Workflow spec defines them.
+/// A workflow-level error with the fields of an [RFC 7807] problem, as the Open Workflow Specification defines them.
 ///
 /// [RFC 7807]: https://www.rfc-editor.org/rfc/rfc7807
 ///

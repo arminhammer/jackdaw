@@ -5,7 +5,7 @@
 
 /// Tests for task.created.v1 lifecycle event
 ///
-/// Per the Serverless Workflow spec, a task.created.v1 event should be emitted:
+/// Per the Open Workflow Specification, a task.created.v1 event should be emitted:
 /// 1. When a task is scheduled/created (before execution starts)
 /// 2. Before the task.started.v1 event
 /// 3. Should include task name, task type, and timestamp

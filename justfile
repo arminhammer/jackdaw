@@ -10,9 +10,9 @@ init: submodules
 submodules:
     git submodule update --init --recursive
 
-# Vendor the Serverless Workflow DSL models into jackdaw/src/dsl, copied verbatim (no edits) from `core/src/models`
+# Vendor the Open Workflow DSL models into jackdaw/src/dsl, copied verbatim (no edits) from `core/src/models`
 # of the SDK. The commit is recorded in jackdaw/src/dsl/UPSTREAM. e.g. `just update-dsl` or
-# `just update-dsl https://github.com/serverlessworkflow/sdk-rust.git v1.0.0`
+# `just update-dsl https://github.com/open-workflow-specification/sdk-rust.git v1.0.0`
 update-dsl repo="https://github.com/arminhammer/sdk-rust.git" ref="main":
     #!/usr/bin/env bash
     set -euo pipefail

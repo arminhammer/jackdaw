@@ -1,4 +1,4 @@
-//! The Serverless Workflow task types as `ctx` methods: run a command, a script, a container, or an HTTP request
+//! The Open Workflow task types as `ctx` methods: run a command, a script, a container, or an HTTP request
 //! from a Rust workflow.
 //!
 //! Each helper is a task the engine provides (`jackdaw.shell`, `jackdaw.script`, `jackdaw.container`,

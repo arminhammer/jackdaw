@@ -3,7 +3,7 @@
 
 /// Tests for Listen Task Read Modes
 ///
-/// Per the Serverless Workflow spec, listen tasks support three read modes:
+/// Per the Open Workflow Specification, listen tasks support three read modes:
 /// - "data": Return only the event data field
 /// - "envelope": Return the full CloudEvent structure
 /// - "raw": Return the raw HTTP body (before CloudEvent parsing)
