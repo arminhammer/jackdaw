@@ -18,7 +18,8 @@ pub enum Error {
     #[snafu(display("Failed to parse workflow file '{}'", path.display()))]
     ParseWorkflow {
         path: PathBuf,
-        source: serde_yaml::Error,
+        // Boxed: serde-saphyr's error carries the source snippet and is large.
+        source: Box<serde_saphyr::Error>,
     },
 
     #[snafu(display(
@@ -91,8 +92,9 @@ pub async fn handle_visualize(args: VisualizeArgs) -> Result<(), Error> {
         path: args.workflow.clone(),
     })?;
 
-    let workflow: WorkflowDefinition =
-        serde_yaml::from_str(&workflow_yaml).context(ParseWorkflowSnafu {
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml)
+        .map_err(Box::new)
+        .context(ParseWorkflowSnafu {
             path: args.workflow.clone(),
         })?;
 

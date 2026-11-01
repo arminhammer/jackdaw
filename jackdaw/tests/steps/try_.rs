@@ -67,7 +67,7 @@ async fn then_output_has_property_with_value(
     let expected_str = parsed.trim();
 
     // Try to parse as YAML first (to handle both strings and objects)
-    if let Ok(expected_value) = serde_yaml::from_str::<serde_json::Value>(expected_str) {
+    if let Ok(expected_value) = serde_saphyr::from_str::<serde_json::Value>(expected_str) {
         // Compare JSON values
         assert_eq!(
             current, &expected_value,

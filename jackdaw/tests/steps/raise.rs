@@ -15,7 +15,7 @@ async fn then_workflow_faults_with_error(world: &mut CtKWorld, step: &cucumber::
         Some(WorkflowStatus::Faulted(error_msg)) => {
             // Parse expected error from docstring
             let expected: Value =
-                serde_yaml::from_str(&parse_docstring(step.docstring.as_ref().unwrap()))
+                serde_saphyr::from_str(&parse_docstring(step.docstring.as_ref().unwrap()))
                     .expect("Failed to parse expected error");
 
             // Parse the actual error message (it should be a JSON string)

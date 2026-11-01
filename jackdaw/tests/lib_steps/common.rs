@@ -155,7 +155,7 @@ async fn completes_with(world: &mut LibWorld, expected: String) {
 async fn execute_with_fields(world: &mut LibWorld, fields: String) {
     let mut input = world.fixture().input;
     let extra: serde_json::Value =
-        serde_yaml::from_str(&format!("{{{fields}}}")).expect("fields like `key: value`");
+        serde_saphyr::from_str(&format!("{{{fields}}}")).expect("fields like `key: value`");
     if let (Some(base), Some(extra)) = (input.as_object_mut(), extra.as_object()) {
         for (key, value) in extra {
             base.insert(key.clone(), value.clone());

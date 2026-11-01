@@ -113,7 +113,7 @@ impl Listener {
             "get", "put", "post", "delete", "options", "head", "patch", "trace",
         ];
         let name = name.into();
-        let document: Value = serde_yaml::from_str(spec).map_err(|e| {
+        let document: Value = serde_saphyr::from_str(spec).map_err(|e| {
             Error::invalid(format!(
                 "listener `{name}`: the OpenAPI document does not parse: {e}"
             ))

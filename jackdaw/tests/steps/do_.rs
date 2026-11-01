@@ -15,6 +15,6 @@ async fn then_output(world: &mut CtKWorld, step: &cucumber::gherkin::Step) {
         "Expected workflow to complete"
     );
     let expected: Value =
-        serde_yaml::from_str(&parse_docstring(step.docstring.as_ref().unwrap())).unwrap();
+        serde_saphyr::from_str(&parse_docstring(step.docstring.as_ref().unwrap())).unwrap();
     assert_eq!(world.workflow_output.as_ref().unwrap(), &expected);
 }

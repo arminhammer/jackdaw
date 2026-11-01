@@ -51,7 +51,7 @@ async fn test_listen_read_mode_data() {
 
     let fixture = PathBuf::from("tests/fixtures/listen-read-modes/test-listen-read-data.sw.yaml");
     let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml).unwrap();
 
     // Start workflow (this initializes the listener) - keep handle alive so workflow continues
     let _handle = engine
@@ -115,7 +115,7 @@ async fn test_listen_read_mode_envelope() {
     let fixture =
         PathBuf::from("tests/fixtures/listen-read-modes/test-listen-read-envelope.sw.yaml");
     let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml).unwrap();
 
     // Start workflow - keep handle alive so workflow continues
     let _handle = engine
@@ -194,7 +194,7 @@ async fn test_listen_read_mode_raw() {
 
     let fixture = PathBuf::from("tests/fixtures/listen-read-modes/test-listen-read-raw.sw.yaml");
     let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml).unwrap();
 
     // Start workflow - don't wait for completion as it's perpetual
     let _handle = engine
@@ -256,7 +256,7 @@ async fn test_listen_read_mode_default_is_envelope() {
     let fixture =
         PathBuf::from("tests/fixtures/listen-read-modes/test-listen-read-default.sw.yaml");
     let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml).unwrap();
 
     // Start workflow - don't wait for completion as it's perpetual
     let _handle = engine

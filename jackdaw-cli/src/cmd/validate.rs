@@ -18,7 +18,8 @@ pub enum Error {
     Io { source: std::io::Error },
 
     #[snafu(display("YAML parsing error: {source}"))]
-    Yaml { source: serde_yaml::Error },
+    // Boxed: serde-saphyr's error carries the source snippet and is large.
+    Yaml { source: Box<serde_saphyr::Error> },
 
     #[snafu(display("Validation failed with {count} error(s)"))]
     ValidationFailed { count: usize },
@@ -32,9 +33,11 @@ impl From<std::io::Error> for Error {
     }
 }
 
-impl From<serde_yaml::Error> for Error {
-    fn from(source: serde_yaml::Error) -> Self {
-        Error::Yaml { source }
+impl From<serde_saphyr::Error> for Error {
+    fn from(source: serde_saphyr::Error) -> Self {
+        Error::Yaml {
+            source: Box::new(source),
+        }
     }
 }
 
@@ -127,7 +130,7 @@ pub async fn handle_validate(args: ValidateArgs) -> Result<()> {
 
 async fn validate_workflow(workflow_path: &PathBuf, verbose: bool) -> Result<(usize, usize)> {
     let workflow_yaml = std::fs::read_to_string(workflow_path)?;
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml)?;
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml)?;
     let validation = Workflow::<Value, Value>::from_definition(workflow).validate();
 
     if verbose {

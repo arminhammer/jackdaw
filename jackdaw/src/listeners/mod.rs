@@ -35,8 +35,8 @@ impl From<std::io::Error> for Error {
     }
 }
 
-impl From<serde_yaml::Error> for Error {
-    fn from(source: serde_yaml::Error) -> Self {
+impl From<serde_saphyr::Error> for Error {
+    fn from(source: serde_saphyr::Error) -> Self {
         Error::Listener {
             message: format!("YAML error: {source}"),
         }

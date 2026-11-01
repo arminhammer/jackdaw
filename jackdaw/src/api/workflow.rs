@@ -572,7 +572,7 @@ impl<In, Out> Workflow<In, Out> {
     /// # Errors
     /// `Error::Invalid` if the text is not a valid workflow definition.
     pub fn from_yaml(yaml: &str) -> Result<Self, Error> {
-        serde_yaml::from_str::<WorkflowDefinition>(yaml)
+        serde_saphyr::from_str::<WorkflowDefinition>(yaml)
             .map(Self::from_definition)
             .map_err(|e| Error::invalid(format!("not a valid workflow definition: {e}")))
     }

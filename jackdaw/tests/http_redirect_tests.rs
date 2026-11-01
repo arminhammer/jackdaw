@@ -67,7 +67,7 @@ do:
         mock_server.uri()
     );
 
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml).unwrap();
 
     // Execute workflow
     let handle = engine.execute(workflow, json!({})).await.unwrap();
@@ -141,7 +141,7 @@ do:
         mock_server.uri()
     );
 
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml).unwrap();
 
     // Execute workflow
     let handle = engine.execute(workflow, json!({})).await.unwrap();
@@ -230,7 +230,7 @@ do:
         mock_server.uri()
     );
 
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml).unwrap();
 
     // Execute workflow
     let handle = engine.execute(workflow, json!({})).await.unwrap();

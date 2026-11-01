@@ -44,7 +44,7 @@ async fn test_container_environment_variables() {
 
     let fixture = PathBuf::from("tests/fixtures/containers/container-env-vars.sw.yaml");
     let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml).unwrap();
 
     let handle = engine.execute(workflow, json!({})).await.unwrap();
     let result = handle.wait_for_completion(Duration::from_secs(60)).await;
@@ -80,7 +80,7 @@ async fn test_container_volume_mapping() {
 
     let fixture = PathBuf::from("tests/fixtures/containers/container-volume-write.sw.yaml");
     let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml).unwrap();
 
     let handle = engine.execute(workflow, json!({})).await.unwrap();
     let result = handle.wait_for_completion(Duration::from_secs(60)).await;
@@ -118,7 +118,7 @@ async fn test_container_multiple_volumes() {
 
     let fixture = PathBuf::from("tests/fixtures/containers/container-multiple-volumes.sw.yaml");
     let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml).unwrap();
 
     let handle = engine.execute(workflow, json!({})).await.unwrap();
     let result = handle.wait_for_completion(Duration::from_secs(60)).await;
@@ -148,7 +148,7 @@ async fn test_container_environment_with_expressions() {
 
     let fixture = PathBuf::from("tests/fixtures/containers/container-env-expressions.sw.yaml");
     let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml).unwrap();
 
     let handle = engine.execute(workflow, json!({})).await.unwrap();
     let result = handle.wait_for_completion(Duration::from_secs(60)).await;
@@ -180,7 +180,7 @@ async fn test_container_stdin_and_arguments() {
 
     let fixture = PathBuf::from("tests/fixtures/containers/container-stdin-args.sw.yaml");
     let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml).unwrap();
 
     let handle = engine.execute(workflow, json!({})).await.unwrap();
     let result = handle.wait_for_completion(Duration::from_secs(60)).await;

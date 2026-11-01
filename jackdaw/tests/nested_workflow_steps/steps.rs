@@ -58,7 +58,7 @@ async fn when_execute_workflow(
         .unwrap_or_else(|| panic!("Workflow {} not found in registry", workflow_ref));
 
     // Parse the workflow
-    let _workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml)
+    let _workflow: WorkflowDefinition = serde_saphyr::from_str(workflow_yaml)
         .unwrap_or_else(|e| panic!("Failed to parse workflow YAML: {}", e));
 
     // Get the engine
@@ -67,7 +67,7 @@ async fn when_execute_workflow(
     // Before starting the workflow, we need to register all workflows with the engine
     // so that nested workflows can be found during execution
     for (key, yaml) in &world.workflow_registry {
-        let wf: WorkflowDefinition = serde_yaml::from_str(yaml)
+        let wf: WorkflowDefinition = serde_saphyr::from_str(yaml)
             .unwrap_or_else(|e| panic!("Failed to parse workflow {}: {}", key, e));
 
         // Register the workflow with the engine
@@ -78,7 +78,7 @@ async fn when_execute_workflow(
     }
 
     // Execute the workflow
-    let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml)
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(workflow_yaml)
         .unwrap_or_else(|e| panic!("Failed to parse workflow YAML: {}", e));
     let handle = engine
         .execute(workflow, input)

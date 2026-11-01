@@ -402,7 +402,7 @@ impl DurableEngine {
     ///       set:
     ///         message: "Hello!"
     /// "#;
-    /// let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml)?;
+    /// let workflow: WorkflowDefinition = serde_saphyr::from_str(workflow_yaml)?;
     ///
     /// let mut handle = engine.execute(workflow, serde_json::json!({})).await?;
     ///

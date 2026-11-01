@@ -45,7 +45,7 @@ async fn test_workflow_timeout_enforcement() {
 
     let fixture = PathBuf::from("tests/fixtures/timeout/workflow-timeout-iso8601.sw.yaml");
     let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml).unwrap();
 
     // Measure execution time
     let start = Instant::now();
@@ -81,7 +81,7 @@ async fn test_workflow_timeout_with_inline_duration() {
 
     let fixture = PathBuf::from("tests/fixtures/timeout/workflow-timeout-inline.sw.yaml");
     let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml).unwrap();
 
     let start = Instant::now();
     let handle = engine.execute(workflow, json!({})).await.unwrap();
@@ -106,7 +106,7 @@ async fn test_task_timeout_enforcement() {
 
     let fixture = PathBuf::from("tests/fixtures/timeout/task-timeout-iso8601.sw.yaml");
     let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml).unwrap();
 
     let start = Instant::now();
     let handle = engine.execute(workflow, json!({})).await.unwrap();
@@ -141,7 +141,7 @@ async fn test_task_timeout_with_inline_duration() {
 
     let fixture = PathBuf::from("tests/fixtures/timeout/task-timeout-inline.sw.yaml");
     let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml).unwrap();
 
     let start = Instant::now();
     let handle = engine.execute(workflow, json!({})).await.unwrap();
@@ -166,7 +166,7 @@ async fn test_workflow_completes_within_timeout() {
 
     let fixture = PathBuf::from("tests/fixtures/timeout/workflow-completes-within-timeout.sw.yaml");
     let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml).unwrap();
 
     let start = Instant::now();
     let handle = engine.execute(workflow, json!({})).await.unwrap();
@@ -194,7 +194,7 @@ async fn test_task_completes_within_timeout() {
 
     let fixture = PathBuf::from("tests/fixtures/timeout/task-completes-within-timeout.sw.yaml");
     let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml).unwrap();
 
     let handle = engine.execute(workflow, json!({})).await.unwrap();
     let result = handle.wait_for_completion(Duration::from_secs(10)).await;
@@ -212,7 +212,7 @@ async fn test_task_timeout_wait_task() {
 
     let fixture = PathBuf::from("tests/fixtures/timeout/task-timeout-call.sw.yaml");
     let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml).unwrap();
 
     let start = Instant::now();
     let handle = engine.execute(workflow, json!({})).await.unwrap();
@@ -234,7 +234,7 @@ async fn test_nested_timeout_task_overrides_workflow() {
 
     let fixture = PathBuf::from("tests/fixtures/timeout/nested-timeout-task-overrides.sw.yaml");
     let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml).unwrap();
 
     let start = Instant::now();
     let handle = engine.execute(workflow, json!({})).await.unwrap();
@@ -260,7 +260,7 @@ async fn test_timeout_with_milliseconds() {
 
     let fixture = PathBuf::from("tests/fixtures/timeout/timeout-milliseconds.sw.yaml");
     let workflow_yaml = std::fs::read_to_string(&fixture).unwrap();
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml).unwrap();
 
     let start = Instant::now();
     let handle = engine.execute(workflow, json!({})).await.unwrap();

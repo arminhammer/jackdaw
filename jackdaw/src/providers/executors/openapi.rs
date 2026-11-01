@@ -70,7 +70,7 @@ impl Executor for OpenApiExecutor {
 
         // Parse as JSON value first to check version
         let spec_value: serde_json::Value = serde_json::from_str(&spec_text)
-            .or_else(|_| serde_yaml::from_str(&spec_text))
+            .or_else(|_| serde_saphyr::from_str(&spec_text))
             .map_err(|e| Error::Execution {
                 message: format!("Failed to parse spec as JSON or YAML: {e}"),
             })?;

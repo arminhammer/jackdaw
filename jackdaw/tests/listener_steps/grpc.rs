@@ -19,7 +19,7 @@ pub enum Error {
     GrpcTest { message: String },
 
     #[snafu(display("Workflow YAML error: {source}"))]
-    WorkflowYaml { source: serde_yaml::Error },
+    WorkflowYaml { source: serde_saphyr::Error },
 
     #[snafu(display("Engine error: {source}"))]
     Engine { source: jackdaw::Error },
@@ -44,8 +44,8 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-impl From<serde_yaml::Error> for Error {
-    fn from(source: serde_yaml::Error) -> Self {
+impl From<serde_saphyr::Error> for Error {
+    fn from(source: serde_saphyr::Error) -> Self {
         Error::WorkflowYaml { source }
     }
 }
@@ -167,7 +167,7 @@ async fn execute_workflow_and_call_grpc(world: &mut ListenerWorld, method: Strin
         .ok_or_else(|| Error::GrpcTest {
             message: "No workflow definition".to_string(),
         })?;
-    let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml)?;
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(workflow_yaml)?;
 
     // Get engine
     let engine = world.engine.as_ref().ok_or_else(|| Error::GrpcTest {

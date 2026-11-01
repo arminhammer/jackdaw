@@ -35,7 +35,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// # let engine = DurableEngineBuilder::new().build()?;
 /// # let workflow_yaml = "document:\n  dsl: '1.0.2'\n  namespace: test\n  name: test\n  version: 1.0.0\ndo: []";
-/// # let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml)?;
+/// # let workflow: WorkflowDefinition = serde_saphyr::from_str(workflow_yaml)?;
 /// let mut handle = engine.execute(workflow, serde_json::json!({})).await?;
 /// let result = handle.wait_for_completion(Duration::from_secs(60)).await?;
 /// println!("Result: {}", result);
@@ -50,7 +50,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// # let engine = DurableEngineBuilder::new().build()?;
 /// # let workflow_yaml = "document:\n  dsl: '1.0.2'\n  namespace: test\n  name: test\n  version: 1.0.0\ndo: []";
-/// # let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml)?;
+/// # let workflow: WorkflowDefinition = serde_saphyr::from_str(workflow_yaml)?;
 /// let mut handle = engine.execute(workflow, serde_json::json!({})).await?;
 ///
 /// while let Some(event) = handle.next_event().await {
@@ -78,7 +78,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// # let engine = DurableEngineBuilder::new().build()?;
 /// # let workflow_yaml = "document:\n  dsl: '1.0.2'\n  namespace: test\n  name: test\n  version: 1.0.0\ndo: []";
-/// # let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml)?;
+/// # let workflow: WorkflowDefinition = serde_saphyr::from_str(workflow_yaml)?;
 /// let mut handle = engine.execute(workflow, serde_json::json!({})).await?;
 ///
 /// // Process events until shutdown signal
@@ -147,7 +147,7 @@ impl ExecutionHandle {
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// # let engine = DurableEngineBuilder::new().build()?;
     /// # let workflow_yaml = "document:\n  dsl: '1.0.2'\n  namespace: test\n  name: test\n  version: 1.0.0\ndo: []";
-    /// # let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml)?;
+    /// # let workflow: WorkflowDefinition = serde_saphyr::from_str(workflow_yaml)?;
     /// let handle = engine.execute(workflow, serde_json::json!({})).await?;
     /// println!("Workflow instance: {}", handle.instance_id());
     /// # Ok(())
@@ -177,7 +177,7 @@ impl ExecutionHandle {
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// # let engine = DurableEngineBuilder::new().build()?;
     /// # let workflow_yaml = "document:\n  dsl: '1.0.2'\n  namespace: test\n  name: test\n  version: 1.0.0\ndo: []";
-    /// # let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml)?;
+    /// # let workflow: WorkflowDefinition = serde_saphyr::from_str(workflow_yaml)?;
     /// let mut handle = engine.execute(workflow, serde_json::json!({})).await?;
     ///
     /// while let Some(event) = handle.next_event().await {
@@ -209,7 +209,7 @@ impl ExecutionHandle {
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// # let engine = DurableEngineBuilder::new().build()?;
     /// # let workflow_yaml = "document:\n  dsl: '1.0.2'\n  namespace: test\n  name: test\n  version: 1.0.0\ndo: []";
-    /// # let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml)?;
+    /// # let workflow: WorkflowDefinition = serde_saphyr::from_str(workflow_yaml)?;
     /// let handle = engine.execute(workflow, serde_json::json!({})).await?;
     ///
     /// // ... later ...

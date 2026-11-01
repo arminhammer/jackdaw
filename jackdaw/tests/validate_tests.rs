@@ -14,7 +14,7 @@ fn validate_workflow_file(path: &PathBuf) -> Result<(), String> {
         .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
 
     // Parse the workflow
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml)
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml)
         .map_err(|e| format!("Failed to parse {}: {}", path.display(), e))?;
 
     // Validate graph structure

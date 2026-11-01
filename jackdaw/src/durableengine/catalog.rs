@@ -139,7 +139,7 @@ impl DurableEngine {
         };
 
         // Parse the workflow definition
-        let function_workflow: WorkflowDefinition = serde_yaml::from_str(&function_content)
+        let function_workflow: WorkflowDefinition = serde_saphyr::from_str(&function_content)
             .map_err(|e| Error::Configuration {
                 message: format!("Failed to parse catalog function {function_name}: {e}"),
             })?;

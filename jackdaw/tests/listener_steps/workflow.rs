@@ -42,7 +42,7 @@ async fn given_http_typescript_workflow(world: &mut ListenerWorld, step: &cucumb
 #[given(expr = "the workflow input is:")]
 async fn given_workflow_input(world: &mut ListenerWorld, step: &cucumber::gherkin::Step) {
     let input_yaml = parse_docstring(step.docstring.as_ref().unwrap());
-    let input: Value = serde_yaml::from_str(&input_yaml).expect("Failed to parse input");
+    let input: Value = serde_saphyr::from_str(&input_yaml).expect("Failed to parse input");
     world.workflow_input = Some(input);
 }
 
@@ -58,7 +58,7 @@ async fn when_workflow_executed(_world: &mut ListenerWorld) {
 async fn then_workflow_output(world: &mut ListenerWorld, step: &cucumber::gherkin::Step) {
     let expected_yaml = parse_docstring(step.docstring.as_ref().unwrap());
     let expected: Value =
-        serde_yaml::from_str(&expected_yaml).expect("Failed to parse expected output");
+        serde_saphyr::from_str(&expected_yaml).expect("Failed to parse expected output");
 
     let actual = world.workflow_output.as_ref().expect("No workflow output");
     assert_eq!(actual, &expected, "Workflow output mismatch");

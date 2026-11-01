@@ -120,7 +120,7 @@ async fn given_workflow_input(world: &mut CtKWorld, step: &cucumber::gherkin::St
     if let Some(docstring) = &step.docstring {
         let input_yaml = parse_docstring(docstring);
         let input: Value =
-            serde_yaml::from_str(&input_yaml).expect("Failed to parse workflow input");
+            serde_saphyr::from_str(&input_yaml).expect("Failed to parse workflow input");
         world.workflow_input = Some(input);
     }
 }
@@ -129,7 +129,7 @@ async fn given_workflow_input(world: &mut CtKWorld, step: &cucumber::gherkin::St
 async fn when_workflow_executed(world: &mut CtKWorld) {
     let workflow_yaml = world.workflow_definition.as_ref().unwrap().clone();
     let workflow: WorkflowDefinition =
-        serde_yaml::from_str(&workflow_yaml).expect("Failed to parse workflow definition");
+        serde_saphyr::from_str(&workflow_yaml).expect("Failed to parse workflow definition");
 
     let input = world
         .workflow_input

@@ -11,7 +11,7 @@ use jackdaw::dsl::workflow::WorkflowDefinition;
 fn parse_request_body(text: &str) -> serde_json::Value {
     // Try JSON first, then YAML
     serde_json::from_str(text)
-        .or_else(|_| serde_yaml::from_str(text).map_err(|e| e.to_string()))
+        .or_else(|_| serde_saphyr::from_str(text).map_err(|e| e.to_string()))
         .unwrap_or_else(|_| serde_json::json!({}))
 }
 
@@ -73,7 +73,7 @@ async fn when_http_python_add_endpoint_called(world: &mut ListenerWorld, path: S
             .as_ref()
             .expect("No workflow definition");
         let workflow: WorkflowDefinition =
-            serde_yaml::from_str(workflow_yaml).expect("Failed to parse workflow");
+            serde_saphyr::from_str(workflow_yaml).expect("Failed to parse workflow");
 
         let engine = world.engine.as_ref().expect("No engine");
 

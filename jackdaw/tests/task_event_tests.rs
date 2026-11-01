@@ -56,7 +56,7 @@ async fn test_task_created_event_emitted() {
     let fixture = PathBuf::from("tests/fixtures/task-events/test-task-created-event.sw.yaml");
     let workflow_yaml =
         std::fs::read_to_string(&fixture).expect("Failed to read test-task-created-event.sw.yaml");
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml).unwrap();
 
     let handle = engine.execute(workflow, json!({})).await.unwrap();
     let instance_id = handle.instance_id().to_string();
@@ -100,7 +100,7 @@ async fn test_task_created_emitted_before_task_started() {
     let fixture = PathBuf::from("tests/fixtures/task-events/test-event-order.sw.yaml");
     let workflow_yaml =
         std::fs::read_to_string(&fixture).expect("Failed to read test-event-order.sw.yaml");
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml).unwrap();
 
     let handle = engine.execute(workflow, json!({})).await.unwrap();
     let instance_id = handle.instance_id().to_string();
@@ -151,7 +151,7 @@ async fn test_task_created_for_multiple_tasks() {
     let fixture = PathBuf::from("tests/fixtures/task-events/test-multiple-tasks.sw.yaml");
     let workflow_yaml =
         std::fs::read_to_string(&fixture).expect("Failed to read test-multiple-tasks.sw.yaml");
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml).unwrap();
 
     let handle = engine.execute(workflow, json!({})).await.unwrap();
     let instance_id = handle.instance_id().to_string();
@@ -200,7 +200,7 @@ async fn test_task_created_includes_task_type() {
     let fixture = PathBuf::from("tests/fixtures/task-events/test-task-types.sw.yaml");
     let workflow_yaml =
         std::fs::read_to_string(&fixture).expect("Failed to read test-task-types.sw.yaml");
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml).unwrap();
 
     let handle = engine.execute(workflow, json!({})).await.unwrap();
     let instance_id = handle.instance_id().to_string();
@@ -254,7 +254,7 @@ async fn test_task_retried_event_emitted_on_retry() {
         std::fs::read_to_string(&fixture).expect("Failed to read test-task-retried.sw.yaml");
 
     // This will fail and retry 2 times before final failure
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml).unwrap();
     let handle = engine.execute(workflow, json!({})).await.unwrap();
     let instance_id = handle.instance_id().to_string();
     let result = handle.wait_for_completion(Duration::from_secs(30)).await;
@@ -295,7 +295,7 @@ async fn test_task_retried_includes_attempt_number() {
     let fixture = PathBuf::from("tests/fixtures/task-events/test-retry-attempt.sw.yaml");
     let workflow_yaml =
         std::fs::read_to_string(&fixture).expect("Failed to read test-retry-attempt.sw.yaml");
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml).unwrap();
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml).unwrap();
 
     let handle = engine.execute(workflow, json!({})).await.unwrap();
     let instance_id = handle.instance_id().to_string();

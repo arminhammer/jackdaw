@@ -297,7 +297,7 @@ impl CatalogSet {
                     continue;
                 }
             };
-            let Ok(document) = serde_yaml::from_str::<Value>(&text) else {
+            let Ok(document) = serde_saphyr::from_str::<Value>(&text) else {
                 problems.push(format!(
                     "catalog entry `{name}:{version}` at {file} is not valid YAML"
                 ));
@@ -352,7 +352,7 @@ impl CatalogSet {
                 ))
             })?
         };
-        serde_yaml::from_str(&text).map_err(|e| {
+        serde_saphyr::from_str(&text).map_err(|e| {
             Error::invalid(format!(
                 "catalog entry `{name}:{version}` is not a valid workflow: {e}"
             ))

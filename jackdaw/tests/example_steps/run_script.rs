@@ -53,6 +53,6 @@ async fn then_output_matches(world: &mut ExampleWorld, step: &cucumber::gherkin:
     );
 
     let expected: Value =
-        serde_yaml::from_str(&parse_docstring(step.docstring.as_ref().unwrap())).unwrap();
+        serde_saphyr::from_str(&parse_docstring(step.docstring.as_ref().unwrap())).unwrap();
     assert_eq!(world.workflow_output.as_ref().unwrap(), &expected);
 }

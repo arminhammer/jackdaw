@@ -53,7 +53,7 @@ do:
         colors: '${ .colors + ["should_not_run"] }'
 "#;
 
-    let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml).unwrap();
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(workflow_yaml).unwrap();
 
     // Execute workflow
     let handle = engine.execute(workflow, json!({})).await.unwrap();
@@ -121,7 +121,7 @@ do:
         colors: '${ .colors + ["should_not_run"] }'
 "#;
 
-    let workflow: WorkflowDefinition = serde_yaml::from_str(workflow_yaml).unwrap();
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(workflow_yaml).unwrap();
 
     // Execute workflow
     let handle = engine.execute(workflow, json!({})).await.unwrap();
@@ -211,8 +211,8 @@ do:
         value: 'should not run'
 "#;
 
-    let workflow_exit: WorkflowDefinition = serde_yaml::from_str(workflow_exit_yaml).unwrap();
-    let workflow_end: WorkflowDefinition = serde_yaml::from_str(workflow_end_yaml).unwrap();
+    let workflow_exit: WorkflowDefinition = serde_saphyr::from_str(workflow_exit_yaml).unwrap();
+    let workflow_end: WorkflowDefinition = serde_saphyr::from_str(workflow_end_yaml).unwrap();
 
     // Execute both workflows
     let handle_exit = engine_exit.execute(workflow_exit, json!({})).await.unwrap();

@@ -28,7 +28,8 @@ pub enum Error {
     Io { source: std::io::Error },
 
     #[snafu(display("YAML parsing error: {source}"))]
-    Yaml { source: serde_yaml::Error },
+    // Boxed: serde-saphyr's error carries the source snippet and is large.
+    Yaml { source: Box<serde_saphyr::Error> },
 
     #[snafu(display("JSON serialization error: {source}"))]
     Json { source: serde_json::Error },
@@ -114,9 +115,11 @@ impl From<std::io::Error> for Error {
     }
 }
 
-impl From<serde_yaml::Error> for Error {
-    fn from(source: serde_yaml::Error) -> Self {
-        Error::Yaml { source }
+impl From<serde_saphyr::Error> for Error {
+    fn from(source: serde_saphyr::Error) -> Self {
+        Error::Yaml {
+            source: Box::new(source),
+        }
     }
 }
 
@@ -292,7 +295,7 @@ async fn execute_workflow(
 
     // Read and parse workflow
     let workflow_yaml = std::fs::read_to_string(workflow_path)?;
-    let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml)?;
+    let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml)?;
 
     if let Some(pb) = progress {
         pb.set_message(format!("Executing {}", workflow.document.name));
@@ -605,7 +608,7 @@ async fn run_workflows_internal(
         let registry_files = discover_workflow_files(&registry_paths)?;
         for workflow_path in &registry_files {
             let workflow_yaml = std::fs::read_to_string(workflow_path)?;
-            let workflow: WorkflowDefinition = serde_yaml::from_str(&workflow_yaml)?;
+            let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml)?;
             builder = builder.yaml_workflow(&Workflow::<Value, Value>::from_definition(workflow));
             if config.verbose {
                 println!("  • Registered workflow from {}", workflow_path.display());
