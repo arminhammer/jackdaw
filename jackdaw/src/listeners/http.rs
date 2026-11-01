@@ -2,107 +2,55 @@ use super::{Listener, Result};
 use async_trait::async_trait;
 use axum::{
     Json, Router,
-    body::Body,
-    extract::Request,
+    body::Bytes,
+    extract::{Query, RawPathParams},
     http::StatusCode,
     response::IntoResponse,
     routing::{MethodRouter, any},
 };
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 /// Create a method router that handles all HTTP methods (GET, POST, PUT, DELETE, PATCH, etc.)
 ///
-/// For requests with bodies (POST, PUT, PATCH), extracts JSON payload.
-/// For requests without bodies (GET, DELETE), extracts path parameters.
+/// The handler gets the request's JSON body with the route's path parameters and query string added
+/// (see [`super::request_input`]).
 fn create_method_router(
     handler: Arc<dyn Fn(serde_json::Value) -> Result<serde_json::Value> + Send + Sync>,
 ) -> MethodRouter {
-    any(move |request: Request<Body>| {
-        let handler = handler.clone();
-        async move {
-            // Extract the request parts
-            let (parts, body) = request.into_parts();
-            let method = parts.method.clone();
-
-            // Build the payload based on HTTP method
-            let payload = if method == axum::http::Method::GET
-                || method == axum::http::Method::DELETE
-            {
-                // For GET/DELETE, extract path parameters from the URI
-                // The path params are in the URI path segments after the base path
-                let uri_path = parts.uri.path();
-
-                // Extract path parameters from the URI
-                // For example, /api/v1/pet/123 -> {"petId": "123"}
-                let mut params = serde_json::Map::new();
-
-                // Try to parse path segments
-                // This is a simplified approach - in a real implementation,
-                // we'd need the route pattern to properly extract params
-                let segments: Vec<&str> = uri_path.split('/').filter(|s| !s.is_empty()).collect();
-
-                // For now, if the last segment is numeric, assume it's an ID parameter
-                // More sophisticated parameter extraction would require route pattern matching
-                if let Some(last_segment) = segments.last() {
-                    // Try to parse as a number
-                    if let Ok(num) = last_segment.parse::<i64>() {
-                        params.insert("petId".to_string(), serde_json::json!(num));
-                    } else {
-                        params.insert("petId".to_string(), serde_json::json!(last_segment));
-                    }
-                }
-
-                serde_json::Value::Object(params)
-            } else {
-                // For POST/PUT/PATCH, extract JSON body
-                let bytes = match axum::body::to_bytes(body, usize::MAX).await {
-                    Ok(b) => b,
-                    Err(e) => {
+    any(
+        move |params: RawPathParams, Query(query): Query<BTreeMap<String, String>>, body: Bytes| {
+            let handler = handler.clone();
+            async move {
+                let payload = match super::request_input(&params, query, &body) {
+                    Ok(payload) => payload,
+                    Err(message) => {
                         return (
                             StatusCode::BAD_REQUEST,
-                            Json(serde_json::json!({
-                                "error": format!("Failed to read request body: {}", e)
-                            })),
+                            Json(serde_json::json!({ "error": message })),
                         )
                             .into_response();
                     }
                 };
 
-                if bytes.is_empty() {
-                    serde_json::json!({})
-                } else {
-                    match serde_json::from_slice(&bytes) {
-                        Ok(json) => json,
-                        Err(e) => {
-                            return (
-                                StatusCode::BAD_REQUEST,
-                                Json(serde_json::json!({
-                                    "error": format!("Invalid JSON: {}", e)
-                                })),
-                            )
-                                .into_response();
-                        }
+                // Call the handler with the payload
+                match handler(payload) {
+                    Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+                    Err(e) => {
+                        tracing::error!("Handler error: {}", e);
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(serde_json::json!({
+                                "error": e.to_string()
+                            })),
+                        )
+                            .into_response()
                     }
                 }
-            };
-
-            // Call the handler with the payload
-            match handler(payload) {
-                Ok(response) => (StatusCode::OK, Json(response)).into_response(),
-                Err(e) => {
-                    tracing::error!("Handler error: {}", e);
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(serde_json::json!({
-                            "error": e.to_string()
-                        })),
-                    )
-                        .into_response()
-                }
             }
-        }
-    })
+        },
+    )
 }
 
 /// HTTP/OpenAPI listener for handling REST requests
@@ -206,8 +154,6 @@ impl Listener for HttpListener {
                 let path_str = path.clone();
 
                 // Create a unified handler that supports all HTTP methods
-                // For GET/DELETE: extract path params and use empty body
-                // For POST/PUT/PATCH: use JSON body
                 let method_router = create_method_router(handler_clone);
 
                 app = app.route(&path_str, method_router);
@@ -290,5 +236,54 @@ impl std::fmt::Debug for HttpListener {
             .field("shutdown_tx", &"<shutdown sender>")
             .field("server_handle", &"<server task>")
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn path_and_query_parameters_use_the_route_names() {
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let echo: Arc<dyn Fn(serde_json::Value) -> Result<serde_json::Value> + Send + Sync> =
+            Arc::new(Ok);
+        let listener = HttpListener::new_multi_route(
+            format!("127.0.0.1:{port}"),
+            [("/orders/{orderId}/items/{item}".to_string(), echo)].into(),
+        )
+        .unwrap();
+        listener.start().await.unwrap();
+
+        let client = reqwest::Client::new();
+        let url = format!("http://127.0.0.1:{port}/orders/42/items/book?verbose=true");
+        let get: serde_json::Value = client.get(&url).send().await.unwrap().json().await.unwrap();
+        assert_eq!(
+            get,
+            serde_json::json!({ "orderId": 42, "item": "book", "verbose": true })
+        );
+        let post: serde_json::Value = client
+            .post(&url)
+            .json(&serde_json::json!({ "item": "pen", "count": 2 }))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(
+            post,
+            serde_json::json!({ "orderId": 42, "item": "pen", "count": 2, "verbose": true }),
+            "the body wins over a parameter of the same name"
+        );
+        let bad = client.post(&url).body("not json").send().await.unwrap();
+        assert_eq!(bad.status(), StatusCode::BAD_REQUEST);
+
+        listener.stop().await.unwrap();
     }
 }

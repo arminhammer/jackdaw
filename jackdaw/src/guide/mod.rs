@@ -15,6 +15,10 @@
 //!
 //! Every example here is compiled and run by `cargo test --doc`.
 
+// The guide covers every feature, so a build without some of them cannot resolve all its links; docs.rs builds with
+// all features.
+#![cfg_attr(not(feature = "full"), allow(rustdoc::broken_intra_doc_links))]
+
 pub mod catalogs;
 pub mod durability;
 pub mod errors;

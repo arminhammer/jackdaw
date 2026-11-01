@@ -1,0 +1,35 @@
+# cargo-deny: `cargo deny --all-features check licenses bans sources` (the PR workflow's `deny` job).
+# Advisories are checked by `cargo audit` in the test job.
+
+[graph]
+all-features = true
+
+[licenses]
+# Every license in the dependency tree. A new one fails the job: check it is compatible with Apache-2.0, then add it.
+allow = [
+    "Apache-2.0",
+    "BlueOak-1.0.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+confidence-threshold = 0.9
+
+[bans]
+# Duplicate versions come from dependencies that have not caught up (sha2 0.10 and 0.11, two hashbrowns, ...); they
+# are reported, not failed.
+multiple-versions = "warn"
+wildcards = "deny"
+# The workspace crates depend on each other by path and version.
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

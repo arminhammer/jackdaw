@@ -51,4 +51,5 @@ Feature: Rust and YAML workflows on one engine
   Scenario: The YAML interpreter is optional
     Given "jackdaw" built without the "yaml" feature
     Then "Workflow::from_yaml" does not exist
+    And "#[catalog]" fails naming the "yaml" feature
     And the native Rust API works

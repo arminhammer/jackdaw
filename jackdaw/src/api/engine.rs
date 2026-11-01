@@ -244,6 +244,11 @@ impl EngineBuilder {
 
     /// Persists workflow state and caches results in one durable store: [`Redb`](super::Redb),
     /// [`Sqlite`](super::Sqlite), [`Postgres`](super::Postgres), or your own [`Store`].
+    // The stores are behind features; docs.rs builds with all of them.
+    #[cfg_attr(
+        not(all(feature = "redb", feature = "sqlite", feature = "postgres")),
+        allow(rustdoc::broken_intra_doc_links)
+    )]
     #[must_use]
     pub fn store(mut self, store: impl Store) -> Self {
         self.persistence = Some(store.persistence());

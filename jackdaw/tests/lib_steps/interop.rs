@@ -768,6 +768,18 @@ const USES_YAML: &str = r#"fn main() {
 }
 "#;
 
+/// A downstream crate that declares a catalog, which must fail naming the `yaml` feature.
+const USES_CATALOG: &str = r#"use jackdaw::prelude::*;
+
+#[catalog(source = "file://./catalog")]
+pub trait Local {
+    #[task(name = "add-numbers", version = "1.0.0")]
+    async fn add(input: u64) -> Result<u64, TaskError>;
+}
+
+fn main() {}
+"#;
+
 /// Runs cargo in the downstream crate. It has its own target directory, so it does not wait on the test build's lock,
 /// and it reuses the workspace's lock file offline.
 async fn downstream_cargo(world: &LibWorld, args: &[&str]) -> (bool, String) {
@@ -825,6 +837,8 @@ tokio = {{ version = "1", features = ["macros", "rt-multi-thread"] }}
     .expect("the lock file");
     std::fs::write(format!("{dir}/src/bin/native.rs"), NATIVE_ONLY).expect("native.rs");
     std::fs::write(format!("{dir}/src/bin/uses_yaml.rs"), USES_YAML).expect("uses_yaml.rs");
+    std::fs::write(format!("{dir}/src/bin/uses_catalog.rs"), USES_CATALOG)
+        .expect("uses_catalog.rs");
     world.notes.insert("downstream".into(), json!(dir));
 }
 
@@ -837,6 +851,21 @@ async fn no_from_yaml(world: &mut LibWorld) {
     );
     assert!(
         stderr.contains("error[E0") && stderr.contains("Workflow"),
+        "{stderr}"
+    );
+}
+
+#[then(regex = r##"^"#\[catalog\]" fails naming the "yaml" feature$"##)]
+async fn catalog_names_the_feature(world: &mut LibWorld) {
+    let (ok, stderr) = downstream_cargo(world, &["build", "-q", "--bin", "uses_catalog"]).await;
+    assert!(!ok, "a catalog compiled without the `yaml` feature");
+    assert!(
+        stderr.contains("needs the `yaml` feature")
+            && stderr
+                .lines()
+                .filter(|line| line.starts_with("error"))
+                .count()
+                == 2,
         "{stderr}"
     );
 }

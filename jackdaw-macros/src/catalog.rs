@@ -75,19 +75,22 @@ pub fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream> 
         entries.push(entry);
     }
 
+    // Wrapped so that a jackdaw built without `yaml` reports the missing feature (see `jackdaw::__catalog`).
     Ok(quote! {
-        #[derive(Debug, Clone, Copy)]
-        #vis struct #ident;
+        ::jackdaw::__private::catalog! {
+            #[derive(Debug, Clone, Copy)]
+            #vis struct #ident;
 
-        impl #ident {
-            #(#consts)*
-        }
+            impl #ident {
+                #(#consts)*
+            }
 
-        impl ::jackdaw::__private::CatalogDef for #ident {
-            const SOURCE: &'static str = #source;
+            impl ::jackdaw::__private::CatalogDef for #ident {
+                const SOURCE: &'static str = #source;
 
-            fn entries() -> ::std::vec::Vec<::jackdaw::__private::CatalogEntry> {
-                ::std::vec![ #(#entries),* ]
+                fn entries() -> ::std::vec::Vec<::jackdaw::__private::CatalogEntry> {
+                    ::std::vec![ #(#entries),* ]
+                }
             }
         }
     })

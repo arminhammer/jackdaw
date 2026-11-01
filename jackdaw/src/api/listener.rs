@@ -381,31 +381,16 @@ async fn serve_http(
                             body: axum::body::Bytes| {
             let (binding, engine) = (Arc::clone(&binding), engine.clone());
             async move {
-                let mut input = if body.is_empty() {
-                    Value::Object(serde_json::Map::new())
-                } else {
-                    match serde_json::from_slice(&body) {
-                        Ok(input) => input,
-                        Err(e) => {
-                            return (
-                                StatusCode::BAD_REQUEST,
-                                axum::Json(serde_json::json!({ "error": format!("the body is not JSON: {e}") })),
-                            )
-                                .into_response();
-                        }
+                let input = match crate::listeners::request_input(&params, query, &body) {
+                    Ok(input) => input,
+                    Err(message) => {
+                        return (
+                            StatusCode::BAD_REQUEST,
+                            axum::Json(serde_json::json!({ "error": message })),
+                        )
+                            .into_response();
                     }
                 };
-                if let Value::Object(fields) = &mut input {
-                    let parameters = params
-                        .iter()
-                        .map(|(key, value)| (key.to_string(), value.to_string()))
-                        .chain(query);
-                    for (key, value) in parameters {
-                        // `42` and `true` arrive as text; give the workflow the JSON value they spell.
-                        let value = serde_json::from_str(&value).unwrap_or(Value::String(value));
-                        fields.entry(key).or_insert(value);
-                    }
-                }
                 match dispatch(&binding, &engine, input).await {
                     Ok(output) => (StatusCode::OK, axum::Json(output)).into_response(),
                     Err(error) => {

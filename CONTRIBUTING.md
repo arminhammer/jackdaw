@@ -31,6 +31,10 @@ the Open Workflow Specification and conformance tests.
 `cargo clippy --workspace --all-targets --all-features -- -D warnings` and `cargo fmt --all` must be clean; the workspace
 denies wildcard matches on enums, indexing that can panic, and a few other lints (see the root `Cargo.toml`).
 
+CI also runs `just semver` (`cargo semver-checks` against the latest release: a breaking change in `jackdaw-wf` needs a
+minor version bump) and `just deny` (`cargo deny`: every dependency's license is in `deny.toml`'s allow list, and
+every source is crates.io).
+
 ## Vendored code
 
 `jackdaw/src/dsl` is the Open Workflow Specification Rust SDK's model, copied verbatim. Do not edit it: change it upstream (or in

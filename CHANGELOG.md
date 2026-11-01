@@ -9,9 +9,22 @@ The workspace publishes three crates with the same version: `jackdaw-wf` (the li
 
 ## [Unreleased]
 
-## [0.2.0] - unreleased
+### Fixed
 
-Set the date when the release is tagged.
+- The YAML interpreter's HTTP listener passes path parameters under the names the route gives them, and adds the
+  query string, for every method. It used to report the last path segment of a GET or DELETE as `petId`, whatever
+  the route said, and drop a GET or DELETE body. Engine listeners and YAML listeners now build a request's input the
+  same way.
+- `#[catalog]` in a build without the `yaml` feature fails with one error that names the feature, instead of errors
+  about missing `__private` items.
+- The docs build without warnings when some features are off.
+
+### Changed
+
+- CI checks the public API against the latest release with `cargo semver-checks`, and dependency licenses and
+  sources with `cargo deny` (`deny.toml`).
+
+## [0.2.0] - 2026-11-01
 
 Jackdaw becomes a library first: durable workflows written in Rust, with the Open Workflow YAML interpreter as
 an optional part of the same engine. The CLI is now a separate crate built on the library's public API.

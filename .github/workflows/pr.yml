@@ -80,6 +80,12 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
+      # A build without features must not warn either (its links to gated items are allowed explicitly).
+      - name: Build the docs without features
+        run: cargo doc -p jackdaw-wf --no-default-features --no-deps --locked
+        env:
+          RUSTDOCFLAGS: -D warnings
+
   msrv:
     name: Minimum Supported Rust Version
     runs-on: ubuntu-latest
@@ -99,6 +105,42 @@ jobs:
       # `+1.94` because rust-toolchain.toml would otherwise select the pinned development toolchain.
       - name: Check the workspace on the MSRV
         run: cargo +1.94 check --workspace --all-features --locked
+
+  deny:
+    name: Licenses and sources
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      # Configured in deny.toml: an unlisted license, a wildcard version or an unknown registry or git source fails.
+      - name: Run cargo deny
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses bans sources
+
+  semver:
+    name: Semver check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.99.0
+
+      - name: Install cargo-semver-checks
+        uses: taiki-e/install-action@cargo-semver-checks
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: semver
+
+      # Compares the library's public API with the latest version on crates.io: a breaking change fails the job
+      # unless the version in Cargo.toml was bumped to allow it (0.x: the minor version).
+      - name: Check the public API for breaking changes
+        run: cargo semver-checks -p jackdaw-wf --all-features
 
   package:
     name: Package (publish dry run)

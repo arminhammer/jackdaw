@@ -128,6 +128,14 @@ fmt:
 lint:
     cargo clippy --all-targets --all-features -- -D warnings
 
+# Check dependency licenses, versions and sources (deny.toml)
+deny:
+    cargo deny check licenses bans sources
+
+# Check the public API against the latest release on crates.io
+semver:
+    cargo semver-checks -p jackdaw-wf --all-features
+
 # Check for potential panics (unwrap, expect, etc.)
 lint-panics:
     cargo clippy -- \
