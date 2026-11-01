@@ -1880,6 +1880,7 @@ dependencies = [
  "snafu",
  "tempfile",
  "tokio",
+ "tracing",
  "tracing-indicatif",
  "tracing-subscriber",
 ]
@@ -1895,7 +1896,6 @@ dependencies = [
  "bollard",
  "bytes",
  "chrono",
- "console 0.15.11",
  "cucumber",
  "futures",
  "http",
@@ -2298,6 +2298,12 @@ name = "multiversion_no_op"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
+
+[[package]]
+name = "nohash-hasher"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2bf50223579dc7cdcfb3bfcacf7069ff68243f8c363f62ffa99cf000a6b9c451"
 
 [[package]]
 name = "nom"
@@ -3231,11 +3237,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a253edfdea34032da21af84e16fcc94f4c7a6ba237f9f3bc2dbf43cea8535c44"
 dependencies = [
  "annotate-snippets",
+ "base64 0.22.1",
  "encoding_rs_io",
  "granit-parser",
+ "nohash-hasher",
  "num-traits",
  "serde_core",
  "smallvec",
+ "zmij",
 ]
 
 [[package]]

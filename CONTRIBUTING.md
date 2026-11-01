@@ -39,7 +39,8 @@ every source is crates.io).
 
 `jackdaw/src/dsl` is the Open Workflow Specification Rust SDK's model, copied verbatim. Do not edit it: change it upstream (or in
 the fork that `just update-dsl` pulls from) and run `just update-dsl [repo] [ref]`, which records the commit in
-`jackdaw/src/dsl/UPSTREAM`.
+`jackdaw/src/dsl/UPSTREAM`. The SDK's unit tests (in its `lib.rs`) come along as `src/dsl/unit_tests.rs`, run with
+the library's unit tests; the recipe drops `lib.rs`'s `mod models;` line and swaps `serde_yaml` for `serde-saphyr`.
 
 ## Stability
 

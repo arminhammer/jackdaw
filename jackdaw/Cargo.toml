@@ -111,6 +111,8 @@ metrics = ["dep:metrics"]
 
 [dev-dependencies]
 tempfile = "3"
+# The vendored SDK unit tests serialize YAML.
+serde-saphyr = { version = "2", default-features = false, features = ["deserialize", "serialize"] }
 jackdaw = { package = "jackdaw-wf", path = ".", features = ["full"] }
 metrics = "0.24"
 metrics-util = { version = "0.20", default-features = false, features = ["debugging"] }

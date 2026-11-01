@@ -24,7 +24,10 @@ update-dsl repo="https://github.com/arminhammer/sdk-rust.git" ref="main":
     rm -rf jackdaw/src/dsl
     cp -r "$tmp/sdk/core/src/models" jackdaw/src/dsl
     cp "$tmp/sdk/LICENSE" jackdaw/src/dsl/LICENSE
-    printf 'repository: %s\nref: %s\nrevision: %s\npath: core/src/models\n' "{{repo}}" "{{ref}}" "$rev" > jackdaw/src/dsl/UPSTREAM
+    # The SDK's unit tests (in its lib.rs), run as `dsl::unit_tests`: without lib.rs's `mod models;`, and with
+    # serde-saphyr in place of serde_yaml.
+    sed -e '/^pub mod models;$/d' -e 's/serde_yaml::/serde_saphyr::/g' "$tmp/sdk/core/src/lib.rs" > jackdaw/src/dsl/unit_tests.rs
+    printf 'repository: %s\nref: %s\nrevision: %s\npath: core/src/models\ntests: core/src/lib.rs (unit_tests.rs)\n' "{{repo}}" "{{ref}}" "$rev" > jackdaw/src/dsl/UPSTREAM
     echo "jackdaw/src/dsl now at $rev"
     git status --short jackdaw/src/dsl
 

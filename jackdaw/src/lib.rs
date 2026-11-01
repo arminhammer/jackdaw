@@ -150,6 +150,12 @@ pub mod cache;
 #[allow(missing_docs, rustdoc::all, clippy::all, clippy::pedantic, clippy::restriction)]
 #[rustfmt::skip]
 pub mod dsl;
+// The SDK's own unit tests, vendored from its lib.rs by `just update-dsl`.
+#[cfg(all(test, feature = "yaml"))]
+#[allow(unused, clippy::all, clippy::pedantic, clippy::restriction)]
+#[rustfmt::skip]
+#[path = "dsl/unit_tests.rs"]
+mod dsl_unit_tests;
 pub mod guide;
 pub mod persistence;
 pub mod prelude;
