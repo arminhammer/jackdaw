@@ -263,13 +263,6 @@ jobs:
       fail-fast: false
       matrix:
         store: [sqlite, postgres]
-        include:
-          - store: sqlite
-            concurrency: 8
-          # Several at once, the subscription-billing scenarios lose cycles on Postgres: the harness moves the clock
-          # while a write is still in flight (see library-refactor.md).
-          - store: postgres
-            concurrency: 1
     services:
       postgres:
         image: postgres:16
@@ -301,7 +294,6 @@ jobs:
         run: cargo test -p jackdaw-wf --test lib_features
         env:
           JACKDAW_TEST_STORE: ${{ matrix.store }}
-          JACKDAW_SCENARIO_CONCURRENCY: ${{ matrix.concurrency }}
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/jackdaw_test
 
   build:
