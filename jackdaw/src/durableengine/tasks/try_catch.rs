@@ -51,7 +51,7 @@ pub async fn exec_try_task(
                                 } else {
                                     // If extraction failed, create a generic error object
                                     serde_json::json!({
-                                        "type": "https://open-workflow-specification.org/dsl/errors/types/runtime",
+                                        "type": "https://open-workflow-specification.org/spec/1.0.0/errors/runtime",
                                         "status": 500,
                                         "title": "Runtime Error",
                                         "detail": error_str,
@@ -61,7 +61,7 @@ pub async fn exec_try_task(
                             } else {
                                 // No JSON found, create a generic error object
                                 serde_json::json!({
-                                    "type": "https://open-workflow-specification.org/dsl/errors/types/runtime",
+                                    "type": "https://open-workflow-specification.org/spec/1.0.0/errors/runtime",
                                     "status": 500,
                                     "title": "Runtime Error",
                                     "detail": error_str,
@@ -137,8 +137,13 @@ fn should_catch_error(
 
         match actual_value {
             Some(actual) => {
-                // Compare values - need to handle different types
-                if !values_match(expected_value, actual) {
+                // Compare values - need to handle different types. An error type matches in any of its spellings.
+                let matches = if key == "type" {
+                    error_types_match(expected_value, actual)
+                } else {
+                    values_match(expected_value, actual)
+                };
+                if !matches {
                     return false;
                 }
             }
@@ -149,6 +154,37 @@ fn should_catch_error(
     }
 
     true
+}
+
+/// Where the spec puts its standard error types (the DSL reference's "Standard Error Types").
+const ERROR_TYPES: &str = "https://open-workflow-specification.org/spec/1.0.0/errors/";
+
+/// Older spellings of the standard error types: the spec 1.0.0 original, the form jackdaw 0.1 raised, and the form
+/// the specification's CTK still filters on (open-workflow-specification/specification#1199).
+const LEGACY_ERROR_TYPES: [&str; 3] = [
+    "https://serverlessworkflow.io/spec/1.0.0/errors/",
+    "https://serverlessworkflow.io/dsl/errors/types/",
+    "https://open-workflow-specification.org/dsl/errors/types/",
+];
+
+/// A standard error type in the spelling the spec gives it now; any other type as it is.
+fn canonical_error_type(uri: &str) -> std::borrow::Cow<'_, str> {
+    LEGACY_ERROR_TYPES
+        .iter()
+        .find_map(|prefix| uri.strip_prefix(prefix))
+        .map_or(std::borrow::Cow::Borrowed(uri), |name| {
+            std::borrow::Cow::Owned(format!("{ERROR_TYPES}{name}"))
+        })
+}
+
+/// Compare two error types, treating the older spellings of a standard type as that type
+fn error_types_match(expected: &serde_json::Value, actual: &serde_json::Value) -> bool {
+    match (expected, actual) {
+        (serde_json::Value::String(e), serde_json::Value::String(a)) => {
+            canonical_error_type(e) == canonical_error_type(a)
+        }
+        _ => values_match(expected, actual),
+    }
 }
 
 /// Compare two JSON values for equality, handling different numeric types
@@ -163,5 +199,47 @@ fn values_match(expected: &serde_json::Value, actual: &serde_json::Value) -> boo
         (serde_json::Value::Bool(e), serde_json::Value::Bool(a)) => e == a,
         (serde_json::Value::Null, serde_json::Value::Null) => true,
         _ => expected == actual,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn standard_error_types_match_in_every_spelling() {
+        let current =
+            json!("https://open-workflow-specification.org/spec/1.0.0/errors/communication");
+        for legacy in [
+            "https://serverlessworkflow.io/spec/1.0.0/errors/communication",
+            "https://serverlessworkflow.io/dsl/errors/types/communication",
+            "https://open-workflow-specification.org/dsl/errors/types/communication",
+        ] {
+            assert!(error_types_match(&json!(legacy), &current), "{legacy}");
+            assert!(error_types_match(&current, &json!(legacy)), "{legacy}");
+        }
+    }
+
+    #[test]
+    fn different_error_types_do_not_match() {
+        assert!(!error_types_match(
+            &json!("https://open-workflow-specification.org/dsl/errors/types/communication"),
+            &json!("https://open-workflow-specification.org/spec/1.0.0/errors/runtime"),
+        ));
+        assert!(!error_types_match(
+            &json!("https://example.com/errors/communication"),
+            &json!("https://open-workflow-specification.org/spec/1.0.0/errors/communication"),
+        ));
+    }
+
+    #[test]
+    fn custom_error_types_match_exactly() {
+        let custom = json!("https://example.com/errors/out-of-stock");
+        assert!(error_types_match(&custom, &custom));
+        assert_eq!(
+            canonical_error_type("https://example.com/errors/out-of-stock"),
+            "https://example.com/errors/out-of-stock"
+        );
     }
 }

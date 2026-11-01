@@ -13,29 +13,32 @@ use std::time::Duration;
 ///
 /// These are the error types the Open Workflow Specification defines. A `try`/`catch` in a YAML workflow filters
 /// on them, and so can a Rust workflow by matching [`Fault::kind`].
+///
+/// A YAML `catch` also accepts their older spellings, `https://serverlessworkflow.io/spec/1.0.0/errors/<type>` and
+/// `.../dsl/errors/types/<type>` on either domain; comparing [`Fault::kind`] in Rust is exact.
 pub mod error_types {
     /// A configuration problem, such as a missing or invalid setting.
     pub const CONFIGURATION: &str =
-        "https://open-workflow-specification.org/dsl/errors/types/configuration";
+        "https://open-workflow-specification.org/spec/1.0.0/errors/configuration";
     /// Input or output did not match what was required.
     pub const VALIDATION: &str =
-        "https://open-workflow-specification.org/dsl/errors/types/validation";
+        "https://open-workflow-specification.org/spec/1.0.0/errors/validation";
     /// An expression could not be evaluated.
     pub const EXPRESSION: &str =
-        "https://open-workflow-specification.org/dsl/errors/types/expression";
+        "https://open-workflow-specification.org/spec/1.0.0/errors/expression";
     /// Authentication failed.
     pub const AUTHENTICATION: &str =
-        "https://open-workflow-specification.org/dsl/errors/types/authentication";
+        "https://open-workflow-specification.org/spec/1.0.0/errors/authentication";
     /// The caller is not allowed to do this.
     pub const AUTHORIZATION: &str =
-        "https://open-workflow-specification.org/dsl/errors/types/authorization";
+        "https://open-workflow-specification.org/spec/1.0.0/errors/authorization";
     /// Something took too long.
-    pub const TIMEOUT: &str = "https://open-workflow-specification.org/dsl/errors/types/timeout";
+    pub const TIMEOUT: &str = "https://open-workflow-specification.org/spec/1.0.0/errors/timeout";
     /// A network or protocol failure talking to another system.
     pub const COMMUNICATION: &str =
-        "https://open-workflow-specification.org/dsl/errors/types/communication";
+        "https://open-workflow-specification.org/spec/1.0.0/errors/communication";
     /// Anything else that went wrong while running. The default for errors a task returns with `?`.
-    pub const RUNTIME: &str = "https://open-workflow-specification.org/dsl/errors/types/runtime";
+    pub const RUNTIME: &str = "https://open-workflow-specification.org/spec/1.0.0/errors/runtime";
 }
 
 /// A workflow-level error with the fields of an [RFC 7807] problem, as the Open Workflow Specification defines them.

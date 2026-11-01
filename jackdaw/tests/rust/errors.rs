@@ -52,11 +52,11 @@ fn a_fault_displays_its_type_status_and_detail() {
 fn error_types_are_the_specs_uris() {
     assert_eq!(
         error_types::COMMUNICATION,
-        "https://open-workflow-specification.org/dsl/errors/types/communication"
+        "https://open-workflow-specification.org/spec/1.0.0/errors/communication"
     );
     assert_eq!(
         error_types::RUNTIME,
-        "https://open-workflow-specification.org/dsl/errors/types/runtime"
+        "https://open-workflow-specification.org/spec/1.0.0/errors/runtime"
     );
 }
 

@@ -283,7 +283,7 @@ async fn execute_swagger_v2_spec(
 
     if !status.is_success() {
         let error_obj = serde_json::json!({
-            "type": "https://open-workflow-specification.org/dsl/errors/types/communication",
+            "type": "https://open-workflow-specification.org/spec/1.0.0/errors/communication",
             "status": status.as_u16(),
             "title": format!("HTTP {} Error", status.as_u16()),
             "detail": format!("{} request to {} failed with status {}", method.to_uppercase(), url, status),
@@ -463,7 +463,7 @@ async fn execute_openapi_v3_spec(
 
     if !status.is_success() {
         let error_obj = serde_json::json!({
-            "type": "https://open-workflow-specification.org/dsl/errors/types/communication",
+            "type": "https://open-workflow-specification.org/spec/1.0.0/errors/communication",
             "status": status.as_u16(),
             "title": format!("HTTP {} Error", status.as_u16()),
             "detail": format!("{} request to {} failed with status {}", method.to_uppercase(), url, status),

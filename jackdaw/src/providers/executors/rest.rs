@@ -114,7 +114,7 @@ impl Executor for RestExecutor {
                 if treat_as_error {
                     // Create a structured error object
                     let error_obj = serde_json::json!({
-                        "type": "https://open-workflow-specification.org/dsl/errors/types/communication",
+                        "type": "https://open-workflow-specification.org/spec/1.0.0/errors/communication",
                         "status": status.as_u16(),
                         "title": format!("HTTP {} Error", status.as_u16()),
                         "detail": format!("{} request to {} failed with status {}", method.to_uppercase(), endpoint, status),
@@ -176,7 +176,7 @@ impl Executor for RestExecutor {
             Err(e) => {
                 // Network or other error
                 let error_obj = serde_json::json!({
-                    "type": "https://open-workflow-specification.org/dsl/errors/types/communication",
+                    "type": "https://open-workflow-specification.org/spec/1.0.0/errors/communication",
                     "status": 500,
                     "title": "Communication Error",
                     "detail": e.to_string(),

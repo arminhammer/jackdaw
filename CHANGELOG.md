@@ -52,6 +52,9 @@ an optional part of the same engine. The CLI is now a separate crate built on th
   `jackdaw` on crates.io belongs to another project) and is still imported as `jackdaw`.
 - **Breaking:** the YAML interpreter's types (`DurableEngine`, `DurableEngineBuilder`, the expression and context
   modules) are private; YAML workflows run through `Engine`.
+- **Breaking:** the standard error types are the URIs the specification's DSL reference gives,
+  `https://open-workflow-specification.org/spec/1.0.0/errors/<type>` (`api::error_types`); 0.1 raised
+  `https://serverlessworkflow.io/dsl/errors/types/<type>`. A YAML `catch` still matches the older spellings.
 - The YAML interpreter uses the engine's clock, saves a checkpoint when an instance starts, stores failures, and stops
   its runs when the engine is dropped.
 - YAML HTTP and gRPC listeners fail the workflow when they cannot bind their port (before, the error was only logged),
