@@ -9,6 +9,8 @@ The workspace publishes three crates with the same version: `jackdaw-wf` (the li
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-01
+
 ### Fixed
 
 - The YAML interpreter's HTTP listener passes path parameters under the names the route gives them, and adds the
@@ -140,6 +142,7 @@ an optional part of the same engine. The CLI is now a separate crate built on th
 
 The CLI release before the library refactor; see the GitHub release.
 
-[Unreleased]: https://github.com/arminhammer/jackdaw/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/arminhammer/jackdaw/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/arminhammer/jackdaw/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/arminhammer/jackdaw/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/arminhammer/jackdaw/releases/tag/v0.1.1
