@@ -140,28 +140,6 @@ lint-panics:
 check:
     cargo check
 
-
-# Run full CI pipeline locally
-ci:
-    cargo build
-    ./target/debug/jackdaw run .ci/ci.sw.yaml \
-        --durable-db .ci/ci-persistence.db \
-        --cache-db .ci/ci-cache.db \
-        --verbose
-
-# Run CI and force re-execution (skip cache)
-ci-clean:
-    cargo build
-    ./target/debug/jackdaw run .ci/ci.sw.yaml \
-        --durable-db .ci/ci-persistence.db \
-        --cache-db .ci/ci-cache.db \
-        --no-cache \
-        --verbose
-
-# Clean CI databases
-ci-reset:
-    rm -f .ci/ci-persistence.db .ci/ci-cache.db
-
 # ============================================================================
 # Release Binary Building
 # ============================================================================

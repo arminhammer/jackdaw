@@ -69,6 +69,8 @@ an optional part of the same engine. The CLI is now a separate crate built on th
 ### Removed
 
 - The Python bindings.
+- The `.ci` pipeline written as a jackdaw workflow, and its `just ci`, `ci-clean` and `ci-reset` recipes (CI runs on
+  GitHub Actions).
 - `serverless_workflow_core` as a git dependency (its models are vendored as `jackdaw::dsl`).
 
 ## [0.1.1] - 2025-12-31
