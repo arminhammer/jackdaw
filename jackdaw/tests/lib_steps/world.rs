@@ -227,11 +227,8 @@ impl LibWorld {
             builder = match self.store_kind().as_str() {
                 "sqlite" => {
                     let path = self.dir.path().join("jackdaw.sqlite");
-                    let store = tokio::task::block_in_place(|| {
-                        tokio::runtime::Handle::current()
-                            .block_on(jackdaw::api::Sqlite::open(&path))
-                    })
-                    .expect("the scenario's SQLite store opens");
+                    let store = open_blocking(jackdaw::api::Sqlite::open(&path))
+                        .expect("the scenario's SQLite store opens");
                     builder.store(store)
                 }
                 "postgres" => {
@@ -239,11 +236,8 @@ impl LibWorld {
                         .postgres_url
                         .clone()
                         .expect("a Postgres database for the scenario");
-                    let store = tokio::task::block_in_place(|| {
-                        tokio::runtime::Handle::current()
-                            .block_on(jackdaw::api::Postgres::connect(&url))
-                    })
-                    .expect("the scenario's Postgres store connects");
+                    let store = open_blocking(jackdaw::api::Postgres::connect(&url))
+                        .expect("the scenario's Postgres store connects");
                     builder.store(store)
                 }
                 _ => builder.store(
@@ -552,4 +546,21 @@ impl LibWorld {
         self.clock.advance_to(target);
         self.quiesce_until(target).await;
     }
+}
+
+/// Runs `open` to completion from synchronous code (the scenario's engine builder) on a thread of its own.
+///
+/// Not with `Handle::block_on` on the calling thread: steps run on the thread that polls every scenario, and a
+/// `block_on` nested there parks on that thread's parker, taking the wakeups meant for the other scenarios. Those
+/// scenarios were then never polled again, and a run with several SQL-store scenarios at once stalled.
+fn open_blocking<T: Send>(open: impl std::future::Future<Output = T> + Send) -> T {
+    let handle = tokio::runtime::Handle::current();
+    tokio::task::block_in_place(|| {
+        std::thread::scope(|scope| {
+            scope
+                .spawn(|| handle.block_on(open))
+                .join()
+                .expect("opening the store did not panic")
+        })
+    })
 }

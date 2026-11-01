@@ -302,6 +302,16 @@ async fn dropped_while(world: &mut LibWorld, task: String) {
     }
     let probe = Arc::clone(&world.probe);
     world.until("the task runs", || probe.running(&task)).await;
+    if task == "Refund" || task == "refund" {
+        // "ReleaseStock" compensates alongside it. Crash once its result is in the store: a slower store (SQLite,
+        // Postgres) may not have recorded it yet, and a step whose record was lost rightly runs again.
+        world
+            .until("ReleaseStock finishes", || {
+                probe.completed("release_stock") == 1
+            })
+            .await;
+        super::durability::completions_durable(world, "release_stock", 1).await;
+    }
     world.crash().await;
 }
 
@@ -341,8 +351,8 @@ fn ship_fails_refund_blocks(world: &mut LibWorld) {
 async fn each_completed_once(world: &mut LibWorld) {
     let last = world.last();
     world.outcome(last).await.fault();
-    assert_eq!(world.probe.completed("refund"), 1);
-    assert_eq!(world.probe.completed("release_stock"), 1);
+    assert_eq!(world.probe.completed("refund"), 1, "Refund");
+    assert_eq!(world.probe.completed("release_stock"), 1, "ReleaseStock");
 }
 
 #[when(
