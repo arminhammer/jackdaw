@@ -962,10 +962,41 @@ async fn dropped_in_second(world: &mut LibWorld) {
     world.start("it", input).await;
     let probe = Arc::clone(&world.probe);
     match second_kind(world) {
-        SecondStep::Task | SecondStep::Child | SecondStep::ForEach => {
+        SecondStep::Task | SecondStep::Child => {
             world
                 .until("the second step runs", || probe.running("dur_second"))
                 .await;
+        }
+        SecondStep::ForEach => {
+            // Item 3 blocks; others run beside it. Crash once every other item that started has finished and its
+            // result is stored: one that finished but was not yet recorded would rightly run again.
+            world
+                .until("item 3 runs and the others it ran beside finished", || {
+                    let calls = probe.calls_of("dur_second");
+                    let others = calls.iter().filter(|call| call.input != json!(3));
+                    calls
+                        .iter()
+                        .any(|call| call.input == json!(3) && call.ended.is_none())
+                        && others.clone().count() >= 2
+                        && others.clone().all(|call| call.ended.is_some())
+                })
+                .await;
+            // An item may start just as the one before it finishes: let it, without moving the clock.
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            world
+                .until_frozen("the items beside item 3 finished", || {
+                    probe
+                        .calls_of("dur_second")
+                        .iter()
+                        .all(|call| call.input == json!(3) || call.ended.is_some())
+                })
+                .await;
+            let finished = probe
+                .calls_of("dur_second")
+                .iter()
+                .filter(|call| call.input != json!(3) && call.ended.is_some())
+                .count();
+            completions_durable(world, "second", finished).await;
         }
         SecondStep::Retrying => {
             world
