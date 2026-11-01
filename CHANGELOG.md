@@ -57,7 +57,7 @@ an optional part of the same engine. The CLI is now a separate crate built on th
 - YAML HTTP and gRPC listeners fail the workflow when they cannot bind their port (before, the error was only logged),
   and the HTTP listener uses axum 0.8.
 - `jackdaw run` prints its result when the output is not a terminal.
-- The minimum supported Rust version is 1.90.
+- The minimum supported Rust version is 1.94.
 
 ### Removed
 

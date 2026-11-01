@@ -89,16 +89,16 @@ jobs:
 
       # Keep in sync with `rust-version` in the root Cargo.toml.
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@1.90
+        uses: dtolnay/rust-toolchain@1.94
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
           key: msrv
 
-      # `+1.90` because rust-toolchain.toml would otherwise select the pinned development toolchain.
+      # `+1.94` because rust-toolchain.toml would otherwise select the pinned development toolchain.
       - name: Check the workspace on the MSRV
-        run: cargo +1.90 check --workspace --all-features --locked
+        run: cargo +1.94 check --workspace --all-features --locked
 
   package:
     name: Package (publish dry run)
@@ -291,16 +291,6 @@ jobs:
       - name: Install cargo-audit
         run: cargo install cargo-audit
 
-      # Fails on any vulnerability not listed here (unmaintained-crate warnings are reported, not fatal):
-      # - RUSTSEC-2023-0071 (rsa, timing side channel): only through sqlx-mysql, which Cargo.lock lists but nothing
-      #   builds (jackdaw enables sqlx's sqlite and postgres drivers only).
-      # - RUSTSEC-2025-0111 (tokio-tar, PAX headers): only through testcontainers, a dev-dependency of the test suites.
-      # - RUSTSEC-2025-0119 (number_prefix, unmaintained): through indicatif 0.17, in the CLI.
-      # - RUSTSEC-2025-0134 (rustls-pemfile, unmaintained): through bollard 0.18 (the `docker` feature).
+      # Fails on any vulnerability; unmaintained-crate warnings are reported, not fatal.
       - name: Run security audit
-        run: |
-          cargo audit \
-            --ignore RUSTSEC-2023-0071 \
-            --ignore RUSTSEC-2025-0111 \
-            --ignore RUSTSEC-2025-0119 \
-            --ignore RUSTSEC-2025-0134
+        run: cargo audit

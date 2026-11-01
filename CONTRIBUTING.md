@@ -9,7 +9,7 @@
 | `jackdaw-cli` | `jackdaw-cli/` | The `jackdaw` binary, built only on the library's public API. |
 
 The development toolchain is pinned in `rust-toolchain.toml`; the oldest supported one is the workspace's
-`rust-version` (1.90), checked in CI. Run `just init` once for the cross-compilation tools and `just submodules` for
+`rust-version` (1.94), checked in CI. Run `just init` once for the cross-compilation tools and `just submodules` for
 the Serverless Workflow specification and conformance tests.
 
 ## Tests

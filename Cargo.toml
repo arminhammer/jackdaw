@@ -11,8 +11,8 @@ members = [
 [workspace.package]
 version = "0.2.0"
 edition = "2024"
-# The oldest toolchain that builds the workspace and its dependencies (ordered-float needs 1.90).
-rust-version = "1.90"
+# The oldest toolchain that builds the workspace and its dependencies (sqlx 0.9 needs 1.94).
+rust-version = "1.94"
 authors = ["Armin Graf"]
 license = "Apache-2.0"
 repository = "https://github.com/arminhammer/jackdaw"

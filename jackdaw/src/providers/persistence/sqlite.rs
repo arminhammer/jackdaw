@@ -283,13 +283,16 @@ impl PersistenceProvider for SqlitePersistence {
             "workflow_journal",
             "workflow_leases",
         ] {
-            sqlx::query(&format!("DELETE FROM {table} WHERE instance_id = ?"))
-                .bind(instance_id)
-                .execute(&mut *transaction)
-                .await
-                .map_err(|e| Error::Database {
-                    message: format!("Failed to delete from {table}: {e}"),
-                })?;
+            // `table` is one of the constants above, never input.
+            sqlx::query(sqlx::AssertSqlSafe(format!(
+                "DELETE FROM {table} WHERE instance_id = ?"
+            )))
+            .bind(instance_id)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|e| Error::Database {
+                message: format!("Failed to delete from {table}: {e}"),
+            })?;
         }
         transaction.commit().await.map_err(|e| Error::Database {
             message: format!("Failed to commit the deletion: {e}"),

@@ -52,7 +52,7 @@ jackdaw run hello-world.sw.yaml --debug
 cargo install jackdaw-cli --locked
 ```
 
-This builds from source (Rust 1.90 or newer) and installs a `jackdaw` binary into `~/.cargo/bin`. With
+This builds from source (Rust 1.94 or newer) and installs a `jackdaw` binary into `~/.cargo/bin`. With
 [cargo-binstall](https://github.com/cargo-bins/cargo-binstall), `cargo binstall jackdaw-cli` downloads the prebuilt
 binary from the GitHub release instead.
 

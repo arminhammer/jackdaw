@@ -28,7 +28,8 @@ async fn fresh_postgres_database() -> String {
     let mut connection = sqlx::PgConnection::connect(&admin)
         .await
         .expect("connect to Postgres");
-    sqlx::query(&format!("CREATE DATABASE {name}"))
+    // `name` is generated above (a UUID), never input.
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE DATABASE {name}")))
         .execute(&mut connection)
         .await
         .expect("create a scenario database");
@@ -45,9 +46,12 @@ pub async fn drop_postgres_database(url: &str) {
         return;
     };
     if let Ok(mut connection) = sqlx::PgConnection::connect(&admin).await {
-        let _ = sqlx::query(&format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"))
-            .execute(&mut connection)
-            .await;
+        // `name` is one this file generated.
+        let _ = sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP DATABASE IF EXISTS {name} WITH (FORCE)"
+        )))
+        .execute(&mut connection)
+        .await;
     }
 }
 

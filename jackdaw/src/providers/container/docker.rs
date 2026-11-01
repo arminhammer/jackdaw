@@ -1,11 +1,10 @@
 use crate::container::{ContainerConfig, ContainerProvider, ContainerResult, Error, Result};
 use async_trait::async_trait;
 use bollard::Docker;
-use bollard::container::{
-    AttachContainerOptions, Config, RemoveContainerOptions, StartContainerOptions,
+use bollard::models::{ContainerCreateBody, HostConfig, PortBinding};
+use bollard::query_parameters::{
+    AttachContainerOptions, CreateImageOptions, RemoveContainerOptions, StartContainerOptions,
 };
-use bollard::image::CreateImageOptions;
-use bollard::models::{HostConfig, PortBinding};
 use futures::StreamExt;
 use std::collections::HashMap;
 use tokio::io::AsyncWriteExt;
@@ -69,13 +68,13 @@ impl ContainerProvider for DockerProvider {
 
         // Prepare port bindings
         let (exposed_ports, port_bindings) = if let Some(ports) = config.ports.as_ref() {
-            let mut exposed = HashMap::new();
+            let mut exposed = Vec::new();
             let mut bindings = HashMap::new();
 
             for (container_port, host_port) in ports {
-                // Exposed ports format: "8080/tcp" -> {}
+                // Exposed ports format: "8080/tcp"
                 let port_key = format!("{container_port}/tcp");
-                exposed.insert(port_key.clone(), HashMap::new());
+                exposed.push(port_key.clone());
 
                 // Port bindings format: "8080/tcp" -> [{"HostPort": "8080"}]
                 bindings.insert(
@@ -111,8 +110,8 @@ impl ContainerProvider for DockerProvider {
         };
 
         let create_image_options = CreateImageOptions {
-            from_image: image_name,
-            tag: image_tag,
+            from_image: Some(image_name.to_string()),
+            tag: Some(image_tag.to_string()),
             ..Default::default()
         };
 
@@ -128,7 +127,7 @@ impl ContainerProvider for DockerProvider {
         }
 
         // Create container configuration
-        let container_config = Config {
+        let container_config = ContainerCreateBody {
             image: Some(config.image.clone()),
             cmd: Some(cmd),
             env,
@@ -147,7 +146,7 @@ impl ContainerProvider for DockerProvider {
         // Create container
         let container = self
             .docker
-            .create_container::<String, String>(None, container_config)
+            .create_container(None, container_config)
             .await
             .map_err(|e| Error::Creation {
                 message: format!("Failed to create container: {e}"),
@@ -156,12 +155,12 @@ impl ContainerProvider for DockerProvider {
         let container_id = container.id.clone();
 
         // Attach to container before starting it
-        let attach_options = AttachContainerOptions::<String> {
-            stdin: Some(config.stdin.is_some()),
-            stdout: Some(true),
-            stderr: Some(true),
-            stream: Some(true),
-            logs: Some(false),
+        let attach_options = AttachContainerOptions {
+            stdin: config.stdin.is_some(),
+            stdout: true,
+            stderr: true,
+            stream: true,
+            logs: false,
             detach_keys: None,
         };
 
@@ -175,7 +174,7 @@ impl ContainerProvider for DockerProvider {
 
         // Start container
         self.docker
-            .start_container(&container_id, None::<StartContainerOptions<String>>)
+            .start_container(&container_id, None::<StartContainerOptions>)
             .await
             .map_err(|e| Error::Start {
                 message: format!("Failed to start container: {e}"),
