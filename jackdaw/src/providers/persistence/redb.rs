@@ -8,7 +8,7 @@ use crate::persistence::{
     Error, JournalRecord, Lease, PersistenceProvider, Result, SerializationSnafu,
 };
 use crate::workflow::{WorkflowCheckpoint, WorkflowEvent};
-use redb::ReadableTable as _;
+use redb::{ReadableDatabase as _, ReadableTable as _};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 #[derive(Debug)]
