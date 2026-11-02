@@ -33,8 +33,8 @@ All three are released together, at the same version.
   whose message names the replacement.
 - **One engine for Rust and YAML.** They share events and storage, and they call each other: Rust runs YAML
   workflows, and YAML calls Rust tasks.
-- **Operational features.** Retries, timeouts, heartbeats, caching, durable timers, cron schedules, leases for
-  several engines on one store, retention, `tracing` spans and `metrics`.
+- **Operational features.** Retries, timeouts, heartbeats, caching, named concurrency limits, durable timers, cron
+  schedules, leases for several engines on one store, retention, `tracing` spans and `metrics`.
 - **Pluggable storage.** Redb (embedded, the default), SQLite and Postgres, or your own store.
 - **Serve APIs from workflows.** Listeners start a workflow for each request to an OpenAPI operation or a gRPC
   method, with requests checked against the OpenAPI document.

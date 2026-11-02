@@ -126,6 +126,14 @@ impl Traces {
             .expect("a recorded span")
     }
 
+    /// Every event message recorded, in order.
+    pub fn messages(&self) -> Vec<String> {
+        lock(&self.events)
+            .iter()
+            .map(|event| event.message.clone())
+            .collect()
+    }
+
     pub fn events(&self, message: &str) -> Vec<EventRecord> {
         lock(&self.events)
             .iter()
@@ -195,7 +203,7 @@ pub fn keep_callsites_interested() -> tracing::Dispatch {
 }
 
 /// The scenario's recording subscriber (installed on first use).
-fn dispatch(world: &mut LibWorld) -> (tracing::Dispatch, Arc<Traces>) {
+pub fn dispatch(world: &mut LibWorld) -> (tracing::Dispatch, Arc<Traces>) {
     let traces = Arc::clone(world.traces.get_or_insert_with(Arc::default));
     let subscriber = tracing_subscriber::registry().with(Recording(Arc::clone(&traces)));
     (tracing::Dispatch::new(subscriber), traces)

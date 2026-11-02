@@ -17,6 +17,7 @@ mod executor;
 #[cfg(feature = "yaml")]
 mod fence;
 mod helpers;
+mod limits;
 #[cfg(any(feature = "http-listener", feature = "grpc-listener"))]
 pub(crate) mod listener;
 pub(crate) mod observe;

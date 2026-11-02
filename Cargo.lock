@@ -1955,7 +1955,7 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "jackdaw-cli"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "clap",
  "config",
@@ -1976,7 +1976,7 @@ dependencies = [
 
 [[package]]
 name = "jackdaw-wf"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "async-recursion",
  "async-trait",
@@ -2033,7 +2033,7 @@ dependencies = [
 
 [[package]]
 name = "jackdaw-wf-macros"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "proc-macro2",
  "quote",

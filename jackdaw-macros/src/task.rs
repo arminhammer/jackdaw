@@ -42,6 +42,14 @@ fn task_name(args: &Args, ident: &Ident) -> LitStr {
         .unwrap_or_else(|| LitStr::new(&ident.to_string(), ident.span()))
 }
 
+/// `native`, naming the limit its calls wait for when the attribute sets one.
+fn with_limit(native: TokenStream, args: &Args) -> TokenStream {
+    match &args.limit {
+        Some(limit) => quote!(#native.limit(#limit)),
+        None => native,
+    }
+}
+
 pub fn expand_fn(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
     let args = Args::parse(attr)?;
     let function: ItemFn = syn::parse2(item)?;
@@ -96,6 +104,7 @@ pub fn expand_fn(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStrea
             )
         }
     };
+    let native = with_limit(native, &args);
     let doc = format!(
         "Typed marker for the `{name}` task: pass it to `ctx.call(..)` or `Engine::task(..)`.",
         name = name.value()
@@ -192,9 +201,8 @@ pub fn expand_impl(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStr
         } else {
             quote!(_ctx)
         };
-        registrations.push(quote! {
-            {
-                let this = ::std::sync::Arc::clone(&self);
+        let native = with_limit(
+            quote! {
                 ::jackdaw::__private::NativeTask::new::<#input, #output, _, _>(
                     #name, #cached,
                     move |#ctx_param, input| {
@@ -202,6 +210,13 @@ pub fn expand_impl(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStr
                         async move { #invoke }
                     },
                 )
+            },
+            &args,
+        );
+        registrations.push(quote! {
+            {
+                let this = ::std::sync::Arc::clone(&self);
+                #native
             }
         });
         consts.push(quote! {

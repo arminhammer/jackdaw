@@ -783,6 +783,8 @@ pub(crate) struct Shared {
     pub schedules_changed: Arc<Notify>,
     /// Several engines share the store: instances are leased (see `EngineBuilder::lease`).
     pub leasing: Option<Leasing>,
+    /// How many calls of some tasks may run at once (see `EngineBuilder::limit`).
+    pub limits: Arc<super::limits::Limits>,
 }
 
 /// Engines on a store without leases must be alone on it. Within a process that is checked: each engine records
@@ -840,7 +842,21 @@ pub(crate) async fn tend_leases(shared: Weak<Shared>) {
             };
             (leasing.poll, leasing.ttl, leasing.owner.clone())
         };
+        let asleep = std::time::Instant::now();
         tokio::time::sleep(poll).await;
+        // Waking this late means the runtime's threads were busy elsewhere, and the leases went unrenewed meanwhile:
+        // long enough, and another engine takes the instances over.
+        let overslept = asleep.elapsed().saturating_sub(poll);
+        if overslept > ttl / 4 {
+            tracing::warn!(
+                engine = %owner,
+                late_ms = u64::try_from(overslept.as_millis()).unwrap_or(u64::MAX),
+                lease_ttl_ms = u64::try_from(ttl.as_millis()).unwrap_or(u64::MAX),
+                "lease renewal ran late: the async runtime's threads were busy for {overslept:?} (leases last \
+                 {ttl:?}), so another engine may take this engine's instances over. Code that blocks or computes for \
+                 long in an async task holds a runtime thread; make it a `#[task(blocking)]` task instead"
+            );
+        }
         let Some(shared) = shared.upgrade() else {
             return;
         };
@@ -969,6 +985,7 @@ impl Shared {
             schedules_changed: Arc::new(Notify::new()),
             crash_after: Mutex::new(None),
             leasing: None,
+            limits: Arc::default(),
         }
     }
 
@@ -2863,7 +2880,7 @@ impl InstanceCore {
         name: &str,
         options: &TaskOptions,
     ) -> Result<Outcome, Error> {
-        let (task, cache) = {
+        let (task, cache, limits) = {
             let shared = self.shared()?;
             let task = shared
                 .registry
@@ -2871,7 +2888,7 @@ impl InstanceCore {
                 .get(name)
                 .ok_or_else(|| Error::invalid(format!("no task named `{name}` is registered")))?
                 .clone();
-            (task, Arc::clone(&shared.cache))
+            (task, Arc::clone(&shared.cache), Arc::clone(&shared.limits))
         };
         let cache_key = compute_cache_key(name, &spec.input);
         let cached = options.cache.unwrap_or(task.cached);
@@ -2883,11 +2900,13 @@ impl InstanceCore {
         let mut attempt = 1;
         loop {
             tracing::Span::current().record("attempt", attempt);
+            // Taken before the heartbeat watch starts: a call waiting for its permit cannot send heartbeats.
+            let permit = limits.acquire(&task).await;
             let context =
                 TaskContext::new(&self.id, name, attempt, format!("{}/{}", self.id, spec.seq))
                     .with_cancel(self.cancel.subscribe())
                     .with_heartbeat(Arc::clone(&heartbeat));
-            let call = task.invoke(context, spec.input.clone());
+            let call = task.invoke(context, spec.input.clone(), permit);
             let result = match options.heartbeat_timeout {
                 Some(limit) => {
                     tokio::select! {

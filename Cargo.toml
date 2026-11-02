@@ -9,7 +9,7 @@ members = [
 # Shared by all crates. Publish them together: jackdaw's macros expand to paths in jackdaw, so the two are pinned to
 # each other with `=` and must have the same version.
 [workspace.package]
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 # The oldest toolchain that builds the workspace and its dependencies (sqlx 0.9 needs 1.94).
 rust-version = "1.94"
@@ -18,8 +18,8 @@ license = "Apache-2.0"
 repository = "https://github.com/arminhammer/jackdaw"
 
 [workspace.dependencies]
-jackdaw = { package = "jackdaw-wf", path = "jackdaw", version = "=0.2.1" }
-jackdaw-macros = { package = "jackdaw-wf-macros", path = "jackdaw-macros", version = "=0.2.1" }
+jackdaw = { package = "jackdaw-wf", path = "jackdaw", version = "=0.2.2" }
+jackdaw-macros = { package = "jackdaw-wf-macros", path = "jackdaw-macros", version = "=0.2.2" }
 
 [workspace.lints.clippy]
 indexing_slicing = "deny"

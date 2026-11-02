@@ -142,7 +142,10 @@
 //! # fn main() {}
 //! ```
 //!
-//! For bounded parallelism over a list use `ctx.for_each(&items, task).concurrency(8)`. Avoid combinators that start
+//! Each task call runs as a tokio task of its own, so calls started together run in parallel on the runtime's
+//! threads, not just concurrently. For bounded parallelism over a list use `ctx.for_each(&items, task).concurrency(8)`,
+//! and to bound calls across every workflow, give the task a limit (see
+//! [Limiting how many calls run at once](crate::guide::tasks#limiting-how-many-calls-run-at-once)). Avoid combinators that start
 //! work in completion order, such as `buffer_unordered` over `ctx` calls: the order of steps would depend on timing.
 //!
 //! ### Racing: `jackdaw::select!`

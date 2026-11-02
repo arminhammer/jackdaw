@@ -13,6 +13,7 @@ pub struct Args {
     pub source: Option<LitStr>,
     pub cached: bool,
     pub blocking: bool,
+    pub limit: Option<LitStr>,
 }
 
 impl Args {
@@ -33,6 +34,8 @@ impl Args {
                 args.cached = true;
             } else if meta.path.is_ident("blocking") {
                 args.blocking = true;
+            } else if meta.path.is_ident("limit") {
+                args.limit = Some(meta.value()?.parse()?);
             } else {
                 return Err(meta.error("unsupported argument"));
             }
