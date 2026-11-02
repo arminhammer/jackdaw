@@ -192,7 +192,7 @@ impl NodeExecutor {
         if let Some(stdin_data) = stdin {
             if let Some(mut stdin_pipe) = child.stdin.take() {
                 let stdin_data = stdin_data.to_string();
-                tokio::spawn(async move {
+                crate::api::observe::spawn(async move {
                     let _ = stdin_pipe.write_all(stdin_data.as_bytes()).await;
                     let _ = stdin_pipe.flush().await;
                 });
@@ -216,7 +216,7 @@ impl NodeExecutor {
         let stdout_task = {
             let streamer = streamer.clone();
             let mut lines = stdout_reader.lines();
-            tokio::spawn(async move {
+            crate::api::observe::spawn(async move {
                 let mut collected = Vec::new();
                 while let Ok(Some(line)) = lines.next_line().await {
                     if let Some(ref s) = streamer {
@@ -232,7 +232,7 @@ impl NodeExecutor {
         let stderr_task = {
             let streamer = streamer.clone();
             let mut lines = stderr_reader.lines();
-            tokio::spawn(async move {
+            crate::api::observe::spawn(async move {
                 let mut collected = Vec::new();
                 while let Ok(Some(line)) = lines.next_line().await {
                     if let Some(ref s) = streamer {

@@ -14,10 +14,12 @@ mod engine;
 mod error;
 mod event;
 mod executor;
+#[cfg(feature = "yaml")]
+mod fence;
 mod helpers;
 #[cfg(any(feature = "http-listener", feature = "grpc-listener"))]
-mod listener;
-mod observe;
+pub(crate) mod listener;
+pub(crate) mod observe;
 mod runtime;
 mod schedule;
 mod store;
@@ -33,6 +35,7 @@ pub use codec::PayloadCodec;
 pub use context::{Branch, Condition, Either, ForEach, Step, WorkflowContext, race};
 pub use duration::DurationExt;
 #[cfg(feature = "yaml")]
+#[allow(deprecated)]
 pub use engine::set_yaml_trace;
 pub use engine::{
     Engine, EngineBuilder, ExecuteOptions, ExecutionHandle, InstanceDetails, InstanceInfo,

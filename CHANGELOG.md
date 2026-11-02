@@ -9,9 +9,76 @@ The workspace publishes three crates with the same version: `jackdaw-wf` (the li
 
 ## [Unreleased]
 
-## [0.2.0] - unreleased
+## [0.2.1] - 2026-11-01
 
-Set the date when the release is tagged.
+### Fixed
+
+- The YAML interpreter's HTTP listener passes path parameters under the names the route gives them, and adds the
+  query string, for every method. It used to report the last path segment of a GET or DELETE as `petId`, whatever
+  the route said, and drop a GET or DELETE body. Engine listeners and YAML listeners now build a request's input the
+  same way.
+- `#[catalog]` in a build without the `yaml` feature fails with one error that names the feature, instead of errors
+  about missing `__private` items.
+- The docs build without warnings when some features are off.
+- YAML instances appear in `Engine::list`, `Engine::status` and `Engine::describe`, read from the YAML engine's
+  stored events. Before, those saw only Rust instances.
+- With a `PayloadCodec` (`EngineBuilder::codec`), the YAML interpreter's records go through it as well: event
+  payloads (inputs, task results, outputs, published events) and checkpoint data. Before, only Rust instances'
+  journals and history were encoded, and a YAML workflow's data was stored as plain JSON. Records written before
+  still read.
+- With leases on, the YAML interpreter's own store writes for an instance are checked against the lease, as a
+  Rust instance's are. An engine that lost the lease has its writes refused. Before, a stalled engine could write
+  until its next renewal noticed.
+- `Engine::sweep` also purges finished YAML instances older than the retention period. It also deletes the events
+  published on the engine, which are now kept in one store stream per day, after the same period.
+- The YAML interpreter stamps every event and checkpoint it stores with the engine's clock. Some used to take the
+  wall clock, so a custom or test clock gave an instance timestamps from two clocks.
+- The YAML interpreter's own HTTP listener checks requests against the listen task's OpenAPI document, as engine
+  listeners do. The operation is the document path that the listen URI's path ends with (`/api/v1/add` matches
+  `/add`); without one, the body schema named by `resource.name` applies. A document that cannot be read is
+  skipped with a warning.
+- YAML instances are leased like Rust ones under `EngineBuilder::lease`. An engine takes the lease before it starts
+  or resumes one, and renews it while the run lasts. `Engine::recover` skips an instance whose lease another engine
+  holds. Before, two engines could both resume the same YAML instance. The YAML interpreter writes to the store
+  directly, so its writes are not checked against the lease. An engine that loses a lease stops the run at its next
+  renewal.
+- YAML runs, the readers of a script's output, and listener servers keep the caller's `tracing` subscriber, as Rust
+  workflows already did.
+- A YAML `listen` task for events emitted on the engine follows more of the spec:
+  - A string in `with` is a regular expression that the whole attribute must match.
+  - A runtime expression in `with` is evaluated against the workflow's data, and its value is matched the same way.
+  - `correlate` is supported. A `from` value must equal `expect`, or without `expect`, the value the first matching
+    event gave.
+  - A listen task that resumes after a restart also sees the events emitted since it first started. The engine keeps
+    published events in the store for this.
+  - A YAML `emit` task stamps `time` from the engine's clock.
+  - Before, `with` matched only by equality, `correlate` was ignored, and an event emitted while the listening
+    instance's engine was down was lost.
+
+### Changed
+
+- The library no longer prints. The YAML interpreter's trace, the lines a script task prints and listener startup
+  are `tracing` events on the `jackdaw::yaml` target (see "Logs and traces" in the events chapter of the guide).
+  Before, a YAML script task's output went to the process's stdout and stderr, whatever the application did.
+  `set_yaml_trace` is deprecated and does nothing. The gRPC listener's request diagnostics and the OpenAPI caller's
+  request lines are `DEBUG` logs.
+- Engine OpenAPI listeners (`Listener::openapi`) check each request against its operation before a workflow
+  starts:
+  - required parameters;
+  - the schemas of path, query and header parameters;
+  - the JSON request body's schema, with `$ref`s into `components` resolved. An `openapi: 3.0` document's schemas are
+    read as JSON Schema draft 4, a 3.1 one's as 2020-12.
+  A request that does not match gets a `400` listing the problems. A document with an invalid schema is rejected
+  when the listener is built. This adds the `jsonschema` dependency to the `http-listener` feature, without its
+  default features (no remote `$ref`s, no C code). The listener docs now say to terminate TLS in a proxy or
+  sidecar.
+- The `jackdaw` CLI renders that trace as before, and now also prints warnings and errors from the library on stderr
+  (everything with `--verbose`; `RUST_LOG` overrides).
+- `console` is no longer a dependency of the library.
+- CI checks the public API against the latest release with `cargo semver-checks`, and dependency licenses and
+  sources with `cargo deny` (`deny.toml`).
+
+## [0.2.0] - 2026-11-01
 
 Jackdaw becomes a library first: durable workflows written in Rust, with the Open Workflow YAML interpreter as
 an optional part of the same engine. The CLI is now a separate crate built on the library's public API.
@@ -79,6 +146,7 @@ an optional part of the same engine. The CLI is now a separate crate built on th
 
 The CLI release before the library refactor; see the GitHub release.
 
-[Unreleased]: https://github.com/arminhammer/jackdaw/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/arminhammer/jackdaw/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/arminhammer/jackdaw/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/arminhammer/jackdaw/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/arminhammer/jackdaw/releases/tag/v0.1.1

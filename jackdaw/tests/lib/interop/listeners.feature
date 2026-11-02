@@ -12,6 +12,15 @@ Feature: Listeners registered on the engine
     Then the response body is "{\"sum\":5}"
     And an instance of the bound workflow is in the store
 
+  @implemented @http
+  Scenario: A request that does not match the OpenAPI document is rejected
+    Given an engine with an OpenAPI listener whose "addNumbers" operation has a body schema and a boolean query parameter "verbose"
+    When I POST "{\"a\":2,\"b\":\"three\"}" to "/add?verbose=maybe"
+    Then the response is a 400 that names "/b" and "verbose"
+    And no instance of the bound workflow was started
+    When I POST "{\"a\":2,\"b\":3}" to "/add?verbose=true"
+    Then the response body is "{\"sum\":5}"
+
   @implemented @grpc
   Scenario: A gRPC listener starts a workflow per call
     Given an engine built with a gRPC listener for "calculator.proto"

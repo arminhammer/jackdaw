@@ -47,7 +47,6 @@ jaq-json = { version = "1.1.3", features = ["serde_json"], optional = true }
 regex = { version = "1", optional = true }
 petgraph = { version = "0.6", optional = true }
 async-recursion = { version = "1.0", optional = true }
-console = { version = "0.15", optional = true }
 
 # stores
 redb = { version = "4", optional = true }
@@ -64,6 +63,8 @@ bollard = { version = "0.21", optional = true }
 
 # http-listener
 axum = { version = "0.8", optional = true }
+# OpenAPI request validation in the engine's HTTP listener. Without default features: no remote `$ref`s, no C TLS.
+jsonschema = { version = "0.60", default-features = false, optional = true }
 
 # grpc-listener
 tonic = { version = "0.14", optional = true }
@@ -88,7 +89,7 @@ full = ["yaml", "redb", "sqlite", "postgres", "http-client", "openapi", "docker"
 # The Open Workflow YAML interpreter: `jackdaw::dsl`, `api::Workflow` (`from_yaml`, `validate`),
 # `ctx.run_definition` and the engine's YAML registrations. YAML `call: http` needs an HTTP client, so this
 # includes `http-client`.
-yaml = ["http-client", "dep:serde_derive", "dep:jaq-core", "dep:jaq-std", "dep:jaq-json", "dep:regex", "dep:petgraph", "dep:async-recursion", "dep:console", "tokio/rt-multi-thread"]
+yaml = ["http-client", "dep:serde_derive", "dep:jaq-core", "dep:jaq-std", "dep:jaq-json", "dep:regex", "dep:petgraph", "dep:async-recursion", "tokio/rt-multi-thread"]
 
 # Stores and caches.
 redb = ["dep:redb"]
@@ -103,7 +104,7 @@ openapi = ["yaml", "dep:openapiv3-extended"]
 docker = ["dep:bollard"]
 # `api::Listener` (the engine serves HTTP routes or a gRPC service whose requests start workflows), and YAML
 # `listen` tasks on HTTP (OpenAPI) and gRPC.
-http-listener = ["dep:axum", "tokio/net", "tokio/rt-multi-thread"]
+http-listener = ["dep:axum", "tokio/net", "tokio/rt-multi-thread", "dep:jsonschema"]
 grpc-listener = ["dep:tonic", "dep:tonic-reflection", "dep:prost", "dep:prost-reflect", "dep:prost-types", "dep:protox", "dep:tower", "dep:http", "dep:http-body", "dep:http-body-util", "dep:hyper", "dep:hyper-util", "dep:bytes", "tokio/net", "tokio/rt-multi-thread"]
 
 # Counters and histograms through the `metrics` facade. The library never installs a recorder.
@@ -111,6 +112,8 @@ metrics = ["dep:metrics"]
 
 [dev-dependencies]
 tempfile = "3"
+# The vendored SDK unit tests serialize YAML.
+serde-saphyr = { version = "2", default-features = false, features = ["deserialize", "serialize"] }
 jackdaw = { package = "jackdaw-wf", path = ".", features = ["full"] }
 metrics = "0.24"
 metrics-util = { version = "0.20", default-features = false, features = ["debugging"] }

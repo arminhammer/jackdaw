@@ -34,6 +34,13 @@ Feature: The journal is written efficiently and failures are not hidden
     And a new engine with the same codec resumes and replays the instance
     And a new engine without the codec fails to read it with a clear error
 
+  @implemented @yaml
+  Scenario: A YAML workflow's payloads go through the codec too
+    Given an engine built with a codec that encrypts payloads with a test key
+    When a YAML workflow sets "secret-card-number" and publishes it in an event
+    Then the raw store does not contain "secret-card-number"
+    And a new engine with the same codec shows "secret-card-number" in the YAML instance's history
+
   @implemented
   Scenario: A compression codec round-trips large payloads
     Given an engine built with a compressing codec

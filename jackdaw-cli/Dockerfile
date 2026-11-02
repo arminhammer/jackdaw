@@ -144,5 +144,5 @@ LABEL org.opencontainers.image.description="A durable, cached, graph-based execu
 LABEL org.opencontainers.image.authors="Armin Graf"
 LABEL org.opencontainers.image.source="https://github.com/arminhammer/jackdaw"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
-LABEL org.opencontainers.image.version="0.2.0"
+LABEL org.opencontainers.image.version="0.2.1"
 LABEL org.opencontainers.image.vendor="Jackdaw Project"

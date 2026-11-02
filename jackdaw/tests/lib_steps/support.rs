@@ -736,3 +736,171 @@ pub fn duration(text: &str) -> Duration {
     };
     Duration::from_secs_f64(seconds)
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Store activity
+// ---------------------------------------------------------------------------------------------------------------
+
+/// How busy a scenario's stores are: operations running now, and operations started so far.
+#[derive(Debug, Default)]
+pub struct StoreActivity {
+    running: AtomicUsize,
+    started: AtomicU64,
+}
+
+impl StoreActivity {
+    /// Whether no store operation is running.
+    pub fn idle(&self) -> bool {
+        self.running.load(Ordering::SeqCst) == 0
+    }
+
+    /// How many store operations have started.
+    pub fn started(&self) -> u64 {
+        self.started.load(Ordering::SeqCst)
+    }
+
+    fn enter(self: &Arc<Self>) -> ActivityGuard {
+        self.started.fetch_add(1, Ordering::SeqCst);
+        self.running.fetch_add(1, Ordering::SeqCst);
+        ActivityGuard(Arc::clone(self))
+    }
+}
+
+struct ActivityGuard(Arc<StoreActivity>);
+
+impl Drop for ActivityGuard {
+    fn drop(&mut self) {
+        self.0.running.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// A store that records its activity, so the harness moves virtual time only while no write is in flight. Waiting
+/// for "quiet" real time alone was not enough: a network store under load can take longer to record a step than the
+/// quiet period, and a clock that jumped then put the next timer in the wrong place.
+#[derive(Debug)]
+pub struct Tracked {
+    pub inner: Arc<dyn jackdaw::persistence::PersistenceProvider>,
+    pub activity: Arc<StoreActivity>,
+}
+
+#[async_trait::async_trait]
+impl jackdaw::persistence::PersistenceProvider for Tracked {
+    async fn save_event(
+        &self,
+        event: jackdaw::workflow::WorkflowEvent,
+    ) -> jackdaw::persistence::Result<()> {
+        let _busy = self.activity.enter();
+        self.inner.save_event(event).await
+    }
+
+    async fn get_events(
+        &self,
+        instance_id: &str,
+    ) -> jackdaw::persistence::Result<Vec<jackdaw::workflow::WorkflowEvent>> {
+        let _busy = self.activity.enter();
+        self.inner.get_events(instance_id).await
+    }
+
+    async fn save_checkpoint(
+        &self,
+        checkpoint: jackdaw::workflow::WorkflowCheckpoint,
+    ) -> jackdaw::persistence::Result<()> {
+        let _busy = self.activity.enter();
+        self.inner.save_checkpoint(checkpoint).await
+    }
+
+    async fn get_checkpoint(
+        &self,
+        instance_id: &str,
+    ) -> jackdaw::persistence::Result<Option<jackdaw::workflow::WorkflowCheckpoint>> {
+        let _busy = self.activity.enter();
+        self.inner.get_checkpoint(instance_id).await
+    }
+
+    async fn append_journal(
+        &self,
+        instance_id: &str,
+        records: Vec<jackdaw::persistence::JournalRecord>,
+    ) -> jackdaw::persistence::Result<()> {
+        let _busy = self.activity.enter();
+        self.inner.append_journal(instance_id, records).await
+    }
+
+    async fn load_journal(
+        &self,
+        instance_id: &str,
+    ) -> jackdaw::persistence::Result<Vec<jackdaw::persistence::JournalRecord>> {
+        let _busy = self.activity.enter();
+        self.inner.load_journal(instance_id).await
+    }
+
+    async fn prune_journal(
+        &self,
+        instance_id: &str,
+        before: u64,
+    ) -> jackdaw::persistence::Result<()> {
+        let _busy = self.activity.enter();
+        self.inner.prune_journal(instance_id, before).await
+    }
+
+    async fn create_checkpoint(
+        &self,
+        checkpoint: jackdaw::workflow::WorkflowCheckpoint,
+    ) -> jackdaw::persistence::Result<bool> {
+        let _busy = self.activity.enter();
+        self.inner.create_checkpoint(checkpoint).await
+    }
+
+    async fn list_instances(&self) -> jackdaw::persistence::Result<Option<Vec<String>>> {
+        let _busy = self.activity.enter();
+        self.inner.list_instances().await
+    }
+
+    async fn delete_instance(&self, instance_id: &str) -> jackdaw::persistence::Result<()> {
+        let _busy = self.activity.enter();
+        self.inner.delete_instance(instance_id).await
+    }
+
+    fn supports_leases(&self) -> bool {
+        self.inner.supports_leases()
+    }
+
+    async fn acquire_lease(
+        &self,
+        instance_id: &str,
+        owner: &str,
+        now: DateTime<Utc>,
+        until: DateTime<Utc>,
+    ) -> jackdaw::persistence::Result<jackdaw::persistence::Lease> {
+        // Engines with leases poll for this all the time: not the scenario's work.
+        self.inner
+            .acquire_lease(instance_id, owner, now, until)
+            .await
+    }
+
+    async fn release_lease(
+        &self,
+        instance_id: &str,
+        owner: &str,
+    ) -> jackdaw::persistence::Result<()> {
+        // Engines with leases poll for this all the time: not the scenario's work.
+        self.inner.release_lease(instance_id, owner).await
+    }
+
+    async fn post_message(
+        &self,
+        instance_id: &str,
+        message: Value,
+    ) -> jackdaw::persistence::Result<()> {
+        let _busy = self.activity.enter();
+        self.inner.post_message(instance_id, message).await
+    }
+
+    async fn take_messages(
+        &self,
+        owner: &str,
+    ) -> jackdaw::persistence::Result<Vec<(String, Value)>> {
+        // Engines with leases poll for this all the time: not the scenario's work.
+        self.inner.take_messages(owner).await
+    }
+}

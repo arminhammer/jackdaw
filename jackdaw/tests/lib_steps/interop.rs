@@ -369,6 +369,60 @@ async fn history_for_both(world: &mut LibWorld) {
     }
 }
 
+#[then(regex = r#"^"Engine::list" returns both instances with their workflows$"#)]
+async fn list_has_both(world: &mut LibWorld) {
+    let engine = world.engine();
+    let yaml_id = world.notes["yaml-id"].as_str().expect("an id").to_string();
+    let rust_id = world.runs[world.last()].id.clone();
+    let listed = engine
+        .list(&jackdaw::api::ListFilter::default())
+        .await
+        .expect("the list");
+    let yaml = listed
+        .iter()
+        .find(|info| info.id == yaml_id)
+        .unwrap_or_else(|| panic!("the YAML instance is listed: {listed:?}"));
+    assert_eq!(
+        (
+            yaml.workflow.namespace.as_str(),
+            yaml.workflow.name.as_str()
+        ),
+        ("interop", "charge")
+    );
+    assert_eq!(yaml.status, Status::Completed);
+    assert!(yaml.started_at.is_some() && yaml.updated_at >= yaml.started_at);
+    assert!(listed.iter().any(|info| info.id == rust_id), "{listed:?}");
+    let completed = engine
+        .list(&jackdaw::api::ListFilter::default().status(Status::Completed))
+        .await
+        .expect("the list");
+    assert!(
+        completed.iter().any(|info| info.id == yaml_id),
+        "{completed:?}"
+    );
+}
+
+#[then(
+    regex = r#"^"Engine::status" and "Engine::describe" report the YAML instance as completed$"#
+)]
+async fn yaml_status(world: &mut LibWorld) {
+    let yaml_id = world.notes["yaml-id"].as_str().expect("an id").to_string();
+    // From the engine that ran it, then from the store alone (a new engine on it).
+    for restart in [false, true] {
+        if restart {
+            world.crash().await;
+        }
+        let engine = world.engine();
+        assert_eq!(
+            engine.status(&yaml_id).await.expect("a status"),
+            Status::Completed
+        );
+        let details = engine.describe(&yaml_id).await.expect("details");
+        assert_eq!(details.status, Status::Completed);
+        assert_eq!(details.steps, 1, "{details:?}");
+    }
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // Custom providers
 // ---------------------------------------------------------------------------------------------------------------
@@ -768,6 +822,18 @@ const USES_YAML: &str = r#"fn main() {
 }
 "#;
 
+/// A downstream crate that declares a catalog, which must fail naming the `yaml` feature.
+const USES_CATALOG: &str = r#"use jackdaw::prelude::*;
+
+#[catalog(source = "file://./catalog")]
+pub trait Local {
+    #[task(name = "add-numbers", version = "1.0.0")]
+    async fn add(input: u64) -> Result<u64, TaskError>;
+}
+
+fn main() {}
+"#;
+
 /// Runs cargo in the downstream crate. It has its own target directory, so it does not wait on the test build's lock,
 /// and it reuses the workspace's lock file offline.
 async fn downstream_cargo(world: &LibWorld, args: &[&str]) -> (bool, String) {
@@ -825,6 +891,8 @@ tokio = {{ version = "1", features = ["macros", "rt-multi-thread"] }}
     .expect("the lock file");
     std::fs::write(format!("{dir}/src/bin/native.rs"), NATIVE_ONLY).expect("native.rs");
     std::fs::write(format!("{dir}/src/bin/uses_yaml.rs"), USES_YAML).expect("uses_yaml.rs");
+    std::fs::write(format!("{dir}/src/bin/uses_catalog.rs"), USES_CATALOG)
+        .expect("uses_catalog.rs");
     world.notes.insert("downstream".into(), json!(dir));
 }
 
@@ -837,6 +905,21 @@ async fn no_from_yaml(world: &mut LibWorld) {
     );
     assert!(
         stderr.contains("error[E0") && stderr.contains("Workflow"),
+        "{stderr}"
+    );
+}
+
+#[then(regex = r##"^"#\[catalog\]" fails naming the "yaml" feature$"##)]
+async fn catalog_names_the_feature(world: &mut LibWorld) {
+    let (ok, stderr) = downstream_cargo(world, &["build", "-q", "--bin", "uses_catalog"]).await;
+    assert!(!ok, "a catalog compiled without the `yaml` feature");
+    assert!(
+        stderr.contains("needs the `yaml` feature")
+            && stderr
+                .lines()
+                .filter(|line| line.starts_with("error"))
+                .count()
+                == 2,
         "{stderr}"
     );
 }
@@ -921,6 +1004,58 @@ async fn execute_and_drop(world: &mut LibWorld) {
     world.clock.advance(std::time::Duration::from_secs(59 * 60));
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     world.crash().await;
+}
+
+#[given(regex = r#"^"worker-1" is running it during the wait$"#)]
+async fn worker1_runs_yaml(world: &mut LibWorld) {
+    let workflow =
+        Workflow::<Value, Value>::from_yaml(world.notes["yaml"].as_str().expect("a workflow"))
+            .expect("parses");
+    let handle = world
+        .engine()
+        .execute(&workflow, json!({}))
+        .await
+        .expect("starts");
+    world.notes.insert("yaml-id".into(), json!(handle.id()));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while started(&yaml_history(world).await, "pause") == 0 {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the wait never started"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+}
+
+#[then(regex = r#"^"worker-2" does not resume the YAML instance$"#)]
+fn yaml_not_resumed(world: &mut LibWorld) {
+    assert_eq!(world.notes["resumed"], json!([]));
+}
+
+#[then(regex = r#"^"worker-2" takes over the YAML instance$"#)]
+fn yaml_taken_over(world: &mut LibWorld) {
+    assert_eq!(world.notes["resumed"], json!([world.notes["yaml-id"]]));
+}
+
+#[then(regex = r#"^the YAML instance completes on "worker-2" without repeating its first task$"#)]
+async fn yaml_completes_on_worker2(world: &mut LibWorld) {
+    let id = world.notes["yaml-id"]
+        .as_str()
+        .expect("an instance")
+        .to_string();
+    let engine = super::workers::worker(world, "worker-2");
+    world.clock.advance(std::time::Duration::from_secs(60 * 60));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while engine.status(&id).await.expect("a status") != Status::Completed {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the instance did not complete on worker-2"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    let history = engine.history(&id).await.expect("the history");
+    assert_eq!(started(&history, "first"), 1, "{history:?}");
+    assert_eq!(started(&history, "second"), 1, "{history:?}");
 }
 
 #[when(regex = r#"^a new engine calls "Engine::recover\(\)"$"#)]

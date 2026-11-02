@@ -1,26 +1,10 @@
-use console::{Color, style};
-use std::sync::{Arc, LazyLock};
 use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader as AsyncBufReader};
 use tokio::process::Child;
-use tokio::sync::Mutex;
 
-/// ANSI color palette for task labels
-static TASK_COLORS: &[Color] = &[
-    Color::Cyan,
-    Color::Green,
-    Color::Yellow,
-    Color::Magenta,
-    Color::Blue,
-    Color::Red,
-];
-
-/// Global output lock shared across all tasks to prevent output interleaving
-pub static OUTPUT_LOCK: LazyLock<Arc<Mutex<()>>> = LazyLock::new(|| Arc::new(Mutex::new(())));
-
-/// Task output streamer that handles color-coded, labeled output
+/// Reports what a script task prints, line by line, as trace events (see [`crate::output::script_line`]).
 pub struct TaskOutputStreamer {
     task_name: String,
-    color: Color,
+    task_index: usize,
 }
 
 impl TaskOutputStreamer {
@@ -28,34 +12,23 @@ impl TaskOutputStreamer {
     ///
     /// # Arguments
     /// * `task_name` - Name of the task
-    /// * `task_index` - Index of the task (used for color selection in concurrent scenarios)
+    /// * `task_index` - Index of the task (tells concurrent tasks apart)
     #[must_use]
     pub fn new(task_name: String, task_index: usize) -> Self {
-        let color = TASK_COLORS
-            .get(task_index % TASK_COLORS.len())
-            .copied()
-            .unwrap_or(Color::Cyan);
-        Self { task_name, color }
+        Self {
+            task_name,
+            task_index,
+        }
     }
 
-    /// Format a line with task label and color
-    fn format_line(&self, stream: &str, line: &str) -> String {
-        let label = format!("[{}:{}]", self.task_name, stream);
-        format!("{} {}", style(label).fg(self.color).bold(), line)
-    }
-
-    /// Print a single line to stdout with task label
+    /// Reports a line the task printed to stdout.
     pub async fn print_stdout(&self, line: &str) {
-        let formatted = self.format_line("stdout", line);
-        let _lock = OUTPUT_LOCK.lock().await;
-        println!("{formatted}");
+        crate::output::script_line(&self.task_name, self.task_index, "stdout", line);
     }
 
-    /// Print a single line to stderr with task label
+    /// Reports a line the task printed to stderr.
     pub async fn print_stderr(&self, line: &str) {
-        let formatted = self.format_line("stderr", line);
-        let _lock = OUTPUT_LOCK.lock().await;
-        eprintln!("{formatted}");
+        crate::output::script_line(&self.task_name, self.task_index, "stderr", line);
     }
 
     /// Stream from a reader line by line
@@ -104,12 +77,12 @@ impl TaskOutputStreamer {
 
         let stdout_handle = {
             let streamer = self.clone();
-            tokio::spawn(async move { streamer.stream_reader(stdout, false).await })
+            crate::api::observe::spawn(async move { streamer.stream_reader(stdout, false).await })
         };
 
         let stderr_handle = {
             let streamer = self.clone();
-            tokio::spawn(async move { streamer.stream_reader(stderr, true).await })
+            crate::api::observe::spawn(async move { streamer.stream_reader(stderr, true).await })
         };
 
         // Wait for process to complete
@@ -134,27 +107,7 @@ impl Clone for TaskOutputStreamer {
     fn clone(&self) -> Self {
         Self {
             task_name: self.task_name.clone(),
-            color: self.color,
+            task_index: self.task_index,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #![allow(clippy::unwrap_used)]
-    #![allow(clippy::expect_used)]
-    #![allow(clippy::panic)]
-
-    use super::*;
-
-    #[tokio::test]
-    async fn test_task_output_streamer() {
-        let streamer = TaskOutputStreamer::new("test-task".to_string(), 0);
-
-        // Test format_line
-        let formatted = streamer.format_line("stdout", "Hello, world!");
-        assert!(formatted.contains("test-task"));
-        assert!(formatted.contains("stdout"));
-        assert!(formatted.contains("Hello, world!"));
     }
 }

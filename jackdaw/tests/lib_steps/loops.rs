@@ -427,8 +427,14 @@ async fn dropped_during(world: &mut LibWorld, item: u32) {
         .script("tick", |s| s.block_on = Some(json!(item)));
     world.start("it", json!(100)).await;
     let probe = Arc::clone(&world.probe);
+    // That iteration, which blocks: any running `tick` may be an earlier one, whose result a crash can rightly lose.
     world
-        .until("the iteration runs", || probe.running("tick"))
+        .until("the iteration runs", || {
+            probe
+                .calls_of("tick")
+                .iter()
+                .any(|call| call.input == json!(item) && call.ended.is_none())
+        })
         .await;
     world.crash().await;
     world.probe.release("tick");

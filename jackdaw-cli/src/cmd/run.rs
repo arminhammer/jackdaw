@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use crate::config::JackdawConfig;
 use crate::visualization::{self, DiagramFormat, ExecutionState};
-use jackdaw::api::{Workflow, set_yaml_trace};
+use jackdaw::api::Workflow;
 use jackdaw::providers::cache::{PostgresCache, RedbCache, SqliteCache, mem::InMemoryCache};
 use jackdaw::providers::persistence::{
     InMemoryPersistence, PostgresPersistence, RedbPersistence, SqlitePersistence,
@@ -477,9 +477,6 @@ async fn run_workflows_internal(
     postgres_password: Option<String>,
     postgres_hostname: Option<String>,
 ) -> Result<()> {
-    // The YAML engine's task-by-task trace
-    set_yaml_trace(debug);
-
     // Print banner (only in debug mode)
     if debug {
         println!("{}\n", style("Jackdaw Open Workflow Runtime").bold().cyan());

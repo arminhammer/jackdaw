@@ -34,6 +34,18 @@ Feature: Several engine processes share one store safely
     Then the write is rejected because the lease is held by "worker-2"
     And "worker-1" stops running "o-1"
 
+  @implemented @yaml
+  Scenario: A YAML instance is owned by one engine at a time
+    Given a YAML workflow with a "wait" of 1 hour between two "set" tasks
+    And "worker-1" is running it during the wait
+    When "worker-2" calls "Engine::recover()"
+    Then "worker-2" does not resume the YAML instance
+    When "worker-1" stops heartbeating
+    And 30 seconds pass
+    And "worker-2" calls "Engine::recover()"
+    Then "worker-2" takes over the YAML instance
+    And the YAML instance completes on "worker-2" without repeating its first task
+
   @implemented
   Scenario: A signal reaches the instance whichever engine receives it
     Given "worker-1" owns "o-1"

@@ -43,6 +43,13 @@ impl DurableEngine {
             )>,
         > = HashMap::new();
 
+        // What a request to each HTTP route must look like, from its OpenAPI document. Key: (bind_addr, path).
+        #[cfg(feature = "http-listener")]
+        let mut http_rules: HashMap<
+            (String, String),
+            Arc<crate::listeners::http::RouteRules>,
+        > = HashMap::new();
+
         // Collect all gRPC methods grouped by (bind_addr, proto_path, service_name)
         // Key: (bind_addr, proto_path, service_name), Value: Vec of (method_name, task_name, handler)
         #[cfg_attr(not(feature = "grpc-listener"), allow(unused_mut, unused_variables))]
@@ -125,6 +132,23 @@ impl DurableEngine {
                             let read_mode =
                                 listen_task.listen.read.as_deref().unwrap_or("envelope");
                             let wrapped_handler = wrap_handler_with_read_mode(handler, read_mode);
+
+                            let schema_name = event_source
+                                .schema
+                                .as_ref()
+                                .and_then(|schema| schema.resource.name.as_deref());
+                            if let Some(document) = load_openapi(&openapi_path) {
+                                let rules = crate::api::listener::RequestRules::for_route(
+                                    &document,
+                                    &path,
+                                    schema_name,
+                                )
+                                .map_err(|e| Error::Listener {
+                                    message: format!("task `{task_name}`: {e}"),
+                                })?;
+                                http_rules
+                                    .insert((bind_addr.clone(), path.clone()), Arc::new(rules));
+                            }
 
                             // Group by (bind_addr, openapi_path) - different specs can coexist on same port
                             http_routes
@@ -222,14 +246,19 @@ impl DurableEngine {
             for ((bind_addr, _openapi_path), routes) in http_routes {
                 // Build route handlers map
                 let mut route_handlers = std::collections::HashMap::new();
+                let mut route_rules = std::collections::HashMap::new();
                 for (path, task_name, handler) in routes {
                     // axum 0.8 uses the OpenAPI `{param}` syntax, so paths are registered as written.
-                    println!("  Registering route {path} for task {task_name} on {bind_addr}");
+                    crate::output::listener_route(&format!("route {path}"), &task_name, &bind_addr);
+                    if let Some(rules) = http_rules.get(&(bind_addr.clone(), path.clone())) {
+                        route_rules.insert(path.clone(), Arc::clone(rules));
+                    }
                     route_handlers.insert(path, handler);
                 }
 
                 // Create and start the listener with all routes
-                let listener = HttpListener::new_multi_route(bind_addr.clone(), route_handlers)?;
+                let listener =
+                    HttpListener::new_multi_route(bind_addr.clone(), route_handlers, route_rules)?;
                 let listener_arc = Arc::new(listener);
                 listener_arc.start().await?;
 
@@ -237,7 +266,7 @@ impl DurableEngine {
                 tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
                 http_listeners.insert(bind_addr.clone(), listener_arc);
-                println!("  HTTP listener started on {bind_addr}");
+                crate::output::listener_started("HTTP", &bind_addr);
             }
         }
 
@@ -268,8 +297,10 @@ impl DurableEngine {
                 > = std::collections::HashMap::new();
 
                 for (method_name, task_name, json_handler) in methods {
-                    println!(
-                        "  Registering gRPC method {service_name}/{method_name} for task {task_name} on {bind_addr}"
+                    crate::output::listener_route(
+                        &format!("gRPC method {service_name}/{method_name}"),
+                        &task_name,
+                        &bind_addr,
                     );
 
                     // Get method descriptor for this method
@@ -316,7 +347,7 @@ impl DurableEngine {
                 tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
                 grpc_listeners.insert(bind_addr.clone(), listener_arc);
-                println!("  gRPC listener started on {bind_addr}");
+                crate::output::listener_started("gRPC", &bind_addr);
             }
         }
 
@@ -459,14 +490,8 @@ impl DurableEngine {
                     dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value> + Send + Sync,
                 > = Arc::new(
                     move |payload: serde_json::Value| -> crate::listeners::Result<serde_json::Value> {
-                        // Log task execution if debug mode is enabled
-                        if crate::output::is_debug_mode() {
-                            eprintln!("\n{}", "─".repeat(80));
-                            eprintln!("  ▸ Task: {} [call]", task_name_clone);
-                            eprintln!("{}", "┄".repeat(80));
-                            eprintln!("  Input:");
-                            eprintln!("{}", indent_json(&payload, 4));
-                        }
+                        crate::output::format_task_start(&task_name_clone, "call");
+                        crate::output::format_task_input(&payload);
 
                         let start_time = std::time::Instant::now();
 
@@ -476,18 +501,8 @@ impl DurableEngine {
                         let result = python_executor.execute_function(&func, &[payload])
                             .map_err(|e| crate::listeners::Error::Execution { message: format!("Failed to execute Python function: {e}") })?;
 
-                        if crate::output::is_debug_mode() {
-                            let duration_ms = start_time.elapsed().as_millis() as i64;
-                            let duration_str = if duration_ms < 1000 {
-                                format!("{}ms", duration_ms)
-                            } else {
-                                format!("{:.2}s", duration_ms as f64 / 1000.0)
-                            };
-                            eprintln!("  Output ({})", duration_str);
-                            eprintln!("{}", "┄".repeat(80));
-                            eprintln!("{}", indent_json(&result, 4));
-                            eprintln!("  ✓ Completed '{}'", task_name_clone);
-                        }
+                        let duration_ms = i64::try_from(start_time.elapsed().as_millis()).unwrap_or(i64::MAX);
+                        crate::output::format_task_output(&result, duration_ms);
 
                         Ok(result)
                     },
@@ -503,14 +518,8 @@ impl DurableEngine {
                     dyn Fn(serde_json::Value) -> crate::listeners::Result<serde_json::Value> + Send + Sync,
                 > = Arc::new(
                     move |payload: serde_json::Value| -> crate::listeners::Result<serde_json::Value> {
-                        // Log task execution if debug mode is enabled
-                        if crate::output::is_debug_mode() {
-                            eprintln!("\n{}", "─".repeat(80));
-                            eprintln!("  ▸ Task: {} [call]", task_name_clone);
-                            eprintln!("{}", "┄".repeat(80));
-                            eprintln!("  Input:");
-                            eprintln!("{}", indent_json(&payload, 4));
-                        }
+                        crate::output::format_task_start(&task_name_clone, "call");
+                        crate::output::format_task_input(&payload);
 
                         let start_time = std::time::Instant::now();
 
@@ -528,18 +537,8 @@ impl DurableEngine {
                             )
                         }).map_err(|e| crate::listeners::Error::Execution { message: format!("Failed to execute JavaScript/TypeScript function: {e}") })?;
 
-                        if crate::output::is_debug_mode() {
-                            let duration_ms = start_time.elapsed().as_millis() as i64;
-                            let duration_str = if duration_ms < 1000 {
-                                format!("{}ms", duration_ms)
-                            } else {
-                                format!("{:.2}s", duration_ms as f64 / 1000.0)
-                            };
-                            eprintln!("  Output ({})", duration_str);
-                            eprintln!("{}", "┄".repeat(80));
-                            eprintln!("{}", indent_json(&result, 4));
-                            eprintln!("  ✓ Completed '{}'", task_name_clone);
-                        }
+                        let duration_ms = i64::try_from(start_time.elapsed().as_millis()).unwrap_or(i64::MAX);
+                        crate::output::format_task_output(&result, duration_ms);
 
                         Ok(result)
                     },
@@ -671,18 +670,6 @@ fn wrap_handler_with_read_mode(
     )
 }
 
-#[cfg(any(feature = "http-listener", feature = "grpc-listener"))]
-/// Helper: Indent JSON output for logging
-fn indent_json(value: &serde_json::Value, indent: usize) -> String {
-    let json_str = serde_json::to_string_pretty(value).unwrap_or_else(|_| "{}".to_string());
-    let indent_str = " ".repeat(indent);
-    json_str
-        .lines()
-        .map(|line| format!("{indent_str}{line}"))
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
 /// Whether a `listen` task serves an endpoint (HTTP or gRPC, named by `with.source.uri`), as opposed to waiting for
 /// events emitted on the engine. A CloudEvent's own `source` attribute is a string, so it never looks like an endpoint.
 pub(super) fn is_endpoint(listen_task: &ListenTaskDefinition) -> bool {
@@ -698,4 +685,24 @@ pub(super) fn is_endpoint(listen_task: &ListenTaskDefinition) -> bool {
                 .and_then(|with| with.get("source"))
                 .is_some_and(|source| source.get("uri").is_some())
         })
+}
+
+/// The OpenAPI document a `listen` task names, for checking its requests. A document that cannot be read (a remote
+/// one, or a missing file) is skipped with a warning: the requests are then not checked.
+#[cfg(feature = "http-listener")]
+fn load_openapi(path: &str) -> Option<serde_json::Value> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) => {
+            tracing::warn!(path, %error, "the OpenAPI document could not be read; requests are not checked against it");
+            return None;
+        }
+    };
+    match serde_saphyr::from_str(&text) {
+        Ok(document) => Some(document),
+        Err(error) => {
+            tracing::warn!(path, %error, "the OpenAPI document does not parse; requests are not checked against it");
+            None
+        }
+    }
 }

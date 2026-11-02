@@ -462,6 +462,185 @@ do:
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 }
 
+/// Waits until the listener's `await` task has started (events reach listeners waiting when they are emitted).
+async fn listening(world: &mut LibWorld) {
+    let id = world.notes["listener-id"]
+        .as_str()
+        .expect("a listener")
+        .to_string();
+    let engine = world.engine();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        let history = engine.history(&id).await.expect("history");
+        if history.iter().any(
+            |event| matches!(event, Event::TaskStarted { task_name, .. } if task_name == "await"),
+        ) {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the listen task never started"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+}
+
+/// Runs a YAML workflow that emits each `(type, order)` in turn on `engine`.
+pub async fn emit_from_yaml(engine: &Engine, events: &[(&str, &str)]) -> String {
+    let tasks: String = events
+        .iter()
+        .enumerate()
+        .map(|(n, (kind, order))| {
+            format!(
+                "  - emit{n}:\n      emit:\n        event:\n          with:\n            source: specs\n            type: {kind}\n            data:\n              order: {order}\n"
+            )
+        })
+        .collect();
+    let yaml = format!(
+        "document: {{ dsl: '1.0.0', namespace: specs, name: emitter, version: '1.0.0' }}\ndo:\n{tasks}"
+    );
+    let workflow = Workflow::<Value, Value>::from_yaml(&yaml).expect("parses");
+    let handle = engine.execute(&workflow, json!({})).await.expect("starts");
+    let id = handle.id().to_string();
+    handle.await.expect("emits");
+    id
+}
+
+#[given(
+    regex = r#"^a YAML workflow on the engine that listens for all of "order\\\.placed" and "order\\\.pa\.\*", correlated by order$"#
+)]
+async fn correlating_listener(world: &mut LibWorld) {
+    let yaml = r#"
+document: { dsl: '1.0.0', namespace: specs, name: on-order, version: '1.0.0' }
+do:
+  - await:
+      listen:
+        to:
+          all:
+            - with: { type: 'order\.placed' }
+              correlate: { order: { from: '${ .data.order }' } }
+            - with: { type: 'order\.pa.*' }
+              correlate: { order: { from: '${ .data.order }' } }
+"#;
+    let workflow = Workflow::<Value, Value>::from_yaml(yaml).expect("parses");
+    let handle = world
+        .engine()
+        .execute(&workflow, json!({}))
+        .await
+        .expect("starts");
+    world.notes.insert("listener-id".into(), json!(handle.id()));
+    listening(world).await;
+}
+
+#[when(
+    regex = r#"^a YAML workflow emits "order\.placed" for "o-1", "order\.paid" for "o-2" and "order\.paid" for "o-1"$"#
+)]
+async fn emits_three(world: &mut LibWorld) {
+    let engine = world.engine();
+    emit_from_yaml(
+        &engine,
+        &[
+            ("order.placed", "o-1"),
+            ("order.paid", "o-2"),
+            ("order.paid", "o-1"),
+        ],
+    )
+    .await;
+}
+
+#[then(regex = r#"^the YAML listener consumes "order\.placed" and "order\.paid" for "o-1"$"#)]
+async fn consumed_o1(world: &mut LibWorld) {
+    let id = world.notes["listener-id"]
+        .as_str()
+        .expect("a listener")
+        .to_string();
+    let engine = world.engine();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        let history = engine.history(&id).await.expect("history");
+        let received = history.iter().find_map(|event| match event {
+            Event::TaskCompleted {
+                task_name, result, ..
+            } if task_name == "await" => Some(result.clone()),
+            _ => None,
+        });
+        if let Some(received) = received {
+            let seen: Vec<(Value, Value)> = received
+                .as_array()
+                .expect("the consumed events")
+                .iter()
+                .map(|event| (event["type"].clone(), event["data"]["order"].clone()))
+                .collect();
+            assert_eq!(
+                seen,
+                vec![
+                    (json!("order.placed"), json!("o-1")),
+                    (json!("order.paid"), json!("o-1"))
+                ]
+            );
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the listener never completed: {history:?}"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+}
+
+const SHIPPED_LISTENER: &str = r#"
+document: { dsl: '1.0.0', namespace: specs, name: on-shipped, version: '1.0.0' }
+do:
+  - await:
+      listen:
+        to:
+          one:
+            with:
+              type: order.shipped
+"#;
+
+#[given(regex = r#"^a durable YAML workflow on the engine that listens for "order\.shipped"$"#)]
+async fn durable_listener(world: &mut LibWorld) {
+    let workflow = Workflow::<Value, Value>::from_yaml(SHIPPED_LISTENER).expect("parses");
+    let registered = workflow.clone();
+    // Registered on every engine of the scenario, so a new engine can resume it.
+    world.extras.push(std::sync::Arc::new(move |builder| {
+        builder.yaml_workflow(&registered)
+    }));
+    let handle = world
+        .engine()
+        .execute(&workflow, json!({}))
+        .await
+        .expect("starts");
+    world.notes.insert("listener-id".into(), json!(handle.id()));
+    listening(world).await;
+}
+
+#[when("the engine stops while it listens")]
+async fn stops_while_listening(world: &mut LibWorld) {
+    world.crash().await;
+}
+
+#[when(regex = r#"^a workflow on a new engine emits "order\.shipped" for "o-1"$"#)]
+async fn new_engine_emits(world: &mut LibWorld) {
+    let engine = world.engine();
+    emit_from_yaml(&engine, &[("order.shipped", "o-1")]).await;
+}
+
+#[when(regex = r#"^the new engine calls "Engine::recover\(\)"$"#)]
+async fn new_engine_recovers_listener(world: &mut LibWorld) {
+    world.recover().await;
+    let id = world.notes["listener-id"].clone();
+    let recovery = world.recovery.clone().expect("recovered");
+    assert!(
+        recovery
+            .resumed
+            .contains(&id.as_str().unwrap_or_default().to_string()),
+        "{recovery:?}"
+    );
+}
+
 #[given(
     regex = r#"^a workflow that calls "ctx\.emit\(CloudEvent \{ type: \\"order\.shipped\\", \.\. \}\)"$"#
 )]
@@ -498,15 +677,15 @@ async fn yaml_receives(world: &mut LibWorld) {
             } if task_name == "await" => Some(result.clone()),
             _ => None,
         });
-        if let Some(received) = received {
+        // The workflow's completion is stored a moment after the task's (later still on a slower store).
+        let completed = history
+            .iter()
+            .any(|event| matches!(event, Event::WorkflowCompleted { .. }));
+        if let Some(received) = received
+            && completed
+        {
             assert_eq!(received[0]["type"], json!("order.shipped"), "{received}");
             assert_eq!(received[0]["data"], json!({"order": "o-1"}), "{received}");
-            assert!(
-                history
-                    .iter()
-                    .any(|event| matches!(event, Event::WorkflowCompleted { .. })),
-                "{history:?}"
-            );
             return;
         }
         assert!(

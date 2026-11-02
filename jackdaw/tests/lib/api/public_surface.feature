@@ -95,7 +95,8 @@ Feature: The public API is small, documented and stable
     Then "jackdaw::persistence::Error" is marked "#[non_exhaustive]"
     And "jackdaw::cache::Error" is marked "#[non_exhaustive]"
 
-  @todo
+  # Covered by the `semver` job in .github/workflows/pr.yml (`just semver`).
+  @external
   Scenario: The public API is checked for semver breaks
     Given a published version of "jackdaw"
     When I run "cargo semver-checks -p jackdaw-wf" against it

@@ -33,6 +33,12 @@ Feature: Rust and YAML workflows on one engine
     Then "Engine::history" returns events for both instances
 
   @implemented
+  Scenario: YAML instances are listed and described like Rust ones
+    When I execute one YAML and one Rust workflow
+    Then "Engine::list" returns both instances with their workflows
+    And "Engine::status" and "Engine::describe" report the YAML instance as completed
+
+  @implemented
   Scenario: YAML workflows are durable on the new engine
     Given a YAML workflow with a "wait" of 1 hour between two "set" tasks
     When I execute it and drop the engine during the wait
@@ -51,4 +57,5 @@ Feature: Rust and YAML workflows on one engine
   Scenario: The YAML interpreter is optional
     Given "jackdaw" built without the "yaml" feature
     Then "Workflow::from_yaml" does not exist
+    And "#[catalog]" fails naming the "yaml" feature
     And the native Rust API works

@@ -95,6 +95,34 @@ pub(crate) async fn bind(addr: std::net::SocketAddr) -> Result<tokio::net::TcpLi
     }
 }
 
+/// The input an HTTP request gives a workflow: its JSON body (`{}` when empty), plus the route's path parameters and
+/// the query string as fields the body does not already set. `42` and `true` arrive as text and become the JSON values
+/// they spell. Fails, with a message for a 400 response, when the body is not JSON.
+#[cfg(feature = "http-listener")]
+pub(crate) fn request_input(
+    path: &axum::extract::RawPathParams,
+    query: std::collections::BTreeMap<String, String>,
+    body: &[u8],
+) -> std::result::Result<serde_json::Value, String> {
+    use serde_json::Value;
+    let mut input = if body.is_empty() {
+        Value::Object(serde_json::Map::new())
+    } else {
+        serde_json::from_slice(body).map_err(|e| format!("the body is not JSON: {e}"))?
+    };
+    if let Value::Object(fields) = &mut input {
+        let parameters = path
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .chain(query);
+        for (key, value) in parameters {
+            let value = serde_json::from_str(&value).unwrap_or(Value::String(value));
+            fields.entry(key).or_insert(value);
+        }
+    }
+    Ok(input)
+}
+
 /// Listener trait for handling incoming events from various sources
 #[async_trait]
 pub trait Listener: Send + Sync {

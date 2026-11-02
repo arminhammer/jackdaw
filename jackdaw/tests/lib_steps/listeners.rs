@@ -74,6 +74,32 @@ paths:
       responses: { '200': { description: the sum } }
 "#;
 
+/// `addNumbers` with a body schema (through a `$ref`) and a typed query parameter.
+const VALIDATED_SPEC: &str = r#"
+openapi: 3.0.0
+info: { title: calculator, version: '1' }
+paths:
+  /add:
+    post:
+      operationId: addNumbers
+      parameters:
+        - { name: verbose, in: query, schema: { type: boolean } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Pair' }
+      responses: { '200': { description: the sum } }
+components:
+  schemas:
+    Pair:
+      type: object
+      required: [a, b]
+      properties:
+        a: { type: integer }
+        b: { type: integer }
+"#;
+
 fn proto() -> String {
     format!(
         "{}/tests/fixtures/listeners/specs/calculator.proto",
@@ -127,7 +153,7 @@ fn built_with_listener(world: &mut LibWorld) {
     build(world, listener);
 }
 
-#[when(regex = r#"^I POST "(.+)" to "(/\w+)"$"#)]
+#[when(regex = r#"^I POST "(.+)" to "(/[\w?=&]+)"$"#)]
 async fn post_to(world: &mut LibWorld, body: String, path: String) {
     let addr = addr(world);
     let (status, text) = post(addr, &path, &body.replace("\\\"", "\"")).await;
@@ -158,6 +184,50 @@ async fn instance_in_store(world: &mut LibWorld) {
             .any(|instance| instance.workflow.name == "add" && instance.status == Status::Completed),
         "{instances:?}"
     );
+}
+
+#[given(
+    regex = r#"^an engine with an OpenAPI listener whose "addNumbers" operation has a body schema and a boolean query parameter "verbose"$"#
+)]
+fn validated_listener(world: &mut LibWorld) {
+    let listener = Listener::openapi("api", VALIDATED_SPEC, "127.0.0.1:0")
+        .expect("the spec parses")
+        .bind("addNumbers", AddNumbers::run);
+    build(world, listener);
+}
+
+#[then(regex = r#"^the response is a 400 that names "(.+)" and "(.+)"$"#)]
+fn rejected(world: &mut LibWorld, pointer: String, parameter: String) {
+    let text = world.notes["response"]
+        .as_str()
+        .expect("a body")
+        .to_string();
+    assert_eq!(world.notes["status"], json!(400), "{text}");
+    let body: Value = serde_json::from_str(&text).expect("JSON");
+    let problems: Vec<&str> = body["problems"]
+        .as_array()
+        .expect("problems")
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    assert!(
+        problems
+            .iter()
+            .any(|problem| problem.contains(&format!("`{pointer}`"))),
+        "{problems:?}"
+    );
+    assert!(
+        problems
+            .iter()
+            .any(|problem| problem.contains(&format!("`{parameter}`"))),
+        "{problems:?}"
+    );
+}
+
+#[then("no instance of the bound workflow was started")]
+async fn none_started(world: &mut LibWorld) {
+    let instances = world.engine().list(&ListFilter::new()).await.expect("list");
+    assert!(instances.is_empty(), "{instances:?}");
 }
 
 #[given(regex = r#"^an engine built with a gRPC listener for "calculator\.proto"$"#)]

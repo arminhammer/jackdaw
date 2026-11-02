@@ -150,6 +150,12 @@ pub mod cache;
 #[allow(missing_docs, rustdoc::all, clippy::all, clippy::pedantic, clippy::restriction)]
 #[rustfmt::skip]
 pub mod dsl;
+// The SDK's own unit tests, vendored from its lib.rs by `just update-dsl`.
+#[cfg(all(test, feature = "yaml"))]
+#[allow(unused, clippy::all, clippy::pedantic, clippy::restriction)]
+#[rustfmt::skip]
+#[path = "dsl/unit_tests.rs"]
+mod dsl_unit_tests;
 pub mod guide;
 pub mod persistence;
 pub mod prelude;
@@ -188,18 +194,39 @@ mod task_ext;
 #[cfg(feature = "yaml")]
 mod task_output;
 
-/// What the macros' generated code refers to. Not part of the API: it changes without notice.
 // Compiles the README's examples as doctests, so it cannot drift from the API.
 #[cfg(doctest)]
 #[doc = include_str!("../README.md")]
 struct ReadmeDoctests;
 
+// `#[catalog]` wraps its expansion in this, so a build without `yaml` gets one error naming the feature instead of
+// errors about missing `__private` items.
+#[cfg(feature = "yaml")]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __catalog {
+    ($($item:tt)*) => { $($item)* };
+}
+
+#[cfg(not(feature = "yaml"))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __catalog {
+    ($($item:tt)*) => {
+        ::core::compile_error!(
+            "`#[catalog]` needs the `yaml` feature of `jackdaw-wf`: catalog entries are YAML workflow definitions"
+        );
+    };
+}
+
 // The vendored DSL refers to its own modules as `crate::models::...`.
 #[cfg(feature = "yaml")]
 use dsl as models;
 
+/// What the macros' generated code refers to. Not part of the API: it changes without notice.
 #[doc(hidden)]
 pub mod __private {
+    pub use crate::__catalog as catalog;
     pub use crate::api::plumbing::*;
     #[cfg(feature = "yaml")]
     pub use crate::api::{CatalogDef, CatalogTaskRef, CatalogWorkflowRef};

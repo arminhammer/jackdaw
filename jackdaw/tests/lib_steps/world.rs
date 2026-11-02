@@ -1,5 +1,5 @@
 //! The state of one scenario: its store, clock, probe, engine and the instances it started.
-use super::support::{Outcome, Probe, TestClock, eventually};
+use super::support::{Outcome, Probe, StoreActivity, TestClock, Tracked, eventually};
 use jackdaw::api::{BoxFuture, Recovery, WorkflowDef, WorkflowRef};
 use jackdaw::prelude::*;
 use serde_json::Value;
@@ -156,6 +156,8 @@ pub struct LibWorld {
     pub mock: Option<wiremock::MockServer>,
     /// Engines other than `engine`, by name (the multi-worker scenarios).
     pub workers: HashMap<String, Engine>,
+    /// What the durable stores this scenario opened are doing (time moves only while they are idle).
+    pub store_activity: Arc<StoreActivity>,
 }
 
 /// Which durable store the scenarios run on: `JACKDAW_TEST_STORE=redb|sqlite|postgres` (default redb). Postgres needs
@@ -210,6 +212,7 @@ impl LibWorld {
             traces: None,
             mock: None,
             workers: HashMap::new(),
+            store_activity: Arc::default(),
         }
     }
 
@@ -224,33 +227,34 @@ impl LibWorld {
         if let Some(persistence) = &self.persistence {
             builder = builder.persistence(Arc::clone(persistence));
         } else if self.durable {
-            builder = match self.store_kind().as_str() {
+            let store: Box<dyn jackdaw::api::Store> = match self.store_kind().as_str() {
                 "sqlite" => {
                     let path = self.dir.path().join("jackdaw.sqlite");
-                    let store = tokio::task::block_in_place(|| {
-                        tokio::runtime::Handle::current()
-                            .block_on(jackdaw::api::Sqlite::open(&path))
-                    })
-                    .expect("the scenario's SQLite store opens");
-                    builder.store(store)
+                    Box::new(
+                        open_blocking(jackdaw::api::Sqlite::open(&path))
+                            .expect("the scenario's SQLite store opens"),
+                    )
                 }
                 "postgres" => {
                     let url = self
                         .postgres_url
                         .clone()
                         .expect("a Postgres database for the scenario");
-                    let store = tokio::task::block_in_place(|| {
-                        tokio::runtime::Handle::current()
-                            .block_on(jackdaw::api::Postgres::connect(&url))
-                    })
-                    .expect("the scenario's Postgres store connects");
-                    builder.store(store)
+                    Box::new(
+                        open_blocking(jackdaw::api::Postgres::connect(&url))
+                            .expect("the scenario's Postgres store connects"),
+                    )
                 }
-                _ => builder.store(
+                _ => Box::new(
                     Redb::open(self.dir.path().join("jackdaw.redb"))
                         .expect("the scenario's store opens"),
                 ),
             };
+            let tracked = Tracked {
+                inner: store.persistence(),
+                activity: Arc::clone(&self.store_activity),
+            };
+            builder = builder.persistence(Arc::new(tracked)).cache(store.cache());
         }
         for extra in &self.extras {
             builder = extra(builder);
@@ -346,6 +350,18 @@ impl LibWorld {
 
     /// How many quiet polls (of 10-15 ms) mean "nothing is happening": a network store takes longer per step than an
     /// embedded one, and the clock must not move while a step is still being written.
+    /// What has happened so far that a quiet scenario would not change: task calls, store operations and timers
+    /// started. Time may move once it stays the same for a few polls and no store operation is running.
+    fn activity(&self) -> Option<(usize, u64, u64)> {
+        self.store_activity.idle().then(|| {
+            (
+                self.probe.calls().len(),
+                self.store_activity.started(),
+                self.clock.sleeps_started(),
+            )
+        })
+    }
+
     pub fn idle_polls(&self) -> usize {
         if self.durable && self.store_kind() == "postgres" {
             15
@@ -369,18 +385,18 @@ impl LibWorld {
         let started = Instant::now();
         // Move the clock only once nothing has happened for a few polls: a busy machine must not make the clock jump
         // past work that is merely slow.
-        let (mut last_calls, mut idle) = (usize::MAX, 0);
+        let (mut last, mut idle) = (None, 0);
         let idle_polls = self.idle_polls();
         let outcome = loop {
             tokio::select! {
                 result = &mut waiting => break Outcome::of(result),
                 () = tokio::time::sleep(Duration::from_millis(15)) => {
-                    let calls = self.probe.calls().len();
-                    if calls == last_calls {
+                    let now = self.activity();
+                    if now.is_some() && now == last {
                         idle += 1;
                     } else {
                         idle = 0;
-                        last_calls = calls;
+                        last = now;
                     }
                     if idle >= idle_polls {
                         self.clock.advance_next(None);
@@ -516,23 +532,25 @@ impl LibWorld {
 
     /// Like [`quiesce`](Self::quiesce), but never moves the clock past `ceiling`.
     pub async fn quiesce_until(&self, ceiling: chrono::DateTime<chrono::Utc>) {
-        let mut last = usize::MAX;
+        let mut last = None;
         let mut stable = 0;
         let needed = self.idle_polls() + 1;
         while stable < needed {
             tokio::time::sleep(Duration::from_millis(10)).await;
+            let now = self.activity();
+            if now.is_some() && now == last {
+                stable += 1;
+            } else {
+                stable = 0;
+                last = now;
+                continue;
+            }
             if let Some(next) = self.clock.next_deadline()
                 && next > self.clock.now()
                 && next <= ceiling
             {
                 self.clock.advance_to(next);
-            }
-            let now = self.probe.calls().len();
-            if now == last {
-                stable += 1;
-            } else {
                 stable = 0;
-                last = now;
             }
         }
     }
@@ -552,4 +570,21 @@ impl LibWorld {
         self.clock.advance_to(target);
         self.quiesce_until(target).await;
     }
+}
+
+/// Runs `open` to completion from synchronous code (the scenario's engine builder) on a thread of its own.
+///
+/// Not with `Handle::block_on` on the calling thread: steps run on the thread that polls every scenario, and a
+/// `block_on` nested there parks on that thread's parker, taking the wakeups meant for the other scenarios. Those
+/// scenarios were then never polled again, and a run with several SQL-store scenarios at once stalled.
+fn open_blocking<T: Send>(open: impl std::future::Future<Output = T> + Send) -> T {
+    let handle = tokio::runtime::Handle::current();
+    tokio::task::block_in_place(|| {
+        std::thread::scope(|scope| {
+            scope
+                .spawn(|| handle.block_on(open))
+                .join()
+                .expect("opening the store did not panic")
+        })
+    })
 }

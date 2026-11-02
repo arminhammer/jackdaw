@@ -113,6 +113,15 @@ Feature: Finding and managing workflow instances
     Then the 8-day-old instance and its history are removed from the store
     And the other two instances remain
 
+  @implemented @yaml
+  Scenario: The sweep also purges finished YAML instances and old published events
+    Given an engine built with "retention(7.days())"
+    And a YAML workflow that published "order.old" and finished 8 days ago
+    And a YAML workflow that published "order.new" 1 day ago
+    When the retention sweep runs
+    Then the 8-day-old YAML instance is removed from the store
+    And of the published events only "order.new" is kept
+
   @implemented
   Scenario: An instance can be purged on demand
     Given a completed instance

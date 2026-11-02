@@ -20,6 +20,11 @@ use std::sync::Arc;
 /// A durable store: persistence for journals and history, and a cache for task results.
 ///
 /// Implement it to plug in your own storage; the built-in stores are [`Redb`], [`Sqlite`] and [`Postgres`].
+// The stores are behind features; docs.rs builds with all of them.
+#[cfg_attr(
+    not(all(feature = "redb", feature = "sqlite", feature = "postgres")),
+    allow(rustdoc::broken_intra_doc_links)
+)]
 pub trait Store: Send + Sync + 'static {
     /// Where journals, checkpoints and history go.
     fn persistence(&self) -> Arc<dyn PersistenceProvider>;

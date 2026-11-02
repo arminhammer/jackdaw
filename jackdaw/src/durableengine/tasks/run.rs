@@ -1,4 +1,3 @@
-use chrono::Utc;
 use snafu::prelude::*;
 use std::process::Stdio;
 
@@ -555,7 +554,7 @@ pub async fn exec_run_task(
         key: cache_key.clone(),
         inputs: evaluated_params,
         output: final_result.clone(),
-        timestamp: Utc::now(),
+        timestamp: ctx.services.clock.now(),
     };
     ctx.services.cache.set(cache_entry).await?;
 

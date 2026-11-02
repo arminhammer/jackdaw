@@ -1,5 +1,3 @@
-use chrono::Utc;
-
 use crate::context::Context;
 
 use super::super::{DurableEngine, Result};
@@ -30,7 +28,7 @@ pub async fn exec_emit_task(
     // Add timestamp
     event_data.insert(
         "time".to_string(),
-        serde_json::json!(Utc::now().to_rfc3339()),
+        serde_json::json!(engine.clock.now().to_rfc3339()),
     );
 
     // Process the 'with' attributes from the event definition
@@ -44,7 +42,7 @@ pub async fn exec_emit_task(
     }
 
     let result = serde_json::Value::Object(event_data);
-    engine.publish(result.clone());
+    engine.publish(result.clone()).await;
 
     // Merge each field of the event into the context (not nested under task name)
     if let serde_json::Value::Object(map) = &result {
