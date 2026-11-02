@@ -120,6 +120,52 @@
 //! # fn main() {}
 //! ```
 //!
+//! Every call runs as its own tokio task (a blocking one on the blocking pool), so the calls a workflow makes at once
+//! run in parallel on the runtime's threads. Keep long CPU work in blocking tasks all the same: an async task that
+//! computes for long holds a runtime thread, which the engine also needs for timers and lease renewal. When every
+//! thread is held long enough to delay lease renewal, the engine logs a warning that says "lease renewal ran late". A
+//! blocking task can use `rayon` inside for data parallelism.
+//!
+//! ## Limiting how many calls run at once
+//!
+//! A task can name a limit, defined on the engine with a number of permits. At most that many calls of the tasks
+//! naming it run at once, across every instance; the others wait, in order, without holding a thread. Several tasks
+//! can share a limit, and async tasks can use one as well as blocking tasks.
+//!
+//! ```
+//! use jackdaw::prelude::*;
+//!
+//! // CPU-heavy: no more at once than there are cores.
+//! #[task(blocking, limit = "cpu")]
+//! fn thumbnail(width: u32) -> Result<u32, TaskError> {
+//!     Ok(width / 4)
+//! }
+//!
+//! // A service that allows 10 requests at a time.
+//! #[task(limit = "payments-api")]
+//! async fn charge(cents: u64) -> Result<String, TaskError> {
+//!     Ok(format!("charged {cents}"))
+//! }
+//!
+//! # fn main() -> Result<(), Error> {
+//! let cores = std::thread::available_parallelism().map_or(4, |n| n.get());
+//! let engine = Engine::builder()
+//!     .task(Thumbnail)
+//!     .task(Charge)
+//!     .limit("cpu", cores)
+//!     .limit("payments-api", 10)
+//!     .blocking_limit(64) // every other blocking task
+//!     .build()?;
+//! # let _ = engine;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! Naming a limit the engine does not define fails `build`. `blocking_limit` covers the blocking tasks that name no
+//! limit; without it they are not limited by the engine. The wait for a permit counts toward a step timeout, but not
+//! toward a heartbeat timeout, which starts once the call is running. Each engine has its own limits, so several
+//! engines sharing a store each allow their own number of calls.
+//!
 //! ## Failing, retrying and timing out
 //!
 //! A task returns [`TaskError`]. Say whether the failure is worth retrying:

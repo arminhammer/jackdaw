@@ -107,7 +107,10 @@ impl<T: TaskSet> IntoTaskSet for T {
 
 /// Lets YAML workflows `call:` a native task by name.
 #[cfg(feature = "yaml")]
-struct NativeExecutor(NativeTask);
+struct NativeExecutor {
+    task: NativeTask,
+    limits: Arc<super::limits::Limits>,
+}
 
 #[cfg(feature = "yaml")]
 #[async_trait::async_trait]
@@ -121,9 +124,10 @@ impl Executor for NativeExecutor {
     ) -> crate::executor::Result<Value> {
         let instance_id = ctx.metadata.instance_id.clone();
         let key = format!("{instance_id}/{task_name}");
-        let context = TaskContext::new(&instance_id, self.0.name, 1, key);
-        self.0
-            .invoke(context, params.clone())
+        let context = TaskContext::new(&instance_id, self.task.name, 1, key);
+        let permit = self.limits.acquire(&self.task).await;
+        self.task
+            .invoke(context, params.clone(), permit)
             .await
             .map_err(|error| crate::executor::Error::Task {
                 message: error.as_fault().to_string(),
@@ -131,7 +135,7 @@ impl Executor for NativeExecutor {
     }
 
     fn cacheable(&self) -> bool {
-        self.0.cached
+        self.task.cached
     }
 }
 
@@ -208,6 +212,8 @@ pub struct EngineBuilder {
     poll: std::time::Duration,
     #[cfg(any(feature = "http-listener", feature = "grpc-listener"))]
     listeners: Vec<super::listener::Listener>,
+    limits: Vec<(String, usize)>,
+    blocking_limit: Option<usize>,
 }
 
 impl Default for EngineBuilder {
@@ -239,6 +245,8 @@ impl EngineBuilder {
             poll: std::time::Duration::from_secs(1),
             #[cfg(any(feature = "http-listener", feature = "grpc-listener"))]
             listeners: Vec::new(),
+            limits: Vec::new(),
+            blocking_limit: None,
         }
     }
 
@@ -348,6 +356,46 @@ impl EngineBuilder {
         self
     }
 
+    /// Defines a named limit: at most `permits` calls of the tasks that name it run at once, across every instance
+    /// this engine runs.
+    ///
+    /// A task names a limit with `#[task(limit = "name")]`, async or blocking, and any number of tasks can share one.
+    /// A call that finds no permit free waits for one without holding a thread, in the order the calls arrived. Use it
+    /// to keep CPU-heavy work to the machine's cores, or calls to a rate-limited service or a small connection pool
+    /// to what they allow. Defining a name again replaces it.
+    ///
+    /// The wait is part of the step, so a step timeout counts it; a heartbeat timeout starts once the call has its
+    /// permit. Limits belong to one engine: engines sharing a store each have their own.
+    ///
+    /// ```
+    /// use jackdaw::prelude::*;
+    ///
+    /// #[task(blocking, limit = "cpu")]
+    /// fn resize(width: u32) -> Result<u32, TaskError> {
+    ///     Ok(width / 2)
+    /// }
+    ///
+    /// # fn main() -> Result<(), Error> {
+    /// let cores = std::thread::available_parallelism().map_or(4, |n| n.get());
+    /// let engine = Engine::builder().task(Resize).limit("cpu", cores).build()?;
+    /// # let _ = engine;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn limit(mut self, name: impl Into<String>, permits: usize) -> Self {
+        self.limits.push((name.into(), permits));
+        self
+    }
+
+    /// Limits the calls of `#[task(blocking)]` tasks that name no limit of their own: at most `permits` run at once.
+    /// Without it they are not limited by the engine, only by tokio's blocking pool.
+    #[must_use]
+    pub fn blocking_limit(mut self, permits: usize) -> Self {
+        self.blocking_limit = Some(permits);
+        self
+    }
+
     /// Registers a workflow (and, automatically, the child workflows it runs).
     #[must_use]
     pub fn workflow<W: WorkflowDef>(mut self) -> Self {
@@ -437,6 +485,13 @@ impl EngineBuilder {
         }
         #[cfg(not(feature = "yaml"))]
         registry.validate()?;
+        let limits = Arc::new(super::limits::Limits::new(
+            self.limits,
+            self.blocking_limit,
+        )?);
+        for task in registry.tasks.values() {
+            limits.check(task)?;
+        }
 
         let persistence = self.persistence.unwrap_or_else(|| {
             Arc::new(InMemoryPersistence::new()) as Arc<dyn PersistenceProvider>
@@ -486,7 +541,10 @@ impl EngineBuilder {
                 .map(|(name, task)| {
                     (
                         (*name).to_string(),
-                        Box::new(NativeExecutor(task.clone())) as Box<dyn Executor>,
+                        Box::new(NativeExecutor {
+                            task: task.clone(),
+                            limits: Arc::clone(&limits),
+                        }) as Box<dyn Executor>,
                     )
                 })
                 .collect();
@@ -520,6 +578,7 @@ impl EngineBuilder {
             self.codec,
         );
         shared.retention = self.retention;
+        shared.limits = limits;
         if let Some(ttl) = self.lease {
             if !shared.persistence.supports_leases() {
                 return Err(Error::invalid(

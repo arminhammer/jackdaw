@@ -105,3 +105,28 @@ pub(crate) fn task_retried(name: &str) {
     #[cfg(not(feature = "metrics"))]
     let _ = name;
 }
+
+/// Counts a call waiting for the limit `name` until the guard is dropped.
+pub(crate) fn limit_waiting(name: &str) -> LimitWaiting {
+    #[cfg(feature = "metrics")]
+    metrics::gauge!("jackdaw_task_limit_waiting", "limit" => name.to_string()).increment(1.0);
+    #[cfg(not(feature = "metrics"))]
+    let _ = name;
+    LimitWaiting {
+        #[cfg(feature = "metrics")]
+        name: name.to_string(),
+    }
+}
+
+/// See [`limit_waiting`].
+pub(crate) struct LimitWaiting {
+    #[cfg(feature = "metrics")]
+    name: String,
+}
+
+impl Drop for LimitWaiting {
+    fn drop(&mut self) {
+        #[cfg(feature = "metrics")]
+        metrics::gauge!("jackdaw_task_limit_waiting", "limit" => self.name.clone()).decrement(1.0);
+    }
+}

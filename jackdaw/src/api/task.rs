@@ -12,6 +12,8 @@ use std::panic::AssertUnwindSafe;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::OwnedSemaphorePermit;
+use tracing::Instrument;
 
 /// A boxed, sendable future. Used where the macros need to name a future type.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -114,10 +116,12 @@ pub trait TaskSet: Send + Sync + 'static {
     fn native_tasks(self: Arc<Self>) -> Vec<NativeTask>;
 }
 
+/// Runs one call; the permit, when a limit applies, is held until the call's code has finished.
 type RunFn = Arc<
     dyn Fn(
             TaskContext,
             serde_json::Value,
+            Option<OwnedSemaphorePermit>,
         ) -> BoxFuture<'static, Result<serde_json::Value, TaskError>>
         + Send
         + Sync,
@@ -128,6 +132,10 @@ type RunFn = Arc<
 pub struct NativeTask {
     pub(crate) name: &'static str,
     pub(crate) cached: bool,
+    /// The named limit its calls wait for (see `EngineBuilder::limit`).
+    pub(crate) limit: Option<&'static str>,
+    /// Runs on tokio's blocking pool (and under `EngineBuilder::blocking_limit` unless it names a limit).
+    pub(crate) blocking: bool,
     run: RunFn,
 }
 
@@ -136,6 +144,8 @@ impl std::fmt::Debug for NativeTask {
         f.debug_struct("NativeTask")
             .field("name", &self.name)
             .field("cached", &self.cached)
+            .field("limit", &self.limit)
+            .field("blocking", &self.blocking)
             .finish()
     }
 }
@@ -173,9 +183,12 @@ impl NativeTask {
         Self {
             name,
             cached,
-            run: Arc::new(move |ctx, input| {
+            limit: None,
+            blocking: false,
+            run: Arc::new(move |ctx, input, permit| {
                 let f = Arc::clone(&f);
                 Box::pin(async move {
+                    let _permit = permit;
                     let input: I = serde_json::from_value(input).map_err(|e| invalid_input(&e))?;
                     let output = AssertUnwindSafe(async move { f(ctx, input).await })
                         .catch_unwind()
@@ -200,31 +213,81 @@ impl NativeTask {
         Self {
             name,
             cached,
-            run: Arc::new(move |ctx, input| {
+            limit: None,
+            blocking: true,
+            run: Arc::new(move |ctx, input, permit| {
                 let f = Arc::clone(&f);
                 Box::pin(async move {
                     let input: I = serde_json::from_value(input).map_err(|e| invalid_input(&e))?;
-                    let output = super::observe::spawn_blocking(move || f(ctx, input))
-                        .await
-                        .map_err(|error| {
-                            if error.is_panic() {
-                                TaskError::non_retryable(panic_message(error.into_panic().as_ref()))
-                            } else {
-                                TaskError::non_retryable("the blocking task was cancelled")
-                            }
-                        })??;
+                    // The permit goes with the code: a blocking call cannot be stopped, so it keeps the permit until
+                    // its thread is done, even when the workflow waiting for it is cancelled.
+                    let output = super::observe::spawn_blocking(move || {
+                        let _permit = permit;
+                        f(ctx, input)
+                    })
+                    .await
+                    .map_err(|error| {
+                        if error.is_panic() {
+                            TaskError::non_retryable(panic_message(error.into_panic().as_ref()))
+                        } else {
+                            TaskError::non_retryable("the blocking task was cancelled")
+                        }
+                    })??;
                     serde_json::to_value(output).map_err(|e| unserializable_output(&e))
                 })
             }),
         }
     }
 
+    /// Makes calls of this task wait for a permit of the named limit, which the engine defines with
+    /// `EngineBuilder::limit`.
+    #[must_use]
+    pub fn limit(mut self, name: &'static str) -> Self {
+        self.limit = Some(name);
+        self
+    }
+
+    /// Starts one call. An async task runs as a tokio task of its own, so the concurrent calls of one workflow run in
+    /// parallel; dropping the returned future stops it.
     pub(crate) fn invoke(
         &self,
         ctx: TaskContext,
         input: serde_json::Value,
+        permit: Option<OwnedSemaphorePermit>,
     ) -> BoxFuture<'static, Result<serde_json::Value, TaskError>> {
-        (self.run)(ctx, input)
+        let call = (self.run)(ctx, input, permit);
+        if self.blocking {
+            // Already on the blocking pool.
+            return call;
+        }
+        let running = AbortOnDrop(super::observe::spawn(call.in_current_span()));
+        Box::pin(async move {
+            running.await.unwrap_or_else(|error| {
+                Err(TaskError::non_retryable(format!(
+                    "the task stopped before it finished: {error}"
+                )))
+            })
+        })
+    }
+}
+
+/// A spawned call that is stopped when nothing waits for it any more, as an inline call would be.
+struct AbortOnDrop<T>(tokio::task::JoinHandle<T>);
+
+impl<T> Future for AbortOnDrop<T> {
+    type Output = Result<T, tokio::task::JoinError>;
+
+    fn poll(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        Pin::new(&mut self.0).poll(cx)
+    }
+}
+
+impl<T> Drop for AbortOnDrop<T> {
+    fn drop(&mut self) {
+        self.0.abort();
     }
 }
 

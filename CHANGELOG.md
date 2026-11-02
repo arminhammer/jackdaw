@@ -9,6 +9,24 @@ The workspace publishes three crates with the same version: `jackdaw-wf` (the li
 
 ## [Unreleased]
 
+### Added
+
+- Named limits on how many task calls run at once. `#[task(limit = "name")]` (async or blocking, free functions and
+  `#[tasks]` methods) names a limit, and `EngineBuilder::limit(name, permits)` defines it for every instance the
+  engine runs. `EngineBuilder::blocking_limit(permits)` limits the blocking tasks that name none. Calls wait for a
+  permit in order without holding a thread. A YAML workflow's `call:` of a Rust task waits for the task's limit too.
+  `build` fails when a task names a limit the engine does not define.
+- With the `metrics` feature, the `jackdaw_task_limit_waiting` gauge counts the calls waiting for each limit.
+- An engine with leases logs a warning when its lease renewal runs late because the async runtime's threads were
+  busy (for more than a quarter of the lease TTL). The warning points at code that blocks inside an async task, the
+  usual cause, before another engine takes the instances over.
+
+### Changed
+
+- Each call of an async task runs as a tokio task of its own. The calls a workflow makes at once
+  (`futures::try_join!`, `join_all`, `ctx.for_each(..).concurrency(n)`) used to share the workflow's tokio task, and
+  so one thread; they now run in parallel. Dropping a call's future still stops it.
+
 ## [0.2.1] - 2026-11-01
 
 ### Fixed

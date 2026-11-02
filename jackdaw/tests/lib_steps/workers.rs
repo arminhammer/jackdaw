@@ -292,3 +292,122 @@ fn already_in_use(world: &mut LibWorld) {
     let error = world.build_error.clone().expect("the build failed");
     assert!(error.contains("already in use"), "{error}");
 }
+
+// ---- operations/lease_renewal.feature ----
+
+/// Stands in for CPU-heavy work written as an async task: it holds the runtime thread.
+#[task(name = "w.spin")]
+pub async fn spin(millis: u64) -> Result<(), TaskError> {
+    std::thread::sleep(Duration::from_millis(millis));
+    Ok(())
+}
+
+#[task(name = "w.nap", blocking)]
+pub fn nap(millis: u64) -> Result<(), TaskError> {
+    std::thread::sleep(Duration::from_millis(millis));
+    Ok(())
+}
+
+#[workflow(namespace = "w", name = "spin", version = "1")]
+pub struct SpinFlow;
+
+#[workflow_methods]
+impl SpinFlow {
+    #[run]
+    async fn run(ctx: &mut WorkflowContext<Self>, millis: u64) -> WorkflowResult<()> {
+        Ok(ctx.call(Spin, &millis).await?)
+    }
+}
+
+#[workflow(namespace = "w", name = "nap", version = "1")]
+pub struct NapFlow;
+
+#[workflow_methods]
+impl NapFlow {
+    #[run]
+    async fn run(ctx: &mut WorkflowContext<Self>, millis: u64) -> WorkflowResult<()> {
+        Ok(ctx.call(Nap, &millis).await?)
+    }
+}
+
+#[given("an engine with a lease of 1 second on a runtime with one thread")]
+fn one_thread_engine(_world: &mut LibWorld) {}
+
+/// Runs `flow` with `millis` on a one-thread runtime of its own, under the scenario's recording subscriber, and
+/// keeps the engine up a little longer so its lease loop wakes after the call.
+fn run_on_one_thread(world: &mut LibWorld, blocking: bool, millis: u64) {
+    let (dispatch, _) = super::observability::dispatch(world);
+    let path = world.dir.path().join("lease-renewal.redb");
+    std::thread::spawn(move || {
+        let _subscriber = tracing::dispatcher::set_default(&dispatch);
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("a runtime");
+        runtime.block_on(async move {
+            let engine = Engine::builder()
+                .store(Redb::open(&path).expect("the store opens"))
+                .lease(Duration::from_secs(1))
+                .poll_interval(Duration::from_millis(50))
+                .task(Spin)
+                .task(Nap)
+                .workflow::<SpinFlow>()
+                .workflow::<NapFlow>()
+                .build()
+                .expect("the engine builds");
+            if blocking {
+                let run = engine.execute(NapFlow::run, millis).await.expect("starts");
+                run.await.expect("the workflow completes");
+            } else {
+                let run = engine.execute(SpinFlow::run, millis).await.expect("starts");
+                run.await.expect("the workflow completes");
+            }
+            tokio::time::sleep(Duration::from_millis(300)).await;
+        });
+    })
+    .join()
+    .expect("the runtime thread ends");
+}
+
+#[when("a workflow on it calls an async task that blocks the thread for 2 seconds")]
+fn spins(world: &mut LibWorld) {
+    run_on_one_thread(world, false, 2000);
+}
+
+#[when(
+    regex = r#"^a workflow on it calls a "\#\[task\(blocking\)\]" task that sleeps for 2 seconds$"#
+)]
+fn naps(world: &mut LibWorld) {
+    run_on_one_thread(world, true, 2000);
+}
+
+fn late_renewals(world: &LibWorld) -> Vec<String> {
+    world
+        .traces
+        .as_ref()
+        .expect("the scenario recorded traces")
+        .messages()
+        .into_iter()
+        .filter(|message| message.contains("lease renewal ran late"))
+        .collect()
+}
+
+#[then("a warning says lease renewal ran late")]
+fn warned(world: &mut LibWorld) {
+    assert!(!late_renewals(world).is_empty(), "no late-renewal warning");
+}
+
+#[then(regex = r#"^the warning suggests "(.+)"$"#)]
+fn warning_suggests(world: &mut LibWorld, fix: String) {
+    let warnings = late_renewals(world);
+    assert!(
+        warnings.iter().any(|warning| warning.contains(&fix)),
+        "{warnings:?}"
+    );
+}
+
+#[then("no warning about late lease renewal is recorded")]
+fn not_warned(world: &mut LibWorld) {
+    let warnings = late_renewals(world);
+    assert!(warnings.is_empty(), "{warnings:?}");
+}
