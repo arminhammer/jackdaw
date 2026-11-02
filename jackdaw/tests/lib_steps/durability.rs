@@ -1631,6 +1631,51 @@ async fn no_codec_fails(world: &mut LibWorld) {
     assert!(error.to_string().contains("test-xor"), "{error}");
 }
 
+const SECRET_YAML: &str = r#"
+document: { dsl: '1.0.0', namespace: specs, name: secret, version: '1.0.0' }
+do:
+  - keep:
+      set:
+        card: secret-card-number
+  - publish:
+      emit:
+        event:
+          with:
+            source: specs
+            type: card.kept
+            data:
+              card: ${ .card }
+"#;
+
+#[when(regex = r#"^a YAML workflow sets "secret-card-number" and publishes it in an event$"#)]
+async fn yaml_secret(world: &mut LibWorld) {
+    let workflow = Workflow::<Value, Value>::from_yaml(SECRET_YAML).expect("parses");
+    let handle = world
+        .engine()
+        .execute(&workflow, json!({}))
+        .await
+        .expect("starts");
+    world.notes.insert("yaml-id".into(), json!(handle.id()));
+    handle.await.expect("completes");
+}
+
+#[then(
+    regex = r#"^a new engine with the same codec shows "secret-card-number" in the YAML instance's history$"#
+)]
+async fn yaml_secret_readable(world: &mut LibWorld) {
+    world.crash().await;
+    let id = world.notes["yaml-id"].as_str().expect("an id").to_string();
+    let history = world.engine().history(&id).await.expect("history");
+    assert!(
+        format!("{history:?}").contains("secret-card-number"),
+        "{history:?}"
+    );
+    assert_eq!(
+        world.engine().status(&id).await.expect("a status"),
+        Status::Completed
+    );
+}
+
 #[given(regex = r"^an engine built with a compressing codec$")]
 fn rle_codec(world: &mut LibWorld) {
     use_store(world, TestStore::default());

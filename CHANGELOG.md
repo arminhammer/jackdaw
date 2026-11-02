@@ -22,6 +22,10 @@ The workspace publishes three crates with the same version: `jackdaw-wf` (the li
 - The docs build without warnings when some features are off.
 - YAML instances appear in `Engine::list`, `Engine::status` and `Engine::describe`, read from the YAML engine's
   stored events. Before, those saw only Rust instances.
+- With a `PayloadCodec` (`EngineBuilder::codec`), the YAML interpreter's records go through it as well: event
+  payloads (inputs, task results, outputs, published events) and checkpoint data. Before, only Rust instances'
+  journals and history were encoded, and a YAML workflow's data was stored as plain JSON. Records written before
+  still read.
 - With leases on, the YAML interpreter's own store writes for an instance are checked against the lease, as a
   Rust instance's are. An engine that lost the lease has its writes refused. Before, a stalled engine could write
   until its next renewal noticed.

@@ -1,5 +1,6 @@
-//! The YAML interpreter's store when leases are on: its writes for an instance go through only while this engine holds
-//! the instance's lease.
+//! The YAML interpreter's view of the engine's store: with leases on, its writes for an instance go through only while
+//! this engine holds the instance's lease ([`LeaseFence`]); with a payload codec, its payloads are encoded
+//! ([`CodecStore`]).
 
 use super::Clock;
 use crate::persistence::{Error, JournalRecord, Lease, PersistenceProvider, Result};
@@ -131,6 +132,138 @@ impl PersistenceProvider for LeaseFence {
 
     async fn release_lease(&self, instance_id: &str, owner: &str) -> Result<()> {
         super::runtime::lock(&self.held).remove(instance_id);
+        self.inner.release_lease(instance_id, owner).await
+    }
+
+    async fn post_message(&self, instance_id: &str, message: serde_json::Value) -> Result<()> {
+        self.inner.post_message(instance_id, message).await
+    }
+
+    async fn take_messages(&self, owner: &str) -> Result<Vec<(String, serde_json::Value)>> {
+        self.inner.take_messages(owner).await
+    }
+}
+
+/// Wraps the engine's store for the YAML interpreter when the engine has a [`PayloadCodec`](super::PayloadCodec): the
+/// payloads of its events (inputs, task results, outputs, published events) and its checkpoints' data are encoded on
+/// the way in and decoded on the way out, as the engine's own records are. Records written without the codec still
+/// read (they carry no codec envelope).
+pub(crate) struct CodecStore {
+    pub inner: Arc<dyn PersistenceProvider>,
+    pub codec: Arc<dyn super::PayloadCodec>,
+}
+
+impl std::fmt::Debug for CodecStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CodecStore")
+            .field("inner", &self.inner)
+            .field("codec", &self.codec.name())
+            .finish()
+    }
+}
+
+fn codec_error(error: super::Error) -> Error {
+    Error::Persistence {
+        message: error.to_string(),
+    }
+}
+
+impl CodecStore {
+    fn encode(&self, value: &serde_json::Value) -> Result<serde_json::Value> {
+        super::codec::encode(Some(self.codec.as_ref()), value).map_err(codec_error)
+    }
+
+    fn decode(&self, value: serde_json::Value) -> Result<serde_json::Value> {
+        super::codec::decode(Some(self.codec.as_ref()), value).map_err(codec_error)
+    }
+
+    fn encode_checkpoint(&self, mut checkpoint: WorkflowCheckpoint) -> Result<WorkflowCheckpoint> {
+        checkpoint.data = self.encode(&checkpoint.data)?;
+        Ok(checkpoint)
+    }
+}
+
+#[async_trait]
+impl PersistenceProvider for CodecStore {
+    async fn save_event(&self, event: WorkflowEvent) -> Result<()> {
+        let event = super::runtime::map_payloads(event, |value| {
+            super::codec::encode(Some(self.codec.as_ref()), &value)
+        })
+        .map_err(codec_error)?;
+        self.inner.save_event(event).await
+    }
+
+    async fn get_events(&self, instance_id: &str) -> Result<Vec<WorkflowEvent>> {
+        self.inner
+            .get_events(instance_id)
+            .await?
+            .into_iter()
+            .map(|event| {
+                super::runtime::map_payloads(event, |value| {
+                    super::codec::decode(Some(self.codec.as_ref()), value)
+                })
+                .map_err(codec_error)
+            })
+            .collect()
+    }
+
+    async fn save_checkpoint(&self, checkpoint: WorkflowCheckpoint) -> Result<()> {
+        let checkpoint = self.encode_checkpoint(checkpoint)?;
+        self.inner.save_checkpoint(checkpoint).await
+    }
+
+    async fn get_checkpoint(&self, instance_id: &str) -> Result<Option<WorkflowCheckpoint>> {
+        match self.inner.get_checkpoint(instance_id).await? {
+            Some(mut checkpoint) => {
+                checkpoint.data = self.decode(checkpoint.data)?;
+                Ok(Some(checkpoint))
+            }
+            None => Ok(None),
+        }
+    }
+
+    async fn append_journal(&self, instance_id: &str, records: Vec<JournalRecord>) -> Result<()> {
+        self.inner.append_journal(instance_id, records).await
+    }
+
+    async fn load_journal(&self, instance_id: &str) -> Result<Vec<JournalRecord>> {
+        self.inner.load_journal(instance_id).await
+    }
+
+    async fn prune_journal(&self, instance_id: &str, before: u64) -> Result<()> {
+        self.inner.prune_journal(instance_id, before).await
+    }
+
+    async fn create_checkpoint(&self, checkpoint: WorkflowCheckpoint) -> Result<bool> {
+        let checkpoint = self.encode_checkpoint(checkpoint)?;
+        self.inner.create_checkpoint(checkpoint).await
+    }
+
+    async fn list_instances(&self) -> Result<Option<Vec<String>>> {
+        self.inner.list_instances().await
+    }
+
+    async fn delete_instance(&self, instance_id: &str) -> Result<()> {
+        self.inner.delete_instance(instance_id).await
+    }
+
+    fn supports_leases(&self) -> bool {
+        self.inner.supports_leases()
+    }
+
+    async fn acquire_lease(
+        &self,
+        instance_id: &str,
+        owner: &str,
+        now: DateTime<Utc>,
+        until: DateTime<Utc>,
+    ) -> Result<Lease> {
+        self.inner
+            .acquire_lease(instance_id, owner, now, until)
+            .await
+    }
+
+    async fn release_lease(&self, instance_id: &str, owner: &str) -> Result<()> {
         self.inner.release_lease(instance_id, owner).await
     }
 

@@ -455,16 +455,24 @@ impl EngineBuilder {
         // YAML workflows run on the YAML interpreter, which calls native tasks and custom executors by name.
         #[cfg(feature = "yaml")]
         let yaml = {
+            // With a codec, the interpreter's payloads are encoded like the engine's own records.
+            let encoded: Arc<dyn PersistenceProvider> = match &self.codec {
+                Some(codec) => Arc::new(super::fence::CodecStore {
+                    inner: Arc::clone(&persistence),
+                    codec: Arc::clone(codec),
+                }),
+                None => Arc::clone(&persistence),
+            };
             // With leases, the interpreter writes for an instance only while this engine holds its lease.
             let interpreter_store: Arc<dyn PersistenceProvider> = match self.lease {
                 Some(ttl) if persistence.supports_leases() => Arc::new(super::fence::LeaseFence {
-                    inner: Arc::clone(&persistence),
+                    inner: Arc::clone(&encoded),
                     owner: owner.clone(),
                     ttl,
                     clock: Arc::clone(&clock),
                     held: std::sync::Mutex::new(HashMap::new()),
                 }),
-                Some(_) | None => Arc::clone(&persistence),
+                Some(_) | None => encoded,
             };
             let mut legacy = DurableEngine::new_with_config(
                 interpreter_store,
@@ -941,7 +949,17 @@ impl Engine {
     #[cfg(feature = "yaml")]
     async fn yaml_record(&self, id: &str) -> Result<Option<YamlRecord>, Error> {
         use crate::workflow::WorkflowEvent;
-        let events = self.shared.persistence.get_events(id).await?;
+        let codec = self.shared.codec.as_deref();
+        let events = self
+            .shared
+            .persistence
+            .get_events(id)
+            .await?
+            .into_iter()
+            .map(|event| {
+                super::runtime::map_payloads(event, |value| super::codec::decode(codec, value))
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
         let Some((key, input, started_at)) = events.iter().find_map(|event| {
             if let WorkflowEvent::WorkflowStarted {
                 workflow_id,
