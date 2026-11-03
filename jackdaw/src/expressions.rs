@@ -1,9 +1,10 @@
 use regex::Regex;
+use serde::Deserialize;
 use serde_json::Value;
 use snafu::prelude::*;
 use std::sync::LazyLock;
 
-use jaq_core::Ctx;
+use jaq_core::{Ctx, Vars, data, unwrap_valr};
 use tracing::debug;
 
 /// Regex for null-safe field access transformation
@@ -262,7 +263,11 @@ pub fn evaluate_jq(jq_expr: &str, context: &Value) -> Result<Value> {
 
     // Create arena and loader with standard library (including jaq-json defs)
     let arena = Arena::default();
-    let loader = Loader::new(jaq_std::defs().chain(jaq_json::defs()));
+    let loader = Loader::new(
+        jaq_core::defs()
+            .chain(jaq_std::defs())
+            .chain(jaq_json::defs()),
+    );
 
     // Load the expression as a "file"
     let file: File<_, ()> = File {
@@ -275,29 +280,70 @@ pub fn evaluate_jq(jq_expr: &str, context: &Value) -> Result<Value> {
     })?;
 
     // Compile with standard library native functions (including jaq-json funs)
-    let compiler = Compiler::default().with_funs(jaq_std::funs().chain(jaq_json::funs()));
+    let compiler = Compiler::default().with_funs(
+        jaq_core::funs()
+            .chain(jaq_std::funs())
+            .chain(jaq_json::funs()),
+    );
     let filter = compiler.compile(modules).map_err(|errs| Error::JqCompile {
         errors: format!("{errs:?}"),
     })?;
 
-    // Convert serde_json::Value to jaq_json::Val using From trait
-    let input: jaq_json::Val = context.clone().into();
+    // Convert serde_json::Value to jaq_json::Val via its Deserialize impl
+    let input: jaq_json::Val =
+        jaq_json::Val::deserialize(context).map_err(|e| Error::JqEvaluation {
+            message: format!("failed to convert input to jq value: {e}"),
+        })?;
 
-    let inputs = jaq_core::RcIter::new(core::iter::empty());
-    let mut results: Vec<_> = filter.run((Ctx::new([], &inputs), input)).collect();
+    let ctx = Ctx::<data::JustLut<jaq_json::Val>>::new(&filter.lut, Vars::new([]));
+    let mut results: Vec<_> = filter.id.run((ctx, input)).map(unwrap_valr).collect();
 
     if results.is_empty() {
         return Ok(Value::Null);
     }
 
     match results.remove(0) {
-        Ok(val) => {
-            let result: serde_json::Value = val.into();
-            Ok(result)
-        }
+        Ok(val) => Ok(jaq_val_to_json(val)),
         Err(e) => Err(Error::JqEvaluation {
             message: format!("{e}"),
         }),
+    }
+}
+
+/// Convert a `jaq_json::Val` into a `serde_json::Value`.
+///
+/// Byte strings are converted lossily to UTF-8 strings, non-string object keys are
+/// rendered with their jq string representation, and non-finite floats become `null`.
+fn jaq_val_to_json(val: jaq_json::Val) -> Value {
+    use jaq_json::{Num, Val};
+    match val {
+        Val::Null => Value::Null,
+        Val::Bool(b) => Value::Bool(b),
+        Val::Num(Num::Int(i)) => Value::from(i),
+        Val::Num(Num::Float(f)) => {
+            serde_json::Number::from_f64(f).map_or(Value::Null, Value::Number)
+        }
+        Val::Num(n) => {
+            let s = n.to_string();
+            serde_json::from_str(&s).unwrap_or(Value::String(s))
+        }
+        Val::TStr(b) | Val::BStr(b) => Value::String(String::from_utf8_lossy(&b).into_owned()),
+        Val::Arr(a) => Value::Array(a.iter().cloned().map(jaq_val_to_json).collect()),
+        Val::Obj(o) => Value::Object(
+            o.iter()
+                .map(|(k, v)| {
+                    let key = match k {
+                        Val::TStr(b) | Val::BStr(b) => String::from_utf8_lossy(b).into_owned(),
+                        other @ (Val::Null
+                        | Val::Bool(_)
+                        | Val::Num(_)
+                        | Val::Arr(_)
+                        | Val::Obj(_)) => other.to_string(),
+                    };
+                    (key, jaq_val_to_json(v.clone()))
+                })
+                .collect(),
+        ),
     }
 }
 
