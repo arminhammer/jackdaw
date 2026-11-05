@@ -1,0 +1,22 @@
+# Takes `{ "n": 60 }`. Every task names its successor, because the interpreter runs tasks in order only when none does.
+document:
+  dsl: '1.0.3'
+  namespace: examples
+  name: switch
+  version: '1.0.0'
+do:
+  - classify:
+      switch:
+        - large:
+            when: '.n > 50'
+            then: big
+        - otherwise:
+            then: small
+  - big:
+      set:
+        size: large
+      then: end
+  - small:
+      set:
+        size: small
+      then: end

@@ -128,6 +128,7 @@ pub fn format_task_output(output: &Value, duration_ms: i64) {
 
 /// A line a script task printed while it ran (`stream` is `stdout` or `stderr`). `index` tells concurrent tasks
 /// apart.
+#[cfg_attr(target_family = "wasm", allow(dead_code))]
 pub fn script_line(task_name: &str, index: usize, stream: &str, line: &str) {
     tracing::info!(
         target: TARGET,

@@ -17,7 +17,10 @@ the Open Workflow Specification and conformance tests.
 - `just test-lib`: the library's executable specification, Gherkin features in `jackdaw/tests/lib` run with
   cucumber-rs. Scenarios tagged `@todo` describe behavior that is not built yet and are skipped; turning one into
   `@implemented` (with step definitions in `jackdaw/tests/lib_steps`) is how features land. `@docker` scenarios need
-  Docker and `@postgres` ones `DATABASE_URL`.
+  Docker and `@postgres` ones `DATABASE_URL`. `@wasm` ones (`platform/wasm.feature`) build the programs under
+  `jackdaw/tests/wasm` for `wasm32-wasip2` and run them with wasmtime; they are skipped without the target
+  (`rustup target add wasm32-wasip2`) and `wasmtime`. `just wasm` checks the library for that target and runs only those
+  scenarios, with `JACKDAW_REQUIRE_WASM=1` so a missing tool fails instead of skipping (the `WebAssembly (WASI)` CI job).
   - `JACKDAW_TEST_STORE=sqlite` or `postgres` (with `DATABASE_URL` pointing at a server where the user may create
     databases) runs the durable scenarios on that store instead of Redb.
   - `JACKDAW_SCENARIO_CONCURRENCY` (default 8) and `JACKDAW_SCENARIO_TIMEOUT` (seconds, default 600). A scenario that

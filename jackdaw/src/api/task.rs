@@ -226,10 +226,11 @@ impl NativeTask {
                         f(ctx, input)
                     })
                     .await
-                    .map_err(|error| {
-                        if error.is_panic() {
-                            TaskError::non_retryable(panic_message(error.into_panic().as_ref()))
-                        } else {
+                    .map_err(|error| match error {
+                        crate::blocking::Error::Panicked(payload) => {
+                            TaskError::non_retryable(panic_message(payload.as_ref()))
+                        }
+                        crate::blocking::Error::Cancelled => {
                             TaskError::non_retryable("the blocking task was cancelled")
                         }
                     })??;

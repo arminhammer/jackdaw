@@ -1,0 +1,15 @@
+# Programs that use jackdaw without its default features (but with the Redb store), built for wasm32-wasip2 by the `platform/wasm.feature`
+# scenarios. Not part of the workspace.
+[package]
+name = "jackdaw-wasm-core"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+jackdaw = { package = "jackdaw-wf", path = "../../..", default-features = false, features = ["redb"] }
+futures = "0.3"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["rt", "macros", "time"] }
+
+[workspace]

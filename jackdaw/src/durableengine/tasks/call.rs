@@ -84,13 +84,10 @@ pub async fn exec_call_task(
         let mut merged_params = func_params;
         merged_params.extend(evaluated_with_params.clone());
 
-        let executor =
-            engine
-                .executors
-                .get(call_type)
-                .ok_or(super::super::Error::TaskExecution {
-                    message: format!("No executor for call type: {call_type}"),
-                })?;
+        let executor = engine
+            .executors
+            .get(call_type)
+            .ok_or_else(|| super::super::no_call_executor(call_type))?;
 
         let final_params = serde_json::to_value(&merged_params)?;
         executor.exec(task_name, &final_params, ctx, None).await?
@@ -102,13 +99,10 @@ pub async fn exec_call_task(
         catalog_result
     } else {
         // Built-in protocol
-        let executor =
-            engine
-                .executors
-                .get(function_name)
-                .ok_or(super::super::Error::TaskExecution {
-                    message: format!("No executor for call type: {function_name}"),
-                })?;
+        let executor = engine
+            .executors
+            .get(function_name)
+            .ok_or_else(|| super::super::no_call_executor(function_name))?;
 
         let final_params = serde_json::to_value(&evaluated_with_params)?;
         executor.exec(task_name, &final_params, ctx, None).await?

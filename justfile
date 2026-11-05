@@ -135,6 +135,21 @@ lint:
 deny:
     cargo deny check licenses bans sources
 
+# Check that the library builds for WebAssembly (WASI) with the features that work there, then run the programs
+# built for it under wasmtime (`wasm32-wasip2` and `wasmtime` must be installed)
+wasm: wasm-check wasm-test
+
+wasm-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for features in "" "redb" "metrics" "redb,metrics" "yaml" "yaml,redb,http-client,metrics"; do
+        echo "== wasm32-wasip2 with features [$features]"
+        cargo clippy -p jackdaw-wf --no-default-features --features "$features" --target wasm32-wasip2 -- -D warnings
+    done
+
+wasm-test:
+    JACKDAW_REQUIRE_WASM=1 cargo test -p jackdaw-wf --test lib_features -- --tags '@wasm'
+
 # Check the public API against the latest release on crates.io
 semver:
     cargo semver-checks -p jackdaw-wf --all-features

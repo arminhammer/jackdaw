@@ -59,6 +59,40 @@ jobs:
       - name: Clippy for each feature
         run: cargo hack clippy -p jackdaw-wf --each-feature --no-dev-deps -- -D warnings
 
+  # The library as a dependency of a program built for WASI: it must compile for wasm32-wasip2 with the features that
+  # work there, and the example programs must run under wasmtime (`just wasm`).
+  wasm:
+    name: WebAssembly (WASI)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.99.0
+        with:
+          components: clippy
+          targets: wasm32-wasip2
+
+      - name: Install wasmtime
+        uses: bytecodealliance/actions/wasmtime/setup@v1
+
+      - name: Install just
+        uses: taiki-e/install-action@just
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: wasm
+          workspaces: |
+            . -> target
+            jackdaw -> ../target/wasm-fixtures
+
+      - name: Build for WASI and run under wasmtime
+        run: just wasm
+
   docs:
     name: Documentation
     runs-on: ubuntu-latest
