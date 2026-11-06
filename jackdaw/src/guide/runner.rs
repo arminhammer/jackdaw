@@ -86,7 +86,7 @@
 //! [`Kind::Json`](crate::runner::Kind::Json) and [`Kind::Headless`](crate::runner::Kind::Headless) when the user asks.
 //! [`reporter`](crate::runner::reporter) builds the reporter for a kind.
 //!
-//! With the `cli` feature, [`RunnerArgs`](crate::runner::RunnerArgs) adds the flags to a program that uses `clap`:
+//! With the `cli` feature, `RunnerArgs` adds the flags to a program that uses `clap`:
 //! `--quiet`, `--json`, `--plain` and `--restart`.
 //!
 //! ```ignore

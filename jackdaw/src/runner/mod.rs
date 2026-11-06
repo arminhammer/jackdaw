@@ -10,9 +10,9 @@
 //! | [`Headless`] | nothing |
 //! | [`Lines`] | one line per step, for logs and CI |
 //! | [`Json`] | one JSON object per event, for machines |
-//! | [`Terminal`] (feature `terminal`) | a progress bar and a summary |
+//! | `Terminal` (feature `terminal`) | a progress bar and a summary |
 //!
-//! [`Env::detect`] picks one from where the program runs (a terminal, a pipe, a flag), and [`RunnerArgs`] (feature `cli`)
+//! [`Env::detect`] picks one from where the program runs (a terminal, a pipe, a flag), and `RunnerArgs` (feature `cli`)
 //! gives a `clap` program the flags for it.
 //!
 //! ```no_run
@@ -339,7 +339,7 @@ pub enum Kind {
     Lines,
     /// [`Json`].
     Json,
-    /// [`Terminal`]; without the `terminal` feature, [`reporter`] gives [`Lines`] instead.
+    /// `Terminal`; without the `terminal` feature, [`reporter`] gives [`Lines`] instead.
     Terminal,
 }
 
