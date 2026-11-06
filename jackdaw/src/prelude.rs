@@ -10,5 +10,9 @@ pub use crate::api::{
     TaskContext, TaskDef, TaskError, TaskOptions, UpdateError, WorkflowContext,
     WorkflowContextView, WorkflowDef, WorkflowError, WorkflowResult, error_types, race,
 };
+#[cfg(feature = "config")]
+pub use crate::config::Config;
+#[cfg(feature = "config")]
+pub use jackdaw_macros::Config;
 pub use jackdaw_macros::{catalog, task, tasks, workflow, workflow_methods};
 pub use schemars::JsonSchema;

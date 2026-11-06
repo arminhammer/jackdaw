@@ -33,12 +33,16 @@
 #[cfg(all(feature = "cli", not(target_family = "wasm")))]
 mod args;
 mod lines;
+#[cfg(all(feature = "cli", not(target_family = "wasm")))]
+mod program;
 #[cfg(all(feature = "terminal", not(target_family = "wasm")))]
 mod terminal;
 
 #[cfg(all(feature = "cli", not(target_family = "wasm")))]
 pub use args::RunnerArgs;
 pub use lines::{Json, Lines};
+#[cfg(all(feature = "cli", not(target_family = "wasm")))]
+pub use program::{Program, ProgramError};
 #[cfg(all(feature = "terminal", not(target_family = "wasm")))]
 pub use terminal::Terminal;
 

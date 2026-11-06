@@ -1,14 +1,20 @@
-//! A workflow written in Rust that calls two tasks, on an in-memory engine.
+//! A workflow written in Rust that calls two tasks, run as a program. Its input, `Order`, is its configuration: it
+//! comes from flags, the `CHECKOUT_` environment variables, or `--config` files.
 //!
 //! ```text
-//! cargo run -p jackdaw-wf --example quickstart
+//! cargo run -p jackdaw-wf --example quickstart -- --id o-1 --cents 4200
+//! cargo run -p jackdaw-wf --example quickstart -- --help
 //! ```
 use jackdaw::prelude::*;
+use jackdaw::runner::Program;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+/// The workflow's input and, with `#[derive(Config)]`, its command line.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Config)]
 pub struct Order {
+    /// The order to ship
     pub id: String,
+    /// What to charge, in cents
     pub cents: u64,
 }
 
@@ -51,25 +57,12 @@ impl Checkout {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() -> Result<std::process::ExitCode, Error> {
     let engine = Engine::builder()
         .task(Charge)
         .task(Ship)
         .workflow::<Checkout>()
         .build()?;
-
-    let receipt = engine
-        .execute(
-            Checkout::run,
-            Order {
-                id: "o-1".into(),
-                cents: 4200,
-            },
-        )
-        .await?
-        .await?;
-
-    println!("{receipt:?}");
-    assert_eq!(receipt.parcel, "parcel-for-o-1");
-    Ok(())
+    // Parses the flags, reads the input, runs the workflow and prints its output.
+    Ok(Program::<Checkout>::new(engine).main().await)
 }

@@ -9,6 +9,27 @@ The workspace publishes three crates with the same version: `jackdaw-wf` (the li
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-11-06
+
+### Added
+
+- A workflow's input is its configuration. `#[derive(Config)]` (feature `config`) gives the input type of a workflow
+  one command line flag per field, named after it, with the field's doc comment as help. `Option<T>`, `Vec<T>` and
+  `bool` (a switch) are understood, `#[config(skip)]` leaves a field without a flag (nested structs still come from
+  files and the environment), and `#[config(short = 'w')]` and `#[config(long = "..")]` name a flag.
+- `jackdaw::config::Layers`: reads any serde type from defaults, files (`.toml`, `.json`, `.yaml`, `.yml`, by
+  extension), environment variables (`PREFIX_NAME`, `__` for nested settings) and arguments, each overriding the ones
+  before. Errors name the setting or the file.
+- `jackdaw::runner::Program` (feature `cli`): `main` for a workflow. It reads the input from `--config` files, the
+  environment (`<WORKFLOW>_` by default) and the derived flags, runs the workflow with a `Runner` and prints the output
+  as JSON. It has `--config`, `--run-id`, `--quiet`, `--json`, `--plain` and `--restart` of its own. `Program::run`
+  does the same for arguments and variables you give it, for tests.
+- Features `config` (figment) and `cli` now includes it. A guide chapter, `guide::config`, covers the pattern.
+
+### Changed
+
+- The README, the crate documentation and all examples take their input from a `Config` struct.
+
 ## [0.2.3] - 2026-11-05
 
 ### Changed
@@ -217,7 +238,8 @@ an optional part of the same engine. The CLI is now a separate crate built on th
 
 The CLI release before the library refactor; see the GitHub release.
 
-[Unreleased]: https://github.com/arminhammer/jackdaw/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/arminhammer/jackdaw/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/arminhammer/jackdaw/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/arminhammer/jackdaw/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/arminhammer/jackdaw/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/arminhammer/jackdaw/compare/v0.2.0...v0.2.1

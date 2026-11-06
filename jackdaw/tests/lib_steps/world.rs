@@ -160,6 +160,8 @@ pub struct LibWorld {
     pub store_activity: Arc<StoreActivity>,
     /// The runner scenarios' runner, report and result.
     pub runner: super::runner::State,
+    /// The config scenarios' sources and result.
+    pub config: super::config::State,
 }
 
 /// Which durable store the scenarios run on: `JACKDAW_TEST_STORE=redb|sqlite|postgres` (default redb). Postgres needs
@@ -216,6 +218,7 @@ impl LibWorld {
             workers: HashMap::new(),
             store_activity: Arc::default(),
             runner: super::runner::State::default(),
+            config: super::config::State::default(),
         }
     }
 

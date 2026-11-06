@@ -39,6 +39,9 @@ sha2 = "0.11"
 schemars = "1"
 metrics = { version = "0.24", optional = true }
 
+# config
+figment = { version = "0.10", default-features = false, features = ["toml", "json"], optional = true }
+
 # yaml
 serde_derive = { version = "1", optional = true }
 jaq-core = { version = "3.1.2", optional = true }
@@ -63,7 +66,7 @@ tokio = { version = "1", features = ["process", "rt-multi-thread"] }
 # terminal, cli
 indicatif = { version = "0.18", optional = true }
 console = { version = "0.16", optional = true }
-clap = { version = "4", default-features = false, features = ["std", "derive", "help", "usage", "error-context"], optional = true }
+clap = { version = "4", default-features = false, features = ["std", "derive", "help", "usage", "error-context", "string"], optional = true }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "http2"], optional = true }
 
 # sqlite, postgres
@@ -98,7 +101,7 @@ bytes = { version = "1", optional = true }
 [features]
 default = ["yaml", "redb", "http-client"]
 # Everything, as the CLI uses it.
-full = ["yaml", "redb", "sqlite", "postgres", "http-client", "openapi", "docker", "http-listener", "grpc-listener", "metrics", "terminal", "cli"]
+full = ["yaml", "redb", "sqlite", "postgres", "http-client", "openapi", "docker", "http-listener", "grpc-listener", "metrics", "config", "terminal", "cli"]
 
 # The Open Workflow YAML interpreter: `jackdaw::dsl`, `api::Workflow` (`from_yaml`, `validate`),
 # `ctx.run_definition` and the engine's YAML registrations. YAML `call: http` needs an HTTP client, so this
@@ -121,10 +124,13 @@ docker = ["dep:bollard"]
 http-listener = ["dep:axum", "dep:jsonschema"]
 grpc-listener = ["dep:tonic", "dep:tonic-reflection", "dep:prost", "dep:prost-reflect", "dep:prost-types", "dep:protox", "dep:tower", "dep:http", "dep:http-body", "dep:http-body-util", "dep:hyper", "dep:hyper-util", "dep:bytes"]
 
+# `jackdaw::config`: a workflow's input read from defaults, files (toml, json, yaml), environment variables and arguments.
+config = ["dep:figment"]
+
 # `runner::Terminal`, the progress bars of a `Runner` in a terminal. The rest of `runner` needs no feature.
 terminal = ["dep:indicatif", "dep:console"]
 # `runner::RunnerArgs`, the command line flags of a `Runner`, for programs that use `clap`.
-cli = ["terminal", "dep:clap"]
+cli = ["terminal", "config", "dep:clap"]
 
 # Counters and histograms through the `metrics` facade. The library never installs a recorder.
 metrics = ["dep:metrics"]
