@@ -1,20 +1,19 @@
 use clap::Parser;
 use console::style;
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use indicatif::MultiProgress;
+use jackdaw::Engine;
+use jackdaw::api::Workflow;
 use jackdaw::dsl::workflow::WorkflowDefinition;
+use jackdaw::runner::{
+    Env, Headless, Json, Kind, Lines, Reporter, RunOptions, Runner, RunnerArgs, Terminal,
+};
+use serde_json::Value;
 use snafu::prelude::*;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
+use super::providers::ProviderArgs;
 use crate::config::JackdawConfig;
 use crate::visualization::{self, DiagramFormat, ExecutionState};
-use jackdaw::api::Workflow;
-use jackdaw::providers::cache::{PostgresCache, RedbCache, SqliteCache, mem::InMemoryCache};
-use jackdaw::providers::persistence::{
-    InMemoryPersistence, PostgresPersistence, RedbPersistence, SqlitePersistence,
-};
-use jackdaw::{CacheProvider, Engine, PersistenceProvider};
-use serde_json::Value;
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -37,6 +36,9 @@ pub enum Error {
     #[snafu(display("{source}"))]
     Engine { source: jackdaw::Error },
 
+    #[snafu(display("{source}"))]
+    Run { source: jackdaw::runner::Error },
+
     #[snafu(display("Workflow did not finish within {seconds}s"))]
     Timeout { seconds: u64 },
 
@@ -48,12 +50,15 @@ pub enum Error {
 
     #[snafu(display("Persistence error: {source}"))]
     Persistence { source: jackdaw::persistence::Error },
-
-    #[snafu(display("Progress display error: {source}"))]
-    Progress { source: std::io::Error },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+impl From<jackdaw::runner::Error> for Error {
+    fn from(source: jackdaw::runner::Error) -> Self {
+        Error::Run { source }
+    }
+}
 
 impl From<jackdaw::Error> for Error {
     fn from(source: jackdaw::Error) -> Self {
@@ -64,33 +69,6 @@ impl From<jackdaw::Error> for Error {
 impl From<visualization::Error> for Error {
     fn from(source: visualization::Error) -> Self {
         Error::Visualization { source }
-    }
-}
-
-/// The output without the engine's internal descriptor fields (those starting with `__`).
-fn filter_internal_fields(value: &Value) -> Value {
-    match value {
-        Value::Object(map) => Value::Object(
-            map.iter()
-                .filter(|(key, _)| !key.starts_with("__"))
-                .map(|(key, value)| (key.clone(), filter_internal_fields(value)))
-                .collect(),
-        ),
-        Value::Array(items) => Value::Array(items.iter().map(filter_internal_fields).collect()),
-        other @ (Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_)) => {
-            other.clone()
-        }
-    }
-}
-
-/// Prints a line above the progress bars, or plainly when they are hidden (output is not a terminal): indicatif drops
-/// `println` on a hidden target, which would lose the results of `jackdaw run ... | jq`.
-fn say(progress: &MultiProgress, line: impl AsRef<str>) -> std::io::Result<()> {
-    if progress.is_hidden() {
-        println!("{}", line.as_ref());
-        Ok(())
-    } else {
-        progress.println(line)
     }
 }
 
@@ -152,37 +130,12 @@ pub struct RunArgs {
     #[arg(short = 'v', long)]
     pub verbose: bool,
 
-    /// Enable debug mode (show detailed execution information)
+    /// Enable debug mode (show what each step returned, and each task's input and cache use)
     #[arg(long)]
     pub debug: bool,
 
-    /// Persistence provider to use (memory, redb, sqlite, postgres)
-    #[arg(long, value_name = "PERSISTENCE_PROVIDER", default_value = "memory")]
-    pub persistence_provider: String,
-
-    /// Cache provider to use (memory, redb, sqlite, postgres)
-    #[arg(long, value_name = "CACHE_PROVIDER", default_value = "memory")]
-    pub cache_provider: String,
-
-    /// SQLite database URL (e.g., 'workflow.db' or ':memory:')
-    #[arg(long, value_name = "SQLITE_DB_URL", env = "SQLITE_DB_URL")]
-    pub sqlite_db_url: Option<String>,
-
-    /// PostgreSQL database name
-    #[arg(long, value_name = "POSTGRES_DB_NAME", env = "POSTGRES_DB_NAME")]
-    pub postgres_db_name: Option<String>,
-
-    /// PostgreSQL user
-    #[arg(long, value_name = "POSTGRES_USER", env = "POSTGRES_USER")]
-    pub postgres_user: Option<String>,
-
-    /// PostgreSQL password
-    #[arg(long, value_name = "POSTGRES_PASSWORD", env = "POSTGRES_PASSWORD")]
-    pub postgres_password: Option<String>,
-
-    /// PostgreSQL hostname
-    #[arg(long, value_name = "POSTGRES_HOSTNAME", env = "POSTGRES_HOSTNAME")]
-    pub postgres_hostname: Option<String>,
+    #[command(flatten)]
+    pub providers: ProviderArgs,
 
     /// Generate workflow visualization after execution
     #[arg(long)]
@@ -207,39 +160,38 @@ pub struct RunArgs {
     /// Workflow registry paths - directories or files containing workflows that can be called
     #[arg(short = 'r', long = "registry", value_name = "PATH")]
     pub registry: Option<Vec<PathBuf>>,
+
+    /// Run under this id: running again with a durable store continues it, or returns its result if it finished
+    #[arg(long, value_name = "ID")]
+    pub id: Option<String>,
+
+    #[command(flatten)]
+    pub runner: RunnerArgs,
 }
 
 impl RunArgs {
     /// Merge CLI arguments with config file settings
     /// CLI arguments take precedence over config file settings
-    pub fn merge_with_config(self, config: JackdawConfig) -> JackdawConfig {
+    pub fn merge_with_config(&self, config: JackdawConfig) -> JackdawConfig {
         JackdawConfig {
-            durable_db: self.durable_db.or(config.durable_db),
-            cache_db: self.cache_db.or(config.cache_db),
-            parallel: if self.parallel { true } else { config.parallel },
-            verbose: if self.verbose { true } else { config.verbose },
-            visualize: if self.visualize {
-                true
-            } else {
-                config.visualize
-            },
-            viz_tool: self.viz_tool.or(config.viz_tool),
-            viz_format: self.viz_format.or(config.viz_format),
-            viz_output: self.viz_output.or(config.viz_output),
+            durable_db: self.durable_db.clone().or(config.durable_db),
+            cache_db: self.cache_db.clone().or(config.cache_db),
+            parallel: self.parallel || config.parallel,
+            verbose: self.verbose || config.verbose,
+            visualize: self.visualize || config.visualize,
+            viz_tool: self.viz_tool.clone().or(config.viz_tool),
+            viz_format: self.viz_format.clone().or(config.viz_format),
+            viz_output: self.viz_output.clone().or(config.viz_output),
         }
     }
 }
 
-/// Discover all workflow files from the provided paths
+/// The workflow files in `paths`: the files themselves, and the `.yaml` and `.yml` files in each directory.
 fn discover_workflow_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
-    let mut workflow_files = Vec::new();
-
+    let mut files = Vec::new();
     for path in paths {
         if path.is_file() {
-            // Single file
-            if is_workflow_file(path) {
-                workflow_files.push(path.clone());
-            } else {
+            if !is_workflow_file(path) {
                 return Err(Error::InvalidWorkflowFile {
                     message: format!(
                         "File {} is not a valid workflow file (.yaml or .yml)",
@@ -247,15 +199,12 @@ fn discover_workflow_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
                     ),
                 });
             }
+            files.push(path.clone());
         } else if path.is_dir() {
-            // Directory - recursively find all workflow files
-            let entries = std::fs::read_dir(path).context(IoSnafu)?;
-
-            for entry in entries {
-                let entry = entry?;
-                let entry_path = entry.path();
-                if entry_path.is_file() && is_workflow_file(&entry_path) {
-                    workflow_files.push(entry_path);
+            for entry in std::fs::read_dir(path)? {
+                let entry = entry?.path();
+                if entry.is_file() && is_workflow_file(&entry) {
+                    files.push(entry);
                 }
             }
         } else {
@@ -264,577 +213,295 @@ fn discover_workflow_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
             });
         }
     }
-
-    if workflow_files.is_empty() {
+    if files.is_empty() {
         return Err(Error::Path {
             message: "No workflow files found in the provided paths".to_string(),
         });
     }
-
-    Ok(workflow_files)
+    Ok(files)
 }
 
-/// Check if a file is a workflow file based on extension
 fn is_workflow_file(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
         .is_some_and(|ext| ext == "yaml" || ext == "yml")
 }
 
-/// Execute a single workflow with progress indication
-async fn execute_workflow(
-    workflow_path: &PathBuf,
-    engine: Engine,
-    progress: Option<&ProgressBar>,
-    _verbose: bool,
-    input: Option<&String>,
-) -> Result<(String, serde_json::Value, WorkflowDefinition)> {
-    if let Some(pb) = progress {
-        pb.set_message(format!("Loading {}", workflow_path.display()));
-    }
-
-    // Read and parse workflow
-    let workflow_yaml = std::fs::read_to_string(workflow_path)?;
-    let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml)?;
-
-    if let Some(pb) = progress {
-        pb.set_message(format!("Executing {}", workflow.document.name));
-    }
-
-    // Parse input data
-    let input_data = if let Some(input_str) = input {
-        // Try to parse as JSON first
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(input_str) {
-            json
-        } else {
-            // Try to read as file path
-            let input_path = PathBuf::from(input_str);
-            if input_path.exists() {
-                let file_content = std::fs::read_to_string(&input_path)?;
-                serde_json::from_str(&file_content)?
-            } else {
-                return Err(Error::InvalidWorkflowFile {
-                    message: format!(
-                        "Input '{}' is neither valid JSON nor a valid file path",
-                        input_str
-                    ),
-                });
-            }
-        }
-    } else {
-        serde_json::json!({})
-    };
-
-    // Execute workflow
-    let runnable = Workflow::<Value, Value>::from_definition(workflow.clone());
-    let handle = engine.execute(&runnable, input_data).await?;
-    let instance_id = handle.id().to_string();
-
-    // Wait for completion with a generous timeout for CLI use
-    let result = tokio::time::timeout(RUN_TIMEOUT, handle)
-        .await
-        .map_err(|_| Error::Timeout {
-            seconds: RUN_TIMEOUT.as_secs(),
-        })??;
-
-    if let Some(pb) = progress {
-        pb.finish_with_message(format!("Completed {}", workflow_path.display()));
-    }
-
-    Ok((instance_id, result, workflow))
+fn load_workflow(path: &Path) -> Result<WorkflowDefinition> {
+    Ok(serde_saphyr::from_str(&std::fs::read_to_string(path)?)?)
 }
 
-/// Parse diagram format from string
-fn parse_diagram_format(format_str: &str) -> Result<DiagramFormat> {
-    match format_str.to_lowercase().as_str() {
+/// The workflow's input: JSON given on the command line, or the JSON file it names. `{}` if none was given.
+fn parse_input(input: Option<&String>) -> Result<Value> {
+    let Some(text) = input else {
+        return Ok(serde_json::json!({}));
+    };
+    if let Ok(json) = serde_json::from_str(text) {
+        return Ok(json);
+    }
+    let path = PathBuf::from(text);
+    if path.exists() {
+        return Ok(serde_json::from_str(&std::fs::read_to_string(path)?)?);
+    }
+    Err(Error::InvalidWorkflowFile {
+        message: format!("Input '{text}' is neither valid JSON nor a valid file path"),
+    })
+}
+
+fn parse_diagram_format(format: &str) -> Result<DiagramFormat> {
+    match format.to_lowercase().as_str() {
         "svg" => Ok(DiagramFormat::Svg),
         "png" => Ok(DiagramFormat::Png),
         "pdf" => Ok(DiagramFormat::Pdf),
         "ascii" => Ok(DiagramFormat::Ascii),
         _ => Err(Error::InvalidWorkflowFile {
-            message: format!("Invalid format '{format_str}'. Valid formats: svg, png, pdf, ascii"),
+            message: format!("Invalid format '{format}'. Valid formats: svg, png, pdf, ascii"),
         }),
     }
 }
 
-/// Build PostgreSQL connection URL and validate all required parameters are provided
-fn build_postgres_url(
-    db_name: Option<&String>,
-    user: Option<&String>,
-    password: Option<&String>,
-    hostname: Option<&String>,
-) -> Result<String> {
-    let db_name = db_name.ok_or_else(|| Error::InvalidWorkflowFile {
-        message:
-            "PostgreSQL provider requires --postgres-db-name parameter or POSTGRES_DB_NAME env var"
-                .to_string(),
-    })?;
-    let user = user.ok_or_else(|| Error::InvalidWorkflowFile {
-        message: "PostgreSQL provider requires --postgres-user parameter or POSTGRES_USER env var"
-            .to_string(),
-    })?;
-    let password = password.ok_or_else(|| Error::InvalidWorkflowFile {
-        message: "PostgreSQL provider requires --postgres-password parameter or POSTGRES_PASSWORD env var".to_string(),
-    })?;
-    let hostname = hostname.ok_or_else(|| Error::InvalidWorkflowFile {
-        message: "PostgreSQL provider requires --postgres-hostname parameter or POSTGRES_HOSTNAME env var".to_string(),
-    })?;
-
-    Ok(format!(
-        "postgresql://{}:{}@{}/{}",
-        user, password, hostname, db_name
-    ))
+/// The output without the engine's internal descriptor fields (those starting with `__`).
+fn filter_internal_fields(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .filter(|(key, _)| !key.starts_with("__"))
+                .map(|(key, value)| (key.clone(), filter_internal_fields(value)))
+                .collect(),
+        ),
+        Value::Array(items) => Value::Array(items.iter().map(filter_internal_fields).collect()),
+        other @ (Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_)) => {
+            other.clone()
+        }
+    }
 }
 
-/// Handle the run subcommand with graceful shutdown support
+/// Prints to standard output without breaking the progress bars.
+pub fn out(display: &MultiProgress, text: impl std::fmt::Display) {
+    display.suspend(|| println!("{text}"));
+}
+
+/// Prints to standard error without breaking the progress bars.
+pub fn err(display: &MultiProgress, text: impl std::fmt::Display) {
+    display.suspend(|| eprintln!("{text}"));
+}
+
+/// One workflow to run.
+struct Job {
+    path: PathBuf,
+    definition: WorkflowDefinition,
+    runnable: Workflow<Value, Value>,
+    id: String,
+}
+
+/// The reporter for one run: what the flags and the terminal call for, drawing into the shared `display`. Runs side by
+/// side are labelled with their workflow's name.
+fn reporter(args: &RunArgs, display: &MultiProgress, label: Option<&str>) -> Box<dyn Reporter> {
+    match args.runner.kind(Env::detect()) {
+        Kind::Terminal => {
+            let terminal = Terminal::in_group(display).outputs(args.debug);
+            Box::new(match label {
+                Some(label) => terminal.label(label),
+                None => terminal,
+            })
+        }
+        Kind::Lines => Box::new(Lines::stderr().outputs(args.debug)),
+        Kind::Json => Box::new(Json::stderr()),
+        Kind::Headless | _ => Box::new(Headless),
+    }
+}
+
+/// Handle the run subcommand, stopping cleanly on Ctrl+C or SIGTERM.
 pub async fn handle_run(
-    workflows: Vec<PathBuf>,
-    input: Option<String>,
-    registry: Option<Vec<PathBuf>>,
+    args: RunArgs,
     config: JackdawConfig,
-    multi_progress: MultiProgress,
-    debug: bool,
-    persistence_provider: String,
-    cache_provider: String,
-    sqlite_db_url: Option<String>,
-    postgres_db_name: Option<String>,
-    postgres_user: Option<String>,
-    postgres_password: Option<String>,
-    postgres_hostname: Option<String>,
+    display: MultiProgress,
 ) -> Result<()> {
-    // Set up signal handler for graceful shutdown
-    let shutdown_signal = async {
-        #[cfg(unix)]
-        {
-            use tokio::signal::unix::{SignalKind, signal};
-            let sigint_result = signal(SignalKind::interrupt());
-            let sigterm_result = signal(SignalKind::terminate());
-
-            if let (Ok(mut sigint), Ok(mut sigterm)) = (sigint_result, sigterm_result) {
-                tokio::select! {
-                    _ = sigint.recv() => {
-                        eprintln!("\nReceived SIGINT (Ctrl+C), shutting down gracefully...");
-                    }
-                    _ = sigterm.recv() => {
-                        eprintln!("\nReceived SIGTERM, shutting down gracefully...");
-                    }
-                }
-            } else {
-                eprintln!("Warning: Failed to set up signal handlers");
-            }
-        }
-
-        #[cfg(not(unix))]
-        {
-            if let Ok(()) = tokio::signal::ctrl_c().await {
-                eprintln!("\nReceived Ctrl+C, shutting down gracefully...");
-            } else {
-                eprintln!("Warning: Failed to listen for Ctrl+C");
-            }
-        }
-    };
-
-    // Run the workflow execution with shutdown signal handling
     tokio::select! {
-        result = run_workflows_internal(
-            workflows,
-            input,
-            registry,
-            config,
-            multi_progress,
-            debug,
-            persistence_provider,
-            cache_provider,
-            sqlite_db_url,
-            postgres_db_name,
-            postgres_user,
-            postgres_password,
-            postgres_hostname,
-        ) => {
-            result
-        }
-        _ = shutdown_signal => {
-            // Graceful shutdown - just exit cleanly
-            eprintln!("Shutdown complete.");
+        result = run_workflows(&args, config, &display) => result,
+        signal = shutdown_signal() => {
+            err(&display, format!("\nReceived {signal}, shutting down gracefully...\nShutdown complete."));
             std::process::exit(0);
         }
     }
 }
 
-/// Internal function that runs workflows (separated for signal handling)
-async fn run_workflows_internal(
-    workflows: Vec<PathBuf>,
-    input: Option<String>,
-    registry: Option<Vec<PathBuf>>,
+/// Waits for Ctrl+C (and SIGTERM on Unix), and says which it was.
+async fn shutdown_signal() -> &'static str {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        if let (Ok(mut int), Ok(mut term)) = (
+            signal(SignalKind::interrupt()),
+            signal(SignalKind::terminate()),
+        ) {
+            return tokio::select! {
+                _ = int.recv() => "SIGINT (Ctrl+C)",
+                _ = term.recv() => "SIGTERM",
+            };
+        }
+    }
+    match tokio::signal::ctrl_c().await {
+        Ok(()) => "Ctrl+C",
+        Err(_) => std::future::pending().await,
+    }
+}
+
+async fn run_workflows(
+    args: &RunArgs,
     config: JackdawConfig,
-    multi_progress: MultiProgress,
-    debug: bool,
-    persistence_provider: String,
-    cache_provider: String,
-    sqlite_db_url: Option<String>,
-    postgres_db_name: Option<String>,
-    postgres_user: Option<String>,
-    postgres_password: Option<String>,
-    postgres_hostname: Option<String>,
+    display: &MultiProgress,
 ) -> Result<()> {
-    // Print banner (only in debug mode)
-    if debug {
-        println!("{}\n", style("Jackdaw Open Workflow Runtime").bold().cyan());
+    let config = args.merge_with_config(config);
+    let verbose = config.verbose || args.debug;
+    let files = discover_workflow_files(&args.workflows)?;
+    if args.id.is_some() && files.len() > 1 {
+        return Err(Error::InvalidWorkflowFile {
+            message: "--id names one run, so it needs a single workflow".to_string(),
+        });
     }
-
-    // Discover workflow files
-    let workflow_files = discover_workflow_files(&workflows)?;
-
-    if config.verbose {
-        println!(
-            "{} Found {} workflow file(s):",
-            style("→").cyan(),
-            workflow_files.len()
+    if verbose {
+        err(
+            display,
+            format!("{} {} workflow file(s)", style("→").cyan(), files.len()),
         );
-        for file in &workflow_files {
-            println!("  • {}", file.display());
-        }
-        println!();
     }
 
-    // Initialize persistence and cache based on provider selection
-    if config.verbose || debug {
-        println!("{} Initializing providers...", style("→").cyan());
-        println!("  • Persistence: {}", persistence_provider);
-        println!("  • Cache: {}", cache_provider);
-        println!();
-    }
-
-    // Create persistence provider
-    let persistence: Arc<dyn PersistenceProvider> = match persistence_provider.as_str() {
-        "memory" => {
-            // Use in-memory persistence provider (no files created)
-            Arc::new(InMemoryPersistence::new())
-        }
-        "redb" => {
-            let durable_db = config
-                .durable_db
-                .clone()
-                .unwrap_or_else(|| PathBuf::from("workflow.db"));
-            Arc::new(RedbPersistence::new(
-                durable_db.to_str().unwrap_or("workflow.db"),
-            )?)
-        }
-        "sqlite" => {
-            let db_url = sqlite_db_url
-                .as_ref()
-                .ok_or_else(|| Error::InvalidWorkflowFile {
-                    message: "SQLite persistence provider requires --sqlite-db-url parameter"
-                        .to_string(),
-                })?;
-            Arc::new(SqlitePersistence::new(db_url).await?)
-        }
-        "postgres" => {
-            let db_url = build_postgres_url(
-                postgres_db_name.as_ref(),
-                postgres_user.as_ref(),
-                postgres_password.as_ref(),
-                postgres_hostname.as_ref(),
-            )?;
-            Arc::new(PostgresPersistence::new(&db_url).await?)
-        }
-        _ => {
-            return Err(Error::InvalidWorkflowFile {
-                message: format!(
-                    "Invalid persistence provider '{}'. Valid options: memory, redb, sqlite, postgres",
-                    persistence_provider
-                ),
-            });
-        }
-    };
-
-    // Create cache provider
-    let cache: Arc<dyn CacheProvider> = match cache_provider.as_str() {
-        "memory" => Arc::new(InMemoryCache::new()),
-        "redb" => {
-            let cache_db_path = config
-                .cache_db
-                .as_ref()
-                .map(|p| p.to_str().unwrap_or("cache.db"))
-                .unwrap_or("cache.db");
-            let cache_persistence = Arc::new(RedbPersistence::new(cache_db_path)?);
-            Arc::new(RedbCache::new(cache_persistence.db.clone())?)
-        }
-        "sqlite" => {
-            let db_url = sqlite_db_url
-                .as_ref()
-                .ok_or_else(|| Error::InvalidWorkflowFile {
-                    message: "SQLite cache provider requires --sqlite-db-url parameter".to_string(),
-                })?;
-            Arc::new(SqliteCache::new(db_url).await?)
-        }
-        "postgres" => {
-            let db_url = build_postgres_url(
-                postgres_db_name.as_ref(),
-                postgres_user.as_ref(),
-                postgres_password.as_ref(),
-                postgres_hostname.as_ref(),
-            )?;
-            Arc::new(PostgresCache::new(&db_url).await?)
-        }
-        _ => {
-            return Err(Error::InvalidWorkflowFile {
-                message: format!(
-                    "Invalid cache provider '{}'. Valid options: memory, redb, sqlite, postgres",
-                    cache_provider
-                ),
-            });
-        }
-    };
-
-    let mut builder = Engine::builder()
-        .persistence(Arc::clone(&persistence))
-        .cache(Arc::clone(&cache));
-
-    // Register workflows from registry paths (if provided)
-    if let Some(registry_paths) = registry {
-        if config.verbose {
-            println!(
-                "{} Registering workflows from registry...",
-                style("→").cyan()
-            );
-        }
-        let registry_files = discover_workflow_files(&registry_paths)?;
-        for workflow_path in &registry_files {
-            let workflow_yaml = std::fs::read_to_string(workflow_path)?;
-            let workflow: WorkflowDefinition = serde_saphyr::from_str(&workflow_yaml)?;
-            builder = builder.yaml_workflow(&Workflow::<Value, Value>::from_definition(workflow));
-            if config.verbose {
-                println!("  • Registered workflow from {}", workflow_path.display());
+    let persistence = args.providers.persistence(&config).await?;
+    let cache = args.providers.cache(&config).await?;
+    let mut builder = Engine::builder().persistence(persistence).cache(cache);
+    for path in
+        discover_workflow_files(args.registry.as_deref().unwrap_or_default()).or_else(|e| {
+            // No registry is fine; a registry that does not exist is not.
+            if args.registry.is_none() {
+                Ok(Vec::new())
+            } else {
+                Err(e)
             }
-        }
-        if config.verbose {
-            println!();
+        })?
+    {
+        builder = builder.yaml_workflow(&Workflow::<Value, Value>::from_definition(load_workflow(
+            &path,
+        )?));
+        if verbose {
+            err(display, format!("  registered {}", path.display()));
         }
     }
-
     let engine = builder.build()?;
 
-    // Execute workflows
-    if config.parallel && workflow_files.len() > 1 {
-        // Parallel execution using futures::join_all
-        if debug || config.verbose {
-            say(
-                &multi_progress,
-                format!(
-                    "{} Executing {} workflows in parallel...\n",
-                    style("→").cyan(),
-                    workflow_files.len()
-                ),
-            )?;
-        }
-
-        let futures: Vec<_> = workflow_files
-            .iter()
-            .map(|workflow_path| {
-                let engine_clone = engine.clone();
-                let verbose = config.verbose;
-                let path = workflow_path.clone();
-                let input_clone = input.clone();
-                let pb = multi_progress.add(ProgressBar::new_spinner());
-                let style_result = ProgressStyle::default_spinner()
-                    .template("{spinner:.cyan} {msg}")
-                    .map_err(|e| Error::Progress {
-                        source: std::io::Error::other(e.to_string()),
-                    });
-
-                async move {
-                    let style = match style_result {
-                        Ok(s) => s,
-                        Err(e) => return (path, Err(e)),
-                    };
-                    pb.set_style(style);
-                    pb.enable_steady_tick(std::time::Duration::from_millis(100));
-
-                    let result = execute_workflow(
-                        &path,
-                        engine_clone,
-                        Some(&pb),
-                        verbose,
-                        input_clone.as_ref(),
-                    )
-                    .await;
-                    pb.finish_and_clear();
-                    (path, result)
-                }
+    let input = parse_input(args.input.as_ref())?;
+    let jobs = files
+        .into_iter()
+        .map(|path| {
+            let definition = load_workflow(&path)?;
+            let id = args.id.clone().unwrap_or_else(|| {
+                format!("{}/{}", definition.document.name, uuid::Uuid::new_v4())
+            });
+            let runnable = Workflow::<Value, Value>::from_definition(definition.clone());
+            Ok(Job {
+                path,
+                definition,
+                runnable,
+                id,
             })
-            .collect();
-
-        let results = futures::future::join_all(futures).await;
-
-        // Print results
-        if debug || config.verbose {
-            say(
-                &multi_progress,
-                format!("\n{}", style("Results:").bold().green()),
-            )?;
-        }
-        for (path, result) in results {
-            match result {
-                Ok((instance_id, output, workflow)) => {
-                    if debug || config.verbose {
-                        say(
-                            &multi_progress,
-                            format!("\n{} {}", style("✓").green(), style(path.display()).bold()),
-                        )?;
-                    }
-
-                    // Always output the final result as JSON (even in non-debug mode)
-                    let filtered = filter_internal_fields(&output);
-                    say(&multi_progress, serde_json::to_string_pretty(&filtered)?)?;
-
-                    // Visualization if requested
-                    if config.visualize {
-                        let viz_format = config.viz_format.as_deref().unwrap_or("svg");
-                        let format = parse_diagram_format(viz_format)?;
-                        let output_path = config.viz_output.as_deref();
-
-                        say(
-                            &multi_progress,
-                            format!("\n{} Generating visualization...", style("→").cyan()),
-                        )?;
-
-                        let viz_tool = config.viz_tool.as_deref().unwrap_or("d2");
-                        let history = engine.history(&instance_id).await?;
-                        visualization::render(
-                            viz_tool,
-                            &workflow,
-                            output_path,
-                            format,
-                            Some(&ExecutionState::from_history(&history)),
-                        )?;
-
-                        if let Some(output_path) = output_path {
-                            say(
-                                &multi_progress,
-                                format!(
-                                    "{} Visualization saved to: {}",
-                                    style("✓").green(),
-                                    output_path.display()
-                                ),
-                            )?;
-                        }
-                    }
-                }
-                Err(e) => {
-                    let error_msg = format!("{e}");
-                    say(
-                        &multi_progress,
-                        format!(
-                            "\n{} {} - {}",
-                            style("✗").red(),
-                            style(path.display()).bold(),
-                            style(&error_msg).red()
-                        ),
-                    )?;
-                    return Err(e);
-                }
-            }
-        }
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let many = jobs.len() > 1;
+    let run = |job| run_job(&engine, job, input.clone(), args, display, many);
+    let outputs = if config.parallel && many {
+        futures::future::join_all(jobs.iter().map(run)).await
     } else {
-        // Sequential execution with progress
-        if debug || config.verbose {
-            say(
-                &multi_progress,
-                format!(
-                    "{} Executing {} workflow(s)...\n",
-                    style("→").cyan(),
-                    workflow_files.len()
-                ),
-            )?;
-        }
-
-        // Only show progress bars in debug/verbose mode
-        let pb = if debug || config.verbose {
-            let progress_bar = multi_progress.add(ProgressBar::new(workflow_files.len() as u64));
-            progress_bar.set_style(
-                ProgressStyle::default_bar()
-                    .template("{spinner:.cyan} [{bar:40.cyan/blue}] {pos}/{len} {msg}")
-                    .map_err(|e| Error::Progress {
-                        source: std::io::Error::other(e.to_string()),
-                    })?
-                    .progress_chars("#>-"),
-            );
-            Some(progress_bar)
-        } else {
-            None
-        };
-
-        for workflow_path in workflow_files {
-            match execute_workflow(
-                &workflow_path,
-                engine.clone(),
-                pb.as_ref(),
-                config.verbose,
-                input.as_ref(),
-            )
-            .await
-            {
-                Ok((instance_id, result, workflow)) => {
-                    // Always output the final result as JSON (even in non-debug mode)
-                    let filtered = filter_internal_fields(&result);
-                    say(&multi_progress, serde_json::to_string_pretty(&filtered)?)?;
-
-                    // Visualization if requested
-                    if config.visualize {
-                        let viz_format = config.viz_format.as_deref().unwrap_or("svg");
-                        let format = parse_diagram_format(viz_format)?;
-                        let output_path = config.viz_output.as_deref();
-
-                        say(
-                            &multi_progress,
-                            format!("\n{} Generating visualization...", style("→").cyan()),
-                        )?;
-
-                        let viz_tool = config.viz_tool.as_deref().unwrap_or("d2");
-                        let history = engine.history(&instance_id).await?;
-                        visualization::render(
-                            viz_tool,
-                            &workflow,
-                            output_path,
-                            format,
-                            Some(&ExecutionState::from_history(&history)),
-                        )?;
-
-                        if let Some(output_path) = output_path {
-                            say(
-                                &multi_progress,
-                                format!(
-                                    "{} Visualization saved to: {}",
-                                    style("✓").green(),
-                                    output_path.display()
-                                ),
-                            )?;
-                        }
-                    }
-                }
-                Err(e) => {
-                    say(
-                        &multi_progress,
-                        format!(
-                            "{} Failed: {} - {}",
-                            style("✗").red(),
-                            style(workflow_path.display()).bold(),
-                            style(&e).red()
-                        ),
-                    )?;
-                    return Err(e);
-                }
-            }
-            if let Some(ref progress_bar) = pb {
-                progress_bar.inc(1);
+        let mut outputs = Vec::new();
+        for job in &jobs {
+            let output = run(job).await;
+            let failed = output.is_err();
+            outputs.push(output);
+            if failed {
+                break;
             }
         }
+        outputs
+    };
 
-        if let Some(progress_bar) = pb {
-            progress_bar.finish_with_message("All workflows completed");
+    for (job, output) in jobs.iter().zip(outputs) {
+        match output {
+            Ok(output) => {
+                out(
+                    display,
+                    serde_json::to_string_pretty(&filter_internal_fields(&output))?,
+                );
+                if config.visualize {
+                    visualize(&engine, job, &config, display).await?;
+                }
+            }
+            Err(error) => {
+                err(
+                    display,
+                    format!(
+                        "{} {} - {}",
+                        style("✗").red(),
+                        style(job.path.display()).bold(),
+                        style(&error).red()
+                    ),
+                );
+                return Err(error);
+            }
         }
     }
+    Ok(())
+}
 
+/// Runs one workflow on the engine, showing it as the flags and the terminal call for. Runs side by side are labelled.
+async fn run_job(
+    engine: &Engine,
+    job: &Job,
+    input: Value,
+    args: &RunArgs,
+    display: &MultiProgress,
+    many: bool,
+) -> Result<Value> {
+    let label = many.then_some(job.definition.document.name.as_str());
+    let options = RunOptions::new(&job.id).restart(args.runner.restart);
+    let mut runner = Runner::new(engine).reporter(reporter(args, display, label));
+    // A YAML workflow's own deadline is its `timeout`, so the CLI's limit is a limit on waiting.
+    tokio::time::timeout(RUN_TIMEOUT, runner.run(&job.runnable, input, options))
+        .await
+        .map_err(|_| Error::Timeout {
+            seconds: RUN_TIMEOUT.as_secs(),
+        })?
+        .map_err(Error::from)
+}
+
+/// Draws the workflow with what the run did, as the `--visualize` flags ask.
+async fn visualize(
+    engine: &Engine,
+    job: &Job,
+    config: &JackdawConfig,
+    display: &MultiProgress,
+) -> Result<()> {
+    let format = parse_diagram_format(config.viz_format.as_deref().unwrap_or("svg"))?;
+    let output_path = config.viz_output.as_deref();
+    err(
+        display,
+        format!("\n{} Generating visualization...", style("→").cyan()),
+    );
+    let history = engine.history(&job.id).await?;
+    visualization::render(
+        config.viz_tool.as_deref().unwrap_or("d2"),
+        &job.definition,
+        output_path,
+        format,
+        Some(&ExecutionState::from_history(&history)),
+    )?;
+    if let Some(path) = output_path {
+        err(
+            display,
+            format!(
+                "{} Visualization saved to: {}",
+                style("✓").green(),
+                path.display()
+            ),
+        );
+    }
     Ok(())
 }

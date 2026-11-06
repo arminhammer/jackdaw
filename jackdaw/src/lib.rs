@@ -162,6 +162,7 @@ pub mod guide;
 pub mod persistence;
 pub mod prelude;
 pub mod providers;
+pub mod runner;
 pub mod testing;
 pub mod workflow;
 
@@ -188,6 +189,8 @@ not_on_wasm! {
     "http-listener": "it needs sockets to listen on",
     "grpc-listener": "it needs sockets to listen on",
     "openapi": "`call: openapi` needs an HTTP client, and wasm has none yet",
+    "terminal": "it draws to a terminal, which wasm has none of",
+    "cli": "it reads a command line, which wasm has none of",
 }
 
 mod blocking;

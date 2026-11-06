@@ -27,6 +27,29 @@ Feature: Rust and YAML workflows on one engine
     Then the Rust task runs with the YAML task's arguments as its typed input
     And its output becomes the YAML task's output
 
+  Scenario: A YAML run reports its tasks as events while it runs
+    Given a YAML workflow with a "call: payments.charge" task
+    When I execute the YAML workflow and watch its events
+    Then the events are "WorkflowStarted", "TaskStarted", "TaskCompleted", "WorkflowCompleted"
+    And the "TaskCompleted" event names the task "charge"
+
+  Scenario: A YAML run that fails reports the failed task
+    Given a YAML workflow that raises an error in its task "explode"
+    When I execute the YAML workflow and watch its events
+    Then the events are "WorkflowStarted", "TaskStarted", "TaskFaulted", "WorkflowFailed"
+    And the "TaskFaulted" event names the task "explode"
+
+  Scenario: Starting a finished YAML run again under its id returns its output
+    Given a YAML workflow with a "call: payments.charge" task
+    When I execute the YAML workflow twice under the id "daily"
+    Then both runs return the same output
+    And the payment was made once
+
+  Scenario: A finished YAML instance can be purged and its id used again
+    Given a YAML workflow with a "call: payments.charge" task
+    When I execute the YAML workflow under the id "daily", purge it, and execute it again
+    Then the payment was made twice
+
   @implemented
   Scenario: YAML and Rust instances share the history store
     When I execute one YAML and one Rust workflow

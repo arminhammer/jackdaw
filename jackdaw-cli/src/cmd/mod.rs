@@ -1,3 +1,4 @@
+pub mod providers;
 pub mod run;
 pub mod validate;
 pub mod visualize;

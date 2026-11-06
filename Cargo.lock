@@ -1965,11 +1965,12 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "jackdaw-cli"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "clap",
  "config",
  "console 0.15.11",
+ "cucumber",
  "futures",
  "indicatif",
  "jackdaw-wf",
@@ -1980,13 +1981,13 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
- "tracing-indicatif",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
 name = "jackdaw-wf"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "async-recursion",
  "async-trait",
@@ -1995,6 +1996,8 @@ dependencies = [
  "bollard",
  "bytes",
  "chrono",
+ "clap",
+ "console 0.16.6",
  "cucumber",
  "futures",
  "http",
@@ -2002,6 +2005,7 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "indicatif",
  "jackdaw-wf",
  "jackdaw-wf-macros",
  "jaq-core",
@@ -2043,7 +2047,7 @@ dependencies = [
 
 [[package]]
 name = "jackdaw-wf-macros"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4508,18 +4512,6 @@ checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
 dependencies = [
  "once_cell",
  "valuable",
-]
-
-[[package]]
-name = "tracing-indicatif"
-version = "0.3.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1ef6990e0438749f0080573248e96631171a0b5ddfddde119aa5ba8c3a9c47e"
-dependencies = [
- "indicatif",
- "tracing",
- "tracing-core",
- "tracing-subscriber",
 ]
 
 [[package]]

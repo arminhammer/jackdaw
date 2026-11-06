@@ -30,8 +30,15 @@ snafu = "0.9.2"
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 tracing = "0.1"
-tracing-indicatif = "0.3"
+uuid = { version = "1", features = ["v4"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+cucumber = "0.21"
+
+[[test]]
+name = "cli"
+harness = false
 
 [lints]
 workspace = true

@@ -35,14 +35,28 @@ jackdaw run hello-world.sw.yaml
 ```
 
 
-#### --debug flag
+#### Progress and output
 
-By default, `jackdaw` will hide verbose output. If you would like to see additional information to make it easier to troubleshoot what is happening, use the `--debug` flag:
+The workflow's result goes to standard output, as JSON, so `jackdaw run hello-world.sw.yaml | jq` works. What the run is
+doing goes to standard error: on a terminal, a progress bar with a line for each step that finishes (and how long it took);
+when standard error is a file or a pipe, one plain line for each step (`fetch started`, `fetch done`, ...).
+
+| Flag | Shows |
+| --- | --- |
+| `--quiet` | nothing but the result |
+| `--json` | one JSON object per event on standard error |
+| `--plain` | plain lines even on a terminal |
+| `--debug` | what each step returned, and each task's input, context and cache use |
+
+#### --id and --restart
+
+Every run gets a new id. Give it one with `--id`, together with a durable store, and running the same command again
+continues the run if it was stopped, or prints the result it already has if it finished. `--restart` discards the earlier
+run and starts over.
 
 ```
-jackdaw run hello-world.sw.yaml --debug
+jackdaw run nightly.sw.yaml --persistence-provider redb --id nightly
 ```
-
 
 ## Installation
 

@@ -9,8 +9,35 @@ The workspace publishes three crates with the same version: `jackdaw-wf` (the li
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-11-05
+
+### Changed
+
+- `jackdaw run` shows its progress through `jackdaw::runner`, from the run's events: a progress bar and a line per step
+  on standard error on a terminal, plain lines when piped, and the result on standard output. New flags: `--quiet`,
+  `--json` (one JSON object per event), `--plain`, `--id` and `--restart` (a run with an id continues, or returns its
+  result if it finished). `--debug` shows what each step returned in addition to each task's input and cache use.
+  Failures are reported on standard error, not standard output.
+
 ### Added
 
+- `jackdaw::runner`: a `Runner` that runs a workflow as a program. `Runner::run` starts the run, continues one a crash
+  stopped (reporting the steps already done as replayed), returns the stored output of one that finished, and refuses one
+  that was started with other input or ended in failure unless asked to restart; `Runner::status` tells where a run is.
+  What it shows is up to a `Reporter`: `Headless`, `Lines` (one line per step, with `.total(n)` and `.describe(..)`),
+  `Json` (one object per event) and, with the new `terminal` feature, `Terminal` (a progress bar from `indicatif`).
+  `Env::detect().kind()` picks one from where the program runs, and the new `cli` feature adds `RunnerArgs`
+  (`--quiet`, `--json`, `--plain`, `--restart`) for `clap` programs. The default build gains no dependency. See the guide
+  chapter `guide::runner`.
+- `RunOptions::timeout`; `Lines::outputs` and `Terminal::outputs` (show what each step returned); `Terminal` shows how long
+  each step took and which steps a resumed run did not redo, and `Terminal::in_group` / `label` / `group` let several runs
+  share one display.
+- A YAML run's events include its tasks (`TaskStarted`, `TaskCompleted`, `TaskFaulted`, `TaskRetried`) as they happen,
+  not only its start and end; steps done before a resume are reported as replayed.
+- `Engine::execute_with` with the id of a YAML instance the store already has continues it if it was running, or returns
+  its stored outcome if it had ended, as for a Rust workflow (it used to fail with "already exists"). `Engine::purge`
+  works for a finished YAML instance.
+- `InstanceDetails::input`: the input a Rust workflow was started with.
 - WebAssembly: the library builds for `wasm32-wasip2` (wasmtime, Spin, wasmCloud) and runs there. The native API, the YAML
   interpreter (`set`, `for`, `fork`, `switch`, `call:` of Rust tasks, ...) and the Redb store work, in a program that uses
   tokio's `current_thread` runtime. The new guide chapter `guide::wasm` says what works and what does not.
@@ -190,7 +217,8 @@ an optional part of the same engine. The CLI is now a separate crate built on th
 
 The CLI release before the library refactor; see the GitHub release.
 
-[Unreleased]: https://github.com/arminhammer/jackdaw/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/arminhammer/jackdaw/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/arminhammer/jackdaw/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/arminhammer/jackdaw/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/arminhammer/jackdaw/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/arminhammer/jackdaw/compare/v0.1.1...v0.2.0

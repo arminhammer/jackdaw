@@ -1381,7 +1381,7 @@ impl Shared {
         }
         // A generated id is new, so its lease is free.
         self.lease_yaml(legacy.instance_id()).await?;
-        Ok(self.mirror_definition(definition, input, legacy))
+        Ok(self.mirror_definition(definition, input, legacy, 0))
     }
 
     /// Continues a YAML instance that was interrupted (see [`launch_definition`](Self::launch_definition)): the YAML
@@ -1394,13 +1394,15 @@ impl Shared {
         input: Value,
     ) -> Result<Launched, Error> {
         self.lease_yaml(&id).await?;
+        // What the store holds now was done before this run: it is reported as replayed.
+        let done = self.persistence.get_events(&id).await?.len();
         let legacy = self
             .yaml
             .legacy
             .resume_instance(definition.clone(), id)
             .await
             .map_err(|e| Error::Engine(e.to_string()))?;
-        Ok(self.mirror_definition(definition, input, legacy))
+        Ok(self.mirror_definition(definition, input, legacy, done))
     }
 
     /// Takes the lease on a YAML instance before it runs here (with leases on). The YAML engine writes to the store
@@ -1423,6 +1425,7 @@ impl Shared {
         definition: &WorkflowDefinition,
         input: Value,
         mut legacy: crate::execution_handle::ExecutionHandle,
+        done: usize,
     ) -> Launched {
         let id = legacy.instance_id().to_string();
         let workflow = WorkflowId {
@@ -1441,14 +1444,35 @@ impl Shared {
         );
         let for_task = Arc::clone(&core);
         let weak = Arc::downgrade(self);
+        let persistence = Arc::clone(&self.persistence);
         let handle = super::observe::spawn(async move {
             let publish = PublishOnDrop(Arc::clone(&for_task));
+            // The YAML engine hands over only the run's opening and ending; its tasks' events are in the store, so
+            // they are read from there, as they are written.
+            let mut tasks = TaskEvents {
+                persistence,
+                id: legacy.instance_id().to_string(),
+                history: done,
+                seen: 0,
+            };
+            tasks.publish(&for_task.log).await;
+            let mut tick = tokio::time::interval(TASK_EVENT_POLL);
             let mut result = Err(Error::Engine(
                 "the workflow ended without producing a result".to_string(),
             ));
             // Without a terminal event the run was stopped (the engine dropped): its lease runs out on its own.
             let mut ended = false;
-            while let Some(stored) = legacy.next_event().await {
+            loop {
+                let stored = tokio::select! {
+                    stored = legacy.next_event() => match stored {
+                        Some(stored) => stored,
+                        None => break,
+                    },
+                    _ = tick.tick() => {
+                        tasks.publish(&for_task.log).await;
+                        continue;
+                    }
+                };
                 if let crate::workflow::WorkflowEvent::WorkflowCompleted { final_data, .. } =
                     &stored
                 {
@@ -1464,6 +1488,9 @@ impl Shared {
                 }
                 let event = Event::from_stored(stored);
                 let terminal = event.is_terminal();
+                if terminal {
+                    tasks.publish(&for_task.log).await;
+                }
                 for_task.log.push(event);
                 if terminal {
                     ended = true;
@@ -3300,5 +3327,80 @@ pub(crate) async fn replay_instance(
             | Error::Engine(_)
             | Error::Rejected(_),
         ) => Ok(None),
+    }
+}
+
+/// How often the events a YAML instance's tasks wrote to the store are looked for.
+#[cfg(feature = "yaml")]
+const TASK_EVENT_POLL: Duration = Duration::from_millis(100);
+
+/// Publishes the task events of a YAML instance as the YAML engine stores them.
+#[cfg(feature = "yaml")]
+struct TaskEvents {
+    persistence: Arc<dyn PersistenceProvider>,
+    id: String,
+    /// How many events the instance had stored before this run: those are replayed.
+    history: usize,
+    /// How many of the instance's stored events have been looked at.
+    seen: usize,
+}
+
+#[cfg(feature = "yaml")]
+impl TaskEvents {
+    /// Publishes the task events stored since the last call; those stored before the run are marked as replayed.
+    // Only a task's own events are published; the workflow's come from the YAML engine's channel.
+    #[allow(clippy::wildcard_enum_match_arm)]
+    async fn publish(&mut self, log: &EventLog) {
+        let Ok(stored) = self.persistence.get_events(&self.id).await else {
+            return;
+        };
+        let total = stored.len();
+        for (index, event) in stored.into_iter().enumerate().skip(self.seen) {
+            let event = Event::from_stored(event);
+            let before = index < self.history;
+            let event = match event {
+                Event::TaskStarted {
+                    instance_id,
+                    task_name,
+                    timestamp,
+                    ..
+                } => Event::TaskStarted {
+                    instance_id,
+                    task_name,
+                    replayed: before,
+                    timestamp,
+                },
+                Event::TaskCompleted {
+                    instance_id,
+                    task_name,
+                    result,
+                    timestamp,
+                    ..
+                } => Event::TaskCompleted {
+                    instance_id,
+                    task_name,
+                    result,
+                    replayed: before,
+                    timestamp,
+                },
+                Event::TaskFaulted {
+                    instance_id,
+                    task_name,
+                    error,
+                    timestamp,
+                    ..
+                } => Event::TaskFaulted {
+                    instance_id,
+                    task_name,
+                    error,
+                    replayed: before,
+                    timestamp,
+                },
+                event @ Event::TaskRetried { .. } if !before => event,
+                _ => continue,
+            };
+            log.push(event);
+        }
+        self.seen = total;
     }
 }

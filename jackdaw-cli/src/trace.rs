@@ -1,9 +1,12 @@
-//! Renders the library's YAML trace (`tracing` events on the `jackdaw::yaml` target) on the terminal.
+//! Renders the parts of the library's YAML trace (`tracing` events on the `jackdaw::yaml` target) that the run's events
+//! do not carry.
 //!
-//! Script output and listener startup are always shown; the task-by-task trace (inputs, outputs, timings, cache hits)
-//! only with `--debug`.
+//! Which step started, finished, failed, was tried again or was done before a restart comes from the run's events (see
+//! `jackdaw::runner`). What does not is a script's output while it runs and the listeners' startup, always shown, and
+//! with `--debug` each task's context, input and run parameters, and its cache hits and misses.
 
 use console::{Color, style};
+use indicatif::MultiProgress;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::Mutex;
@@ -26,8 +29,9 @@ static TASK_COLORS: &[Color] = &[
 /// Keeps one event's lines together when tasks run concurrently.
 static OUTPUT: Mutex<()> = Mutex::new(());
 
-/// The layer: register it with a filter that lets `jackdaw::yaml` through at `DEBUG` (with `--debug`) or `INFO`.
-pub struct YamlTrace;
+/// The layer: register it with a filter that lets `jackdaw::yaml` through at `DEBUG` (with `--debug`) or `INFO`. It
+/// prints around the progress bars of `display`, so the two do not overwrite each other.
+pub struct YamlTrace(pub MultiProgress);
 
 #[derive(Default)]
 struct Fields(BTreeMap<String, String>);
@@ -76,7 +80,7 @@ impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for YamlTrace {
         let _lines = OUTPUT
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        render(&fields);
+        self.0.suspend(|| render(&fields));
     }
 }
 
@@ -108,64 +112,6 @@ fn render(f: &Fields) {
             "  {} listener started on {}",
             f.str("protocol"),
             f.str("addr")
-        ),
-        "workflow_resume" => {
-            println!("\n{}", "═".repeat(80));
-            println!(
-                "{} {}",
-                style("↻").yellow().bold(),
-                style("Resuming Workflow").bold()
-            );
-            println!(
-                "  {} {}",
-                style("Instance ID:").dim(),
-                style(f.str("instance")).dim()
-            );
-            if let Some(task) = f.opt("from_task") {
-                println!("  {} {}", style("From task:").dim(), style(task).yellow());
-            }
-            println!("{}", "─".repeat(80));
-        }
-        "workflow_output" => {
-            println!("\n{}", "═".repeat(80));
-            println!(
-                "{} {}",
-                style("Workflow Completed").green().bold(),
-                style(format!("({})", duration(f.int("duration_ms")))).dim()
-            );
-            println!("{}", "─".repeat(80));
-            let output = f.json("output").unwrap_or(Value::Null);
-            // Output that is only a script's stdout, stderr and exit code was already streamed.
-            let just_script_output = output.as_object().is_some_and(|obj| {
-                obj.len() <= 3
-                    && obj.contains_key("stdout")
-                    && obj.contains_key("stderr")
-                    && obj.contains_key("exitCode")
-            });
-            let empty =
-                output.is_null() || output.as_object().is_some_and(serde_json::Map::is_empty);
-            if !just_script_output && !empty {
-                println!("{}", style("Output").bold());
-                println!("{}", "┄".repeat(80));
-                println!("{}", indent_json(&output, 2));
-            }
-            println!("{}", "═".repeat(80));
-        }
-        "task_start" => {
-            println!("\n{}", "─".repeat(80));
-            println!(
-                "{} {} {} {}",
-                style("▸").cyan(),
-                style("Task:").bold(),
-                style(f.str("task")).cyan(),
-                style(format!("[{}]", f.str("kind"))).dim()
-            );
-            println!("{}", "┄".repeat(80));
-        }
-        "task_skipped" => println!(
-            "  {} {}",
-            style("⤼").yellow(),
-            style(format!("Skipping '{}' (already completed)", f.str("task"))).yellow()
         ),
         "cache_hit" => {
             println!("  {}", style("Cache Hit").yellow().bold());
@@ -203,7 +149,6 @@ fn render(f: &Fields) {
             Color::Cyan,
         ),
         "run_params" => run_params(f),
-        "task_output" => task_output(f),
         _ => {}
     }
 }
@@ -261,71 +206,6 @@ fn run_params(f: &Fields) {
             }
         }
     }
-}
-
-fn task_output(f: &Fields) {
-    println!(
-        "  {} {}",
-        style("Output").green(),
-        style(format!("({})", duration(f.int("duration_ms")))).dim()
-    );
-    println!("  {}", "·".repeat(78));
-    let output = f.json("output").unwrap_or(Value::Null);
-    if f.str("streamed") != "true" {
-        match output.as_object() {
-            Some(obj) if obj.is_empty() => println!("    {}", style("(empty)").dim()),
-            Some(obj) => {
-                for (key, value) in obj {
-                    println!("    {}", style(format!("{key}:")).green());
-                    println!("{}", colorize_json(value, 6, Color::Green));
-                }
-            }
-            None => println!("{}", colorize_json(&output, 4, Color::Green)),
-        }
-        return;
-    }
-    // A script's streamed output: its stdout on success, stdout and stderr on failure.
-    let text = |name: &str| {
-        output
-            .get(name)
-            .and_then(Value::as_str)
-            .filter(|text| !text.is_empty())
-            .map(str::to_string)
-    };
-    if output.get("exitCode").and_then(Value::as_i64).unwrap_or(0) == 0 {
-        match text("stdout") {
-            Some(stdout) => println!("    {}", style(format!("\"{stdout}\"")).green()),
-            None => println!("    {}", style("(empty)").dim()),
-        }
-    } else {
-        for stream in ["stdout", "stderr"] {
-            if let Some(text) = text(stream) {
-                println!("    {}", style(format!("{stream}:")).green());
-                println!("      {}", style(format!("\"{text}\"")).green());
-            }
-        }
-    }
-}
-
-fn duration(ms: i64) -> String {
-    #[allow(clippy::cast_precision_loss)]
-    if ms < 1000 {
-        format!("{ms}ms")
-    } else if ms < 60_000 {
-        format!("{:.2}s", ms as f64 / 1000.0)
-    } else {
-        format!("{}m {:.2}s", ms / 60_000, (ms % 60_000) as f64 / 1000.0)
-    }
-}
-
-fn indent_json(value: &Value, indent: usize) -> String {
-    let pad = " ".repeat(indent);
-    serde_json::to_string_pretty(value)
-        .unwrap_or_else(|_| "{}".to_string())
-        .lines()
-        .map(|line| format!("{pad}{line}"))
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 fn colorize_json(value: &Value, indent: usize, color: Color) -> String {

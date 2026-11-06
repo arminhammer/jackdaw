@@ -319,6 +319,115 @@ async fn execute_yaml_workflow(world: &mut LibWorld) {
     world.notes.insert("receipt".into(), json!(receipt));
 }
 
+const RAISE_YAML: &str = r#"
+document: { dsl: '1.0.3', namespace: interop, name: raise, version: '1.0.0' }
+do:
+  - explode:
+      raise:
+        error:
+          type: https://example.com/errors/boom
+          status: 500
+          title: Boom
+"#;
+
+#[given(regex = r#"^a YAML workflow that raises an error in its task "(\w+)"$"#)]
+fn yaml_raises(world: &mut LibWorld, _task: String) {
+    world.notes.insert("yaml".into(), json!(RAISE_YAML));
+}
+
+#[when("I execute the YAML workflow and watch its events")]
+async fn execute_and_watch(world: &mut LibWorld) {
+    let yaml = world.notes["yaml"]
+        .as_str()
+        .expect("a workflow")
+        .to_string();
+    let workflow = Workflow::<Value, Value>::from_yaml(&yaml).expect("parses");
+    let input = json!({"order": "o-1", "cents": 250});
+    let handle = world
+        .engine()
+        .execute(&workflow, input)
+        .await
+        .expect("starts");
+    let mut events = handle.events();
+    let mut seen = Vec::new();
+    while let Some(event) = events.next().await {
+        let task = match &event {
+            Event::TaskStarted { task_name, .. }
+            | Event::TaskCompleted { task_name, .. }
+            | Event::TaskFaulted { task_name, .. } => task_name.clone(),
+            _ => String::new(),
+        };
+        seen.push((event.name().to_string(), task));
+    }
+    let _ = handle.await;
+    world.notes.insert("yaml-events".into(), json!(seen));
+}
+
+#[then(regex = r#"^the events are (.+)$"#)]
+fn yaml_events_are(world: &mut LibWorld, list: String) {
+    let expected: Vec<String> = list
+        .split(", ")
+        .map(|s| s.trim_matches('"').to_string())
+        .collect();
+    let got: Vec<String> = world.notes["yaml-events"]
+        .as_array()
+        .expect("events")
+        .iter()
+        .map(|pair| pair[0].as_str().expect("a name").to_string())
+        .collect();
+    assert_eq!(got, expected);
+}
+
+#[then(regex = r#"^the "(\w+)" event names the task "(\w+)"$"#)]
+fn yaml_event_names_task(world: &mut LibWorld, event: String, task: String) {
+    let found = world.notes["yaml-events"]
+        .as_array()
+        .expect("events")
+        .iter()
+        .any(|pair| pair[0] == json!(event) && pair[1] == json!(task));
+    assert!(found, "{:?}", world.notes["yaml-events"]);
+}
+
+async fn charge_under(world: &mut LibWorld, id: &str) -> Value {
+    let workflow = Workflow::<Value, Value>::from_yaml(CHARGE_YAML).expect("parses");
+    let input = json!({"order": "o-1", "cents": 250});
+    world
+        .engine()
+        .execute_with(&workflow, input, jackdaw::api::ExecuteOptions::new().id(id))
+        .await
+        .expect("starts")
+        .await
+        .expect("finishes")
+}
+
+#[when(regex = r#"^I execute the YAML workflow twice under the id "(\w+)"$"#)]
+async fn execute_twice(world: &mut LibWorld, id: String) {
+    let first = charge_under(world, &id).await;
+    let second = charge_under(world, &id).await;
+    world.notes.insert("first".into(), first);
+    world.notes.insert("second".into(), second);
+}
+
+#[when(
+    regex = r#"^I execute the YAML workflow under the id "(\w+)", purge it, and execute it again$"#
+)]
+async fn execute_purge_execute(world: &mut LibWorld, id: String) {
+    charge_under(world, &id).await;
+    world.engine().purge(&id).await.expect("purged");
+    charge_under(world, &id).await;
+}
+
+#[then("both runs return the same output")]
+fn same_output(world: &mut LibWorld) {
+    assert_eq!(world.notes["first"], world.notes["second"]);
+}
+
+#[then(regex = r"^the payment was made (once|twice)$")]
+fn payment_made(world: &mut LibWorld, times: String) {
+    let want = if times == "once" { 1 } else { 2 };
+    assert_eq!(world.probe.count("api_payments"), want);
+}
+
 #[then("the Rust task runs with the YAML task's arguments as its typed input")]
 fn typed_input(world: &mut LibWorld) {
     let calls = world.probe.calls_of("api_payments");

@@ -158,6 +158,8 @@ pub struct LibWorld {
     pub workers: HashMap<String, Engine>,
     /// What the durable stores this scenario opened are doing (time moves only while they are idle).
     pub store_activity: Arc<StoreActivity>,
+    /// The runner scenarios' runner, report and result.
+    pub runner: super::runner::State,
 }
 
 /// Which durable store the scenarios run on: `JACKDAW_TEST_STORE=redb|sqlite|postgres` (default redb). Postgres needs
@@ -213,6 +215,7 @@ impl LibWorld {
             mock: None,
             workers: HashMap::new(),
             store_activity: Arc::default(),
+            runner: super::runner::State::default(),
         }
     }
 
