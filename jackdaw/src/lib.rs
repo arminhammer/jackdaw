@@ -94,7 +94,7 @@
 //! - [`guide::durability`]: how replay works, the rules, and changing a running workflow
 //! - [`guide::catalogs`]: importing tasks and workflows with types
 //! - [`guide::yaml`]: running YAML workflows from Rust
-//! - [`guide::config`]: a workflow's input as one config struct, read from flags, the environment and files
+//! - `guide::config`: a workflow's input as one config struct, read from flags, the environment and files
 //! - [`guide::runner`]: running a workflow as a program
 //! - [`guide::testing`], [`guide::errors`], [`guide::events`]
 //!
@@ -122,7 +122,7 @@
 //! | `docker` | | `ctx.run_container` and YAML `run: container`. |
 //! | `openapi` | | YAML `call: openapi`. |
 //! | `http-listener`, `grpc-listener` | | `api::Listener`: the engine serves an OpenAPI document's operations or a gRPC service, each request starting a workflow. Also YAML `listen` tasks on HTTP and gRPC. |
-//! | `config` | | [`config::Layers`] and `#[derive(Config)]`: a workflow's input from defaults, files (toml, json, yaml), environment variables and flags. |
+//! | `config` | | `config::Layers` and `#[derive(Config)]`: a workflow's input from defaults, files (toml, json, yaml), environment variables and flags. |
 //! | `terminal` | | `runner::Terminal`: progress bars for a run in a terminal. |
 //! | `cli` | | `runner::Program` and `RunnerArgs`: a workflow as a program with flags (includes `config` and `terminal`). |
 //! | `metrics` | | Counters and histograms through the `metrics` facade. |
