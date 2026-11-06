@@ -42,13 +42,15 @@ COPY jackdaw-cli/Cargo.toml ./jackdaw-cli/Cargo.toml
 
 # Create dummy source files to build dependencies
 # This allows cargo to compile all dependencies without the actual source.
-# The jackdaw manifest declares [[test]] targets, and cargo requires their files to exist.
-RUN mkdir -p jackdaw/src jackdaw/tests jackdaw-macros/src jackdaw-cli/src && \
+# The jackdaw and jackdaw-cli manifests declare [[test]] targets, and cargo requires their files to exist.
+RUN mkdir -p jackdaw/src jackdaw/tests jackdaw-macros/src jackdaw-cli/src jackdaw-cli/tests && \
     echo "pub fn lib() {}" > jackdaw/src/lib.rs && \
     touch jackdaw-macros/src/lib.rs && \
     echo "fn main() {}" > jackdaw-cli/src/main.rs && \
-    for t in $(sed -n '/^\[\[test\]\]/{n;s/name = "\(.*\)"/\1/p}' jackdaw/Cargo.toml); do \
-      echo "fn main() {}" > "jackdaw/tests/$t.rs"; \
+    for crate in jackdaw jackdaw-cli; do \
+      for t in $(sed -n '/^\[\[test\]\]/{n;s/name = "\(.*\)"/\1/p}' $crate/Cargo.toml); do \
+        echo "fn main() {}" > "$crate/tests/$t.rs"; \
+      done; \
     done
 
 # Determine target based on platform
@@ -65,7 +67,7 @@ RUN if [ -z "$RUST_TARGET" ]; then \
     cargo build --release --target $RUST_TARGET -p jackdaw-cli 2>&1 | head -100 || true
 
 # Clean up the dummy sources but keep the dependency cache.
-# The dummy jackdaw/tests files stay: cargo needs them to load the manifest, and `cargo build` never compiles them.
+# The dummy tests files stay: cargo needs them to load the manifest, and `cargo build` never compiles them.
 RUN rm -rf jackdaw/src jackdaw-macros/src jackdaw-cli/src
 
 # =============================================================================

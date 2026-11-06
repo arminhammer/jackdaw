@@ -1,5 +1,5 @@
 use clap::Parser;
-use indicatif::MultiProgress;
+use indicatif::{MultiProgress, ProgressDrawTarget};
 use snafu::prelude::*;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -54,19 +54,17 @@ enum Commands {
 
 /// Sets up the terminal output: progress bars, the library's YAML trace ([`trace`]; its task-by-task part only with
 /// `debug`) and log lines on stderr (warnings, or everything at `verbose`; `RUST_LOG` overrides).
-fn init_tracing(verbose: bool, debug: bool) {
+fn init_tracing(verbose: bool, debug: bool, display: &MultiProgress) {
     use tracing_subscriber::Layer as _;
     use tracing_subscriber::filter::{LevelFilter, Targets};
-
-    let indicatif_layer = tracing_indicatif::IndicatifLayer::new();
 
     let trace_level = if debug {
         LevelFilter::DEBUG
     } else {
         LevelFilter::INFO
     };
-    let trace_layer =
-        trace::YamlTrace.with_filter(Targets::new().with_target(trace::TARGET, trace_level));
+    let trace_layer = trace::YamlTrace(display.clone())
+        .with_filter(Targets::new().with_target(trace::TARGET, trace_level));
 
     let default_logs = if verbose { "debug" } else { "warn" };
     let log_filter = tracing_subscriber::EnvFilter::try_from_default_env()
@@ -77,11 +75,10 @@ fn init_tracing(verbose: bool, debug: bool) {
                 .unwrap_or_else(|_| LevelFilter::OFF.into()),
         );
     let log_layer = tracing_subscriber::fmt::layer()
-        .with_writer(indicatif_layer.get_stderr_writer())
+        .with_writer(std::io::stderr)
         .with_filter(log_filter);
 
     tracing_subscriber::registry()
-        .with(indicatif_layer)
         .with(trace_layer)
         .with(log_layer)
         .init();
@@ -94,58 +91,22 @@ async fn main() -> Result<(), Error> {
     // Load configuration from file, env vars, and defaults
     let global_config = JackdawConfig::load().unwrap_or_default();
 
+    // Progress bars, trace lines and results share this display, so they do not overwrite each other.
+    let display = MultiProgress::with_draw_target(ProgressDrawTarget::stderr());
+
     match cli.command {
         Commands::Run(args) => {
-            // Extract workflows, input, registry, and debug flag before merging
-            let workflows = args.workflows.clone();
-            let input = args.input.clone();
-            let registry = args.registry.clone();
-            let debug = args.debug;
-            let persistence_provider = args.persistence_provider.clone();
-            let cache_provider = args.cache_provider.clone();
-            let sqlite_db_url = args.sqlite_db_url.clone();
-            let postgres_db_name = args.postgres_db_name.clone();
-            let postgres_user = args.postgres_user.clone();
-            let postgres_password = args.postgres_password.clone();
-            let postgres_hostname = args.postgres_hostname.clone();
-
-            // Merge CLI args with config (CLI takes precedence)
-            let config = args.merge_with_config(global_config);
-
-            // Initialize tracing/logging with indicatif bridge
-            init_tracing(config.verbose, debug);
-
-            // Initialize MultiProgress for coordinating progress bars and logs/traces
-            let multi_progress = MultiProgress::new();
-
-            handle_run(
-                workflows,
-                input,
-                registry,
-                config,
-                multi_progress,
-                debug,
-                persistence_provider,
-                cache_provider,
-                sqlite_db_url,
-                postgres_db_name,
-                postgres_user,
-                postgres_password,
-                postgres_hostname,
-            )
-            .await
-            .context(RunSnafu)
+            init_tracing(args.verbose || global_config.verbose, args.debug, &display);
+            handle_run(args, global_config, display)
+                .await
+                .context(RunSnafu)
         }
         Commands::Validate(args) => {
-            // Initialize tracing/logging with indicatif bridge
-            init_tracing(args.verbose, false);
-
+            init_tracing(args.verbose, false, &display);
             handle_validate(args).await.context(ValidateSnafu)
         }
         Commands::Visualize(args) => {
-            // Initialize tracing/logging with indicatif bridge
-            init_tracing(args.verbose, false);
-
+            init_tracing(args.verbose, false, &display);
             handle_visualize(args).await.context(VisualizeSnafu)
         }
     }

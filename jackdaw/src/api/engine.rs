@@ -936,6 +936,12 @@ impl Engine {
             {
                 return Ok(self.wrap(Launched { core }));
             }
+            if let Some(record) = self.yaml_record(id).await? {
+                if options.create_only {
+                    return Err(Error::invalid(format!("instance `{id}` already exists")));
+                }
+                return self.attach_yaml(definition, id, record).await;
+            }
             if self.shared.persistence.get_checkpoint(id).await?.is_some() {
                 return Err(Error::invalid(format!("instance `{id}` already exists")));
             }
@@ -945,6 +951,36 @@ impl Engine {
             .launch_definition_as(definition, value, options.id)
             .await?;
         Ok(self.wrap(launched))
+    }
+
+    /// A handle to a YAML instance the store already has: it carries on if it was running, and gives its stored outcome
+    /// if it had ended.
+    #[cfg(feature = "yaml")]
+    async fn attach_yaml<O>(
+        &self,
+        definition: &crate::dsl::workflow::WorkflowDefinition,
+        id: &str,
+        record: YamlRecord,
+    ) -> Result<ExecutionHandle<O>, Error> {
+        let Some(outcome) = record.outcome else {
+            let launched = self
+                .shared
+                .resume_definition(definition, id.to_string(), record.input)
+                .await?;
+            return Ok(self.wrap(launched));
+        };
+        let core = InstanceCore::new(
+            id.to_string(),
+            record.info.workflow.clone(),
+            super::workflow::ReplayMode::Strict,
+            Arc::downgrade(&self.shared),
+            Journal::new(record.info.workflow, record.input),
+            None,
+            true,
+        );
+        core.log.close();
+        core.publish(outcome);
+        Ok(self.wrap(Launched { core }))
     }
 
     /// Resumes the YAML instances that were running. The YAML engine keeps its own record (events and a checkpoint),
@@ -1055,7 +1091,18 @@ impl Engine {
             name: parts.next().unwrap_or_default().to_string(),
             version: parts.next().unwrap_or_default().to_string(),
         };
+        // A YAML instance ends with the first of these; the other events are its tasks'.
+        #[allow(clippy::wildcard_enum_match_arm)]
+        let outcome = events.iter().find_map(|event| match event {
+            WorkflowEvent::WorkflowCompleted { final_data, .. } => Some(Ok(final_data.clone())),
+            WorkflowEvent::WorkflowFailed { error, .. } => {
+                Some(Err(Error::Faulted(super::error::Fault::runtime(error))))
+            }
+            WorkflowEvent::WorkflowCancelled { .. } => Some(Err(Error::Cancelled)),
+            _ => None,
+        });
         Ok(Some(YamlRecord {
+            outcome,
             info: InstanceInfo {
                 id: id.to_string(),
                 workflow,
@@ -1139,6 +1186,7 @@ impl Engine {
                     started_at: record.info.started_at,
                     updated_at: record.info.updated_at,
                     parent: None,
+                    input: None,
                 });
             }
             return Err(Error::Engine(format!(
@@ -1167,6 +1215,7 @@ impl Engine {
             updated_at: journal.updated_at,
             parent: journal.parent.clone(),
             workflow: journal.workflow,
+            input: Some(journal.input),
         })
     }
 
@@ -1208,11 +1257,21 @@ impl Engine {
     /// # Errors
     /// If the instance is still running, does not exist, or the store cannot delete it.
     pub async fn purge(&self, id: &str) -> Result<(), Error> {
-        let journal = self
-            .shared
-            .load_journal(id)
-            .await?
-            .ok_or_else(|| Error::Engine(format!("workflow instance `{id}` was not found")))?;
+        let Some(journal) = self.shared.load_journal(id).await? else {
+            #[cfg(feature = "yaml")]
+            if let Some(record) = self.yaml_record(id).await? {
+                if record.outcome.is_none() || self.shared.instance(id).is_some() {
+                    return Err(Error::invalid(format!(
+                        "instance `{id}` is still running; cancel it or let it finish before purging it"
+                    )));
+                }
+                self.shared.persistence.delete_instance(id).await?;
+                return Ok(());
+            }
+            return Err(Error::Engine(format!(
+                "workflow instance `{id}` was not found"
+            )));
+        };
         if journal.status == JournalStatus::Running || self.shared.instance(id).is_some() {
             return Err(Error::invalid(format!(
                 "instance `{id}` is still running; cancel it or let it finish before purging it"
@@ -1692,6 +1751,8 @@ struct YamlRecord {
     /// `namespace/name/version`, the key its definition is registered under.
     key: String,
     input: Value,
+    /// How it ended, if it has.
+    outcome: Option<Result<Value, Error>>,
 }
 
 /// Which instances [`Engine::list`] returns. The default lists every top-level instance.
@@ -1842,6 +1903,8 @@ pub struct InstanceDetails {
     pub updated_at: Option<DateTime<Utc>>,
     /// The instance that runs it as a child workflow.
     pub parent: Option<String>,
+    /// The input it was started with, for a Rust workflow (a YAML workflow's input is not kept here).
+    pub input: Option<Value>,
 }
 
 /// A durable deadline of an instance: a sleep (`sleep:<step>`), a step timeout (`timeout:<step>`) or the workflow's
