@@ -122,6 +122,8 @@
 //! `default-features = false` builds about 70 crates instead of about 150. A YAML workflow that needs a feature the build
 //! lacks, such as a `listen` task without `http-listener`, fails with an error that names the feature.
 //!
+//! The library also builds for `wasm32-wasip2`, with the default features; see [`guide::wasm`] for what works there.
+//!
 //! ## Extending jackdaw
 //!
 //! - A store of your own: implement [`PersistenceProvider`] (see the `custom_persistence` example), or [`api::Store`]
@@ -168,6 +170,29 @@ pub use cache::CacheProvider;
 pub use persistence::PersistenceProvider;
 
 // The YAML interpreter that `api` is built on.
+// Features that need an operating system. On wasm their dependencies are not built (see Cargo.toml), so the build stops
+// here, with a message that names the feature, instead of failing inside a dependency.
+macro_rules! not_on_wasm {
+    ($($feature:literal: $why:literal,)*) => {$(
+        #[cfg(all(target_family = "wasm", feature = $feature))]
+        compile_error!(concat!(
+            "the `", $feature, "` feature is not available on wasm: ", $why
+        ));
+    )*};
+}
+
+not_on_wasm! {
+    "sqlite": "SQLite is a C library that needs an operating system; use `redb`, or your own `Store`",
+    "postgres": "it needs sockets; use `redb`, or your own `Store`",
+    "docker": "it needs to reach the Docker daemon",
+    "http-listener": "it needs sockets to listen on",
+    "grpc-listener": "it needs sockets to listen on",
+    "openapi": "`call: openapi` needs an HTTP client, and wasm has none yet",
+}
+
+mod blocking;
+#[cfg(feature = "yaml")]
+mod net;
 // The YAML interpreter.
 #[cfg(any(feature = "yaml", feature = "docker"))]
 mod container;

@@ -1,0 +1,34 @@
+# Takes `{ "items": [10, 20, 30] }`. The prices are ten times the length of the SKU, so a total over 50 (which needs the
+# `for` to add the items up) gives "gigantic" a price of 80, and a total of 50 or less gives "s" a price of 10. The `fork`
+# quotes that SKU and a fixed one (60) side by side.
+#
+# No task here names a successor with `then`: the interpreter runs tasks in order only when none does.
+document:
+  dsl: '1.0.3'
+  namespace: examples
+  name: orders
+  version: '1.0.0'
+do:
+  - sum:
+      for:
+        each: item
+        in: '.items'
+      do:
+        - add:
+            set:
+              subtotal: '${ (.subtotal // 0) + $item }'
+  - choose:
+      set:
+        sku: '${ if .subtotal > 50 then "gigantic" else "s" end }'
+  - quote:
+      fork:
+        compete: false
+        branches:
+          - chosen:
+              call: examples.price
+              with:
+                sku: '${ .sku }'
+          - fixed:
+              call: examples.price
+              with:
+                sku: widget

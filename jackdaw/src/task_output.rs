@@ -1,12 +1,17 @@
+#[cfg(not(target_family = "wasm"))]
 use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader as AsyncBufReader};
+#[cfg(not(target_family = "wasm"))]
 use tokio::process::Child;
 
 /// Reports what a script task prints, line by line, as trace events (see [`crate::output::script_line`]).
+// Wasm runs no scripts, so nothing there reports lines.
+#[cfg_attr(target_family = "wasm", allow(dead_code))]
 pub struct TaskOutputStreamer {
     task_name: String,
     task_index: usize,
 }
 
+#[cfg_attr(target_family = "wasm", allow(dead_code))]
 impl TaskOutputStreamer {
     /// Create a new output streamer for a task
     ///
@@ -32,6 +37,7 @@ impl TaskOutputStreamer {
     }
 
     /// Stream from a reader line by line
+    #[cfg(not(target_family = "wasm"))]
     async fn stream_reader<R: AsyncRead + Unpin>(
         &self,
         reader: R,
@@ -62,6 +68,7 @@ impl TaskOutputStreamer {
     /// - Reading from stdout or stderr fails
     /// - Waiting for the child process fails
     /// - A spawned task fails to complete
+    #[cfg(not(target_family = "wasm"))]
     pub async fn stream_process_output(
         &self,
         mut child: Child,

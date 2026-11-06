@@ -12,6 +12,7 @@
 //! | [`testing`] | testing workflows without waiting, with replay checked for free |
 //! | [`errors`] | the error types and how to match them |
 //! | [`events`] | watching a run |
+//! | [`wasm`] | using jackdaw in a program built for WebAssembly (WASI) |
 //!
 //! Every example here is compiled and run by `cargo test --doc`.
 
@@ -25,5 +26,6 @@ pub mod errors;
 pub mod events;
 pub mod tasks;
 pub mod testing;
+pub mod wasm;
 pub mod workflows;
 pub mod yaml;

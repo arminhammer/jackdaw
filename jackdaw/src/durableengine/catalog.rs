@@ -112,30 +112,16 @@ impl DurableEngine {
                     .ok_or_else(|| Error::Configuration {
                         message: format!("Invalid file:// URI: {function_url}"),
                     })?;
-            tokio::fs::read_to_string(path).await.context(IoSnafu)?
+            crate::blocking::read_to_string(path)
+                .await
+                .context(IoSnafu)?
         } else {
             // HTTP(S) URL
-            let response = reqwest::get(&function_url)
+            crate::net::get_text(&function_url)
                 .await
                 .map_err(|e| Error::TaskExecution {
                     message: format!("Failed to fetch catalog function from {function_url}: {e}"),
-                })?;
-
-            if !response.status().is_success() {
-                return Err(Error::TaskExecution {
-                    message: format!(
-                        "Failed to fetch catalog function from {}: HTTP {}",
-                        function_url,
-                        response.status()
-                    ),
-                });
-            }
-
-            response.text().await.map_err(|e| Error::TaskExecution {
-                message: format!(
-                    "Failed to read catalog function response from {function_url}: {e}"
-                ),
-            })?
+                })?
         };
 
         // Parse the workflow definition

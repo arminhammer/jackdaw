@@ -125,6 +125,7 @@ impl Registry {
 
     /// Adds the helper tasks (`jackdaw.shell`, ...) that are not registered already.
     pub(crate) fn add_builtins(&mut self) {
+        #[cfg(not(target_family = "wasm"))]
         for task in super::helpers::builtin_tasks() {
             self.tasks.entry(task.name).or_insert(task);
         }
@@ -331,7 +332,7 @@ impl CatalogSet {
             )));
         };
         let text = if let Some(file) = Self::file_of(bound.source, name, version) {
-            tokio::fs::read_to_string(&file).await.map_err(|e| {
+            crate::blocking::read_to_string(&file).await.map_err(|e| {
                 Error::invalid(format!(
                     "cannot read catalog entry `{name}:{version}` at {file}: {e}"
                 ))
@@ -341,14 +342,9 @@ impl CatalogSet {
                 "{}/functions/{name}/{version}/function.yaml",
                 bound.source.trim_end_matches('/')
             );
-            let response = reqwest::get(&url).await.map_err(|e| {
+            crate::net::get_text(&url).await.map_err(|e| {
                 Error::Engine(format!(
                     "cannot fetch catalog entry `{name}:{version}` from {url}: {e}"
-                ))
-            })?;
-            response.text().await.map_err(|e| {
-                Error::Engine(format!(
-                    "cannot read catalog entry `{name}:{version}` from {url}: {e}"
                 ))
             })?
         };

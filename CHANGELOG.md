@@ -9,6 +9,30 @@ The workspace publishes three crates with the same version: `jackdaw-wf` (the li
 
 ## [Unreleased]
 
+### Added
+
+- WebAssembly: the library builds for `wasm32-wasip2` (wasmtime, Spin, wasmCloud) and runs there. The native API, the YAML
+  interpreter (`set`, `for`, `fork`, `switch`, `call:` of Rust tasks, ...) and the Redb store work, in a program that uses
+  tokio's `current_thread` runtime. The new guide chapter `guide::wasm` says what works and what does not.
+  - What needs a child process or an HTTP client is left out on wasm: `ctx.run_shell`, `ctx.run_script`,
+    `ctx.run_container` and `ctx.http` (with `Shell`, `Script`, `ProcessOutput`, `Request` and `Response`) are not
+    compiled, and YAML `run: shell`, `run: script`, `call: http` and remote catalogs fail with a message that says they
+    are not available on wasm. The `http-client` feature does nothing there.
+  - Building with `sqlite`, `postgres`, `docker`, `http-listener`, `grpc-listener` or `openapi` for wasm stops with a
+    message that names the feature.
+  - `#[task(blocking)]` tasks and Redb's reads and writes run where they are called, as wasm has no threads to hand them
+    to.
+- `just wasm` and a `WebAssembly (WASI)` CI job check the library for `wasm32-wasip2` and run example programs under
+  wasmtime.
+
+### Changed
+
+- The dependencies that need an operating system (`sqlx`, `axum`, `tonic` and the gRPC crates, `bollard`,
+  `openapiv3-extended`, `jsonschema`, `reqwest`) are declared for non-wasm targets only. Nothing changes for native
+  builds, except that tokio's `rt-multi-thread` feature is now enabled on native targets whatever the features (it adds no
+  crates), and the `yaml` feature no longer asks for it. tokio's `fs` feature is no longer enabled: files are read with
+  `std::fs` on the blocking pool.
+
 ## [0.2.2] - 2026-11-02
 
 ### Added

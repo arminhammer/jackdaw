@@ -219,6 +219,8 @@ impl<W: Send + 'static> WorkflowContext<W> {
     /// fault titled `exit code N`. See [`Shell`](super::Shell).
     #[track_caller]
     #[must_use]
+    #[cfg(not(target_family = "wasm"))]
+    #[cfg_attr(docsrs, doc(cfg(not(target_family = "wasm"))))]
     pub fn run_shell(&self, shell: super::Shell) -> Step<super::ProcessOutput> {
         self.call(super::helpers::ShellTask, shell)
     }
@@ -226,6 +228,8 @@ impl<W: Send + 'static> WorkflowContext<W> {
     /// Runs a Python or JavaScript script with its interpreter. See [`Script`](super::Script).
     #[track_caller]
     #[must_use]
+    #[cfg(not(target_family = "wasm"))]
+    #[cfg_attr(docsrs, doc(cfg(not(target_family = "wasm"))))]
     pub fn run_script(&self, script: super::Script) -> Step<super::ProcessOutput> {
         self.call(super::helpers::ScriptTask, script)
     }
@@ -233,7 +237,7 @@ impl<W: Send + 'static> WorkflowContext<W> {
     /// Runs a container with Docker and returns what it printed. See [`Container`](super::Container).
     #[track_caller]
     #[must_use]
-    #[cfg(feature = "docker")]
+    #[cfg(all(feature = "docker", not(target_family = "wasm")))]
     #[cfg_attr(docsrs, doc(cfg(feature = "docker")))]
     pub fn run_container(&self, container: super::Container) -> Step<super::ProcessOutput> {
         self.call(super::helpers::ContainerTask, container)
@@ -241,7 +245,7 @@ impl<W: Send + 'static> WorkflowContext<W> {
 
     /// Sends an HTTP request. Statuses 408, 429 and 5xx are retryable faults, so `.retry(..)` on the step retries
     /// them. See [`Request`](super::Request).
-    #[cfg(feature = "http-client")]
+    #[cfg(all(feature = "http-client", not(target_family = "wasm")))]
     #[cfg_attr(docsrs, doc(cfg(feature = "http-client")))]
     #[track_caller]
     #[must_use]

@@ -127,6 +127,10 @@ The library's defaults are `yaml`, `redb` and `http-client`. Opt in to `sqlite`,
 `default-features = false`, the native Rust API still works and the build pulls in far fewer crates. The
 [library README](jackdaw/README.md#features) lists what each feature adds.
 
+The library also builds for WebAssembly (`wasm32-wasip2`, for wasmtime, Spin and other WASI hosts): the native API, the
+YAML interpreter and the Redb store work there, and what needs a process, a socket or an HTTP client does not. See the
+[guide](https://docs.rs/jackdaw-wf/latest/jackdaw/guide/wasm/).
+
 ## Repository layout
 
 ```text

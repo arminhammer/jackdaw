@@ -27,7 +27,7 @@ jackdaw-macros = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde-saphyr = { version = "2", default-features = false, features = ["deserialize"] }
-tokio = { version = "1", features = ["rt", "macros", "sync", "time", "fs", "io-util", "process"] }
+tokio = { version = "1", features = ["rt", "macros", "sync", "time", "io-util"] }
 tracing = "0.1"
 snafu = "0.9.2"
 chrono = { version = "0.4", features = ["serde"] }
@@ -50,10 +50,20 @@ async-recursion = { version = "1.0", optional = true }
 
 # stores
 redb = { version = "4", optional = true }
-sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "chrono", "json", "uuid"], optional = true }
 
-# http-client
+# What needs an operating system underneath: child processes, sockets, C libraries, Docker, and the HTTP client (reqwest
+# on wasm is the browser's `fetch`, which cannot run on WASI and whose futures are not `Send`). On wasm none of it is
+# built, and what uses it is left out or fails with a message that says so: `ctx.run_shell`, `ctx.run_script`, `ctx.http`,
+# YAML `run: shell`, `call: http` and remote catalogs; the features `sqlite`, `postgres`, `docker`, `http-listener`,
+# `grpc-listener` and `openapi` stop the build with a message (see `lib.rs`). `http-client` does nothing there.
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+# `rt-multi-thread` is for the listeners' `block_in_place`; it adds no crates. Their sockets come from axum, hyper-util and
+# tonic, which ask tokio for `net` themselves.
+tokio = { version = "1", features = ["process", "rt-multi-thread"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "http2"], optional = true }
+
+# sqlite, postgres
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "chrono", "json", "uuid"], optional = true }
 
 # openapi
 openapiv3-extended = { version = "6.0", features = ["v2"], optional = true }
@@ -89,7 +99,7 @@ full = ["yaml", "redb", "sqlite", "postgres", "http-client", "openapi", "docker"
 # The Open Workflow YAML interpreter: `jackdaw::dsl`, `api::Workflow` (`from_yaml`, `validate`),
 # `ctx.run_definition` and the engine's YAML registrations. YAML `call: http` needs an HTTP client, so this
 # includes `http-client`.
-yaml = ["http-client", "dep:serde_derive", "dep:jaq-core", "dep:jaq-std", "dep:jaq-json", "dep:regex", "dep:petgraph", "dep:async-recursion", "tokio/rt-multi-thread"]
+yaml = ["http-client", "dep:serde_derive", "dep:jaq-core", "dep:jaq-std", "dep:jaq-json", "dep:regex", "dep:petgraph", "dep:async-recursion"]
 
 # Stores and caches.
 redb = ["dep:redb"]
@@ -104,8 +114,8 @@ openapi = ["yaml", "dep:openapiv3-extended"]
 docker = ["dep:bollard"]
 # `api::Listener` (the engine serves HTTP routes or a gRPC service whose requests start workflows), and YAML
 # `listen` tasks on HTTP (OpenAPI) and gRPC.
-http-listener = ["dep:axum", "tokio/net", "tokio/rt-multi-thread", "dep:jsonschema"]
-grpc-listener = ["dep:tonic", "dep:tonic-reflection", "dep:prost", "dep:prost-reflect", "dep:prost-types", "dep:protox", "dep:tower", "dep:http", "dep:http-body", "dep:http-body-util", "dep:hyper", "dep:hyper-util", "dep:bytes", "tokio/net", "tokio/rt-multi-thread"]
+http-listener = ["dep:axum", "dep:jsonschema"]
+grpc-listener = ["dep:tonic", "dep:tonic-reflection", "dep:prost", "dep:prost-reflect", "dep:prost-types", "dep:protox", "dep:tower", "dep:http", "dep:http-body", "dep:http-body-util", "dep:hyper", "dep:hyper-util", "dep:bytes"]
 
 # Counters and histograms through the `metrics` facade. The library never installs a recorder.
 metrics = ["dep:metrics"]

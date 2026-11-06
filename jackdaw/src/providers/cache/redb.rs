@@ -42,7 +42,7 @@ impl CacheProvider for RedbCache {
     async fn get(&self, key: &str) -> Result<Option<CacheEntry>> {
         let db = self.db.clone();
         let key = key.to_string();
-        tokio::task::spawn_blocking(move || -> Result<Option<CacheEntry>> {
+        crate::blocking::run(move || -> Result<Option<CacheEntry>> {
             let read_txn = db.begin_read().map_err(|e| Error::Database {
                 message: format!("Failed to begin read transaction: {e}"),
             })?;
@@ -69,7 +69,7 @@ impl CacheProvider for RedbCache {
 
     async fn set(&self, entry: CacheEntry) -> Result<()> {
         let db = self.db.clone();
-        tokio::task::spawn_blocking(move || -> Result<()> {
+        crate::blocking::run(move || -> Result<()> {
             let write_txn = db.begin_write().map_err(|e| Error::Database {
                 message: format!("Failed to begin write transaction: {e}"),
             })?;
@@ -100,7 +100,7 @@ impl CacheProvider for RedbCache {
     async fn invalidate(&self, key: &str) -> Result<()> {
         let db = self.db.clone();
         let key = key.to_string();
-        tokio::task::spawn_blocking(move || -> Result<()> {
+        crate::blocking::run(move || -> Result<()> {
             let write_txn = db.begin_write().map_err(|e| Error::Database {
                 message: format!("Failed to begin write transaction: {e}"),
             })?;

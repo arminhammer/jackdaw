@@ -33,6 +33,7 @@ pub mod subscription;
 pub mod support;
 pub mod testing_engine;
 pub mod timers;
+pub mod wasm;
 pub mod workers;
 pub mod world;
 

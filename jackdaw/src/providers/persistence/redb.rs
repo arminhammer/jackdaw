@@ -96,7 +96,7 @@ impl RedbPersistence {
 impl PersistenceProvider for RedbPersistence {
     async fn save_event(&self, event: WorkflowEvent) -> Result<()> {
         let db = self.db.clone();
-        tokio::task::spawn_blocking(move || -> Result<()> {
+        crate::blocking::run(move || -> Result<()> {
             let write_txn = db.begin_write().map_err(|e| Error::Database {
                 message: format!("Failed to begin write transaction: {e}"),
             })?;
@@ -135,7 +135,7 @@ impl PersistenceProvider for RedbPersistence {
     async fn get_events(&self, instance_id: &str) -> Result<Vec<WorkflowEvent>> {
         let db = self.db.clone();
         let instance_id = instance_id.to_string();
-        tokio::task::spawn_blocking(move || -> Result<Vec<WorkflowEvent>> {
+        crate::blocking::run(move || -> Result<Vec<WorkflowEvent>> {
             let read_txn = db.begin_read().map_err(|e| Error::Database {
                 message: format!("Failed to begin read transaction: {e}"),
             })?;
@@ -170,7 +170,7 @@ impl PersistenceProvider for RedbPersistence {
 
     async fn save_checkpoint(&self, checkpoint: WorkflowCheckpoint) -> Result<()> {
         let db = self.db.clone();
-        tokio::task::spawn_blocking(move || -> Result<()> {
+        crate::blocking::run(move || -> Result<()> {
             let write_txn = db.begin_write().map_err(|e| Error::Database {
                 message: format!("Failed to begin write transaction: {e}"),
             })?;
@@ -202,7 +202,7 @@ impl PersistenceProvider for RedbPersistence {
     async fn get_checkpoint(&self, instance_id: &str) -> Result<Option<WorkflowCheckpoint>> {
         let db = self.db.clone();
         let instance_id = instance_id.to_string();
-        tokio::task::spawn_blocking(move || -> Result<Option<WorkflowCheckpoint>> {
+        crate::blocking::run(move || -> Result<Option<WorkflowCheckpoint>> {
             let read_txn = db.begin_read().map_err(|e| Error::Database {
                 message: format!("Failed to begin read transaction: {e}"),
             })?;
@@ -233,7 +233,7 @@ impl PersistenceProvider for RedbPersistence {
     async fn append_journal(&self, instance_id: &str, records: Vec<JournalRecord>) -> Result<()> {
         let db = self.db.clone();
         let instance_id = instance_id.to_string();
-        tokio::task::spawn_blocking(move || -> Result<()> {
+        crate::blocking::run(move || -> Result<()> {
             let write_txn = db
                 .begin_write()
                 .map_err(|e| db_error("Failed to begin write transaction", e))?;
@@ -262,7 +262,7 @@ impl PersistenceProvider for RedbPersistence {
     async fn load_journal(&self, instance_id: &str) -> Result<Vec<JournalRecord>> {
         let db = self.db.clone();
         let instance_id = instance_id.to_string();
-        tokio::task::spawn_blocking(move || -> Result<Vec<JournalRecord>> {
+        crate::blocking::run(move || -> Result<Vec<JournalRecord>> {
             let read_txn = db
                 .begin_read()
                 .map_err(|e| db_error("Failed to begin read transaction", e))?;
@@ -295,7 +295,7 @@ impl PersistenceProvider for RedbPersistence {
     async fn prune_journal(&self, instance_id: &str, before: u64) -> Result<()> {
         let db = self.db.clone();
         let instance_id = instance_id.to_string();
-        tokio::task::spawn_blocking(move || -> Result<()> {
+        crate::blocking::run(move || -> Result<()> {
             let write_txn = db
                 .begin_write()
                 .map_err(|e| db_error("Failed to begin write transaction", e))?;
@@ -323,7 +323,7 @@ impl PersistenceProvider for RedbPersistence {
 
     async fn create_checkpoint(&self, checkpoint: WorkflowCheckpoint) -> Result<bool> {
         let db = self.db.clone();
-        tokio::task::spawn_blocking(move || -> Result<bool> {
+        crate::blocking::run(move || -> Result<bool> {
             let write_txn = db
                 .begin_write()
                 .map_err(|e| db_error("Failed to begin write transaction", e))?;
@@ -354,7 +354,7 @@ impl PersistenceProvider for RedbPersistence {
 
     async fn list_instances(&self) -> Result<Option<Vec<String>>> {
         let db = self.db.clone();
-        tokio::task::spawn_blocking(move || -> Result<Option<Vec<String>>> {
+        crate::blocking::run(move || -> Result<Option<Vec<String>>> {
             let read_txn = db
                 .begin_read()
                 .map_err(|e| db_error("Failed to begin read transaction", e))?;
@@ -378,7 +378,7 @@ impl PersistenceProvider for RedbPersistence {
     async fn delete_instance(&self, instance_id: &str) -> Result<()> {
         let db = self.db.clone();
         let instance_id = instance_id.to_string();
-        tokio::task::spawn_blocking(move || -> Result<()> {
+        crate::blocking::run(move || -> Result<()> {
             let write_txn = db
                 .begin_write()
                 .map_err(|e| db_error("Failed to begin write transaction", e))?;
@@ -431,7 +431,7 @@ impl PersistenceProvider for RedbPersistence {
     ) -> Result<Lease> {
         let db = self.db.clone();
         let (instance_id, owner) = (instance_id.to_string(), owner.to_string());
-        tokio::task::spawn_blocking(move || -> Result<Lease> {
+        crate::blocking::run(move || -> Result<Lease> {
             let write_txn = db
                 .begin_write()
                 .map_err(|e| db_error("Failed to begin write transaction", e))?;
@@ -472,7 +472,7 @@ impl PersistenceProvider for RedbPersistence {
     async fn release_lease(&self, instance_id: &str, owner: &str) -> Result<()> {
         let db = self.db.clone();
         let (instance_id, owner) = (instance_id.to_string(), owner.to_string());
-        tokio::task::spawn_blocking(move || -> Result<()> {
+        crate::blocking::run(move || -> Result<()> {
             let write_txn = db
                 .begin_write()
                 .map_err(|e| db_error("Failed to begin write transaction", e))?;
@@ -507,7 +507,7 @@ impl PersistenceProvider for RedbPersistence {
             EVENT_COUNTER.fetch_add(1, Ordering::SeqCst)
         );
         let value = serde_json::to_vec(&message).context(SerializationSnafu)?;
-        tokio::task::spawn_blocking(move || -> Result<()> {
+        crate::blocking::run(move || -> Result<()> {
             let write_txn = db
                 .begin_write()
                 .map_err(|e| db_error("Failed to begin write transaction", e))?;
@@ -530,7 +530,7 @@ impl PersistenceProvider for RedbPersistence {
     async fn take_messages(&self, owner: &str) -> Result<Vec<(String, serde_json::Value)>> {
         let db = self.db.clone();
         let owner = owner.to_string();
-        tokio::task::spawn_blocking(move || -> Result<Vec<(String, serde_json::Value)>> {
+        crate::blocking::run(move || -> Result<Vec<(String, serde_json::Value)>> {
             let write_txn = db
                 .begin_write()
                 .map_err(|e| db_error("Failed to begin write transaction", e))?;

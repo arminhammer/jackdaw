@@ -32,18 +32,20 @@ where
     }
 }
 
-/// Runs `f` on the blocking pool inside the current span, with the current subscriber.
-pub(crate) fn spawn_blocking<F, R>(f: F) -> tokio::task::JoinHandle<R>
+/// Runs `f` on the blocking pool inside the current span, with the current subscriber (on wasm, where there is no pool,
+/// right here).
+pub(crate) async fn spawn_blocking<F, R>(f: F) -> Result<R, crate::blocking::Error>
 where
     F: FnOnce() -> R + Send + 'static,
     R: Send + 'static,
 {
     let span = tracing::Span::current();
     let dispatch = current_dispatch();
-    tokio::task::spawn_blocking(move || match dispatch {
+    crate::blocking::run(move || match dispatch {
         Some(dispatch) => tracing::dispatcher::with_default(&dispatch, || span.in_scope(f)),
         None => span.in_scope(f),
     })
+    .await
 }
 
 /// The span an instance runs in. `replay` is true when it resumes from an existing journal.

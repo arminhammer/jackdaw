@@ -16,6 +16,7 @@ mod event;
 mod executor;
 #[cfg(feature = "yaml")]
 mod fence;
+#[cfg(not(target_family = "wasm"))]
 mod helpers;
 mod limits;
 #[cfg(any(feature = "http-listener", feature = "grpc-listener"))]
@@ -48,10 +49,11 @@ pub use error::{
 };
 pub use event::{CloudEvent, Event, EventStream};
 pub use executor::{Call, Executor};
-#[cfg(feature = "docker")]
+#[cfg(all(feature = "docker", not(target_family = "wasm")))]
 pub use helpers::Container;
+#[cfg(not(target_family = "wasm"))]
 pub use helpers::{ProcessOutput, Script, Shell};
-#[cfg(feature = "http-client")]
+#[cfg(all(feature = "http-client", not(target_family = "wasm")))]
 pub use helpers::{Request, Response};
 #[cfg(any(feature = "http-listener", feature = "grpc-listener"))]
 pub use listener::Listener;

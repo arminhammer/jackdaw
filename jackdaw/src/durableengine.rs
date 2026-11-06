@@ -11,14 +11,11 @@ use tokio::sync::RwLock;
 use crate::listeners::grpc::GrpcListener;
 #[cfg(feature = "openapi")]
 use crate::providers::executors::OpenApiExecutor;
+#[cfg(not(target_family = "wasm"))]
+use crate::providers::executors::{PythonExecutor, RestExecutor, TypeScriptExecutor};
 use crate::{
-    context::Context,
-    execution_handle::ExecutionHandle,
-    executor::Executor,
-    output,
-    persistence::PersistenceProvider,
-    providers::executors::{PythonExecutor, RestExecutor, TypeScriptExecutor},
-    workflow::WorkflowEvent,
+    context::Context, execution_handle::ExecutionHandle, executor::Executor, output,
+    persistence::PersistenceProvider, workflow::WorkflowEvent,
 };
 
 use super::cache::CacheProvider;
@@ -43,6 +40,59 @@ mod tasks;
 mod timeout;
 
 pub(crate) use called::{called_names, unknown_directives};
+
+/// Why wasm cannot run a call type or script language, if that is why nothing runs it.
+#[cfg(target_family = "wasm")]
+fn wasm_limit(name: &str) -> Option<&'static str> {
+    match name {
+        "http" | "rest" | "openapi" => Some("has no HTTP client"),
+        "python" | "javascript" => Some("cannot start processes"),
+        _ => None,
+    }
+}
+
+/// The error for a `call:` of a type nothing is registered for.
+#[cfg(not(target_family = "wasm"))]
+fn no_call_executor(call_type: &str) -> Error {
+    Error::TaskExecution {
+        message: format!("No executor for call type: {call_type}"),
+    }
+}
+
+/// The error for a `call:` of a type nothing is registered for. On wasm, the ones that need an HTTP client or a process
+/// say so.
+#[cfg(target_family = "wasm")]
+fn no_call_executor(call_type: &str) -> Error {
+    Error::TaskExecution {
+        message: match wasm_limit(call_type) {
+            Some(reason) => {
+                format!("`call: {call_type}` is not available on wasm, which {reason}")
+            }
+            None => format!("No executor for call type: {call_type}"),
+        },
+    }
+}
+
+/// The error for a `run: script` in a language nothing is registered for.
+#[cfg(not(target_family = "wasm"))]
+fn no_script_executor(language: &str) -> Error {
+    Error::TaskExecution {
+        message: format!("No executor found for language: {language}"),
+    }
+}
+
+/// The error for a `run: script` in a language nothing is registered for. On wasm, the ones that need a process say so.
+#[cfg(target_family = "wasm")]
+fn no_script_executor(language: &str) -> Error {
+    Error::TaskExecution {
+        message: match wasm_limit(language) {
+            Some(reason) => format!(
+                "`run: script` language `{language}` is not available on wasm, which {reason}"
+            ),
+            None => format!("No executor found for language: {language}"),
+        },
+    }
+}
 
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub))]
@@ -211,11 +261,16 @@ impl DurableEngine {
         cache: Arc<dyn CacheProvider>,
         event_buffer_size: usize,
     ) -> Result<Self> {
+        #[cfg_attr(target_family = "wasm", allow(unused_mut))]
         let mut executors: HashMap<String, Box<dyn Executor>> = HashMap::new();
+        // Native only: wasm has no HTTP client and no child processes, so `call: http` and the script languages
+        // are not registered there (a task that names one fails with "No executor found").
+        #[cfg(not(target_family = "wasm"))]
         executors.insert(
             "http".into(),
             Box::new(RestExecutor(reqwest::Client::new())),
         );
+        #[cfg(not(target_family = "wasm"))]
         executors.insert(
             "rest".into(),
             Box::new(RestExecutor(reqwest::Client::new())),
@@ -225,7 +280,9 @@ impl DurableEngine {
             "openapi".into(),
             Box::new(OpenApiExecutor(reqwest::Client::new())),
         );
+        #[cfg(not(target_family = "wasm"))]
         executors.insert("python".into(), Box::new(PythonExecutor::new()));
+        #[cfg(not(target_family = "wasm"))]
         executors.insert("javascript".into(), Box::new(TypeScriptExecutor::new()));
         Ok(Self {
             executors: Arc::new(executors),

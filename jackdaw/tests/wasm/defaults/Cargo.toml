@@ -1,0 +1,24 @@
+# Programs that use jackdaw with its default features, built for wasm32-wasip2 by the `platform/wasm.feature`
+# scenarios. Not part of the workspace.
+[package]
+name = "jackdaw-wasm-defaults"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+jackdaw = { package = "jackdaw-wf", path = "../../.." }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "macros", "time"] }
+
+# Features that cannot work on wasm: building with one is expected to fail, naming it.
+[features]
+sqlite = ["jackdaw/sqlite"]
+postgres = ["jackdaw/postgres"]
+docker = ["jackdaw/docker"]
+http-listener = ["jackdaw/http-listener"]
+grpc-listener = ["jackdaw/grpc-listener"]
+openapi = ["jackdaw/openapi"]
+
+[workspace]

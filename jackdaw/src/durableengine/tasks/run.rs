@@ -1,4 +1,5 @@
 use snafu::prelude::*;
+#[cfg(not(target_family = "wasm"))]
 use std::process::Stdio;
 
 use crate::cache::{CacheEntry, compute_cache_key};
@@ -165,9 +166,7 @@ pub async fn exec_run_task(
         let executor = engine
             .executors
             .get(&language)
-            .ok_or(Error::TaskExecution {
-                message: format!("No executor found for language: {language}"),
-            })?;
+            .ok_or_else(|| super::super::no_script_executor(&language))?;
 
         // Get script code - either inline or from external source
         let script_code = if let Some(source) = script.source.as_ref() {
@@ -186,31 +185,16 @@ pub async fn exec_run_task(
                         .ok_or_else(|| Error::Configuration {
                             message: format!("Invalid file URI format: {source_uri}"),
                         })?;
-                tokio::fs::read_to_string(file_path)
+                crate::blocking::read_to_string(file_path)
                     .await
                     .context(IoSnafu)?
             } else if source_uri.starts_with("http://") || source_uri.starts_with("https://") {
                 // Load from HTTP(S)
-                let response =
-                    reqwest::get(source_uri)
-                        .await
-                        .map_err(|e| Error::TaskExecution {
-                            message: format!("Failed to fetch script from {source_uri}: {e}"),
-                        })?;
-
-                if !response.status().is_success() {
-                    return Err(Error::TaskExecution {
-                        message: format!(
-                            "Failed to fetch script from {}: HTTP {}",
-                            source_uri,
-                            response.status()
-                        ),
-                    });
-                }
-
-                response.text().await.map_err(|e| Error::TaskExecution {
-                    message: format!("Failed to read script response from {source_uri}: {e}"),
-                })?
+                crate::net::get_text(source_uri)
+                    .await
+                    .map_err(|e| Error::TaskExecution {
+                        message: format!("Failed to fetch script from {source_uri}: {e}"),
+                    })?
             } else {
                 return Err(Error::Configuration {
                     message: format!("Unsupported source URI scheme: {source_uri}"),
@@ -325,55 +309,7 @@ pub async fn exec_run_task(
         let task_index = ctx.state.task_index.unwrap_or(0);
         let streamer = TaskOutputStreamer::new(task_name.to_string(), task_index);
 
-        // A command containing whitespace is a shell script (the spec example passes a
-        // multi-line script and reads its arguments as $1, $2). Run it via `sh -c`; the
-        // extra "sh" fills $0 so the arguments start at $1. A bare command name is
-        // executed directly, with the arguments passed to it.
-        let mut cmd = if command.contains(char::is_whitespace) {
-            let mut cmd = tokio::process::Command::new("sh");
-            cmd.arg("-c").arg(command).arg("sh");
-            // Don't let the script block reading an inherited terminal
-            cmd.stdin(Stdio::null());
-            cmd
-        } else {
-            tokio::process::Command::new(command)
-        };
-
-        // Execute shell command with piped stdout/stderr for streaming
-        let child = cmd
-            .args(&evaluated_args)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| Error::TaskExecution {
-                message: format!("Failed to execute command '{command}': {e}"),
-            })?;
-
-        // Stream output in real-time
-        let (stdout, stderr, exit_code) =
-            streamer
-                .stream_process_output(child)
-                .await
-                .map_err(|e| Error::TaskExecution {
-                    message: format!("Failed to stream command output: {e}"),
-                })?;
-
-        // Check exit status
-        if exit_code != 0 {
-            return Err(Error::TaskExecution {
-                message: format!(
-                    "Command '{command}' failed with exit code {exit_code}\nstdout: {stdout}\nstderr: {stderr}"
-                ),
-            });
-        }
-
-        // Return just stdout as a string on success
-        // Try to parse as JSON first, fall back to plain string
-        if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&stdout) {
-            json_value
-        } else {
-            serde_json::Value::String(stdout)
-        }
+        run_command(command, &evaluated_args, &streamer).await?
     } else if let Some(container) = run_task.run.container.as_ref() {
         // Container execution using provider abstraction
         let image = &container.image;
@@ -559,4 +495,79 @@ pub async fn exec_run_task(
     ctx.services.cache.set(cache_entry).await?;
 
     Ok(final_result)
+}
+
+/// Runs a `run: shell` command and returns what it printed: as JSON when it is JSON, as a string otherwise.
+#[cfg(not(target_family = "wasm"))]
+async fn run_command(
+    command: &str,
+    evaluated_args: &[String],
+    streamer: &TaskOutputStreamer,
+) -> Result<serde_json::Value> {
+    // A command containing whitespace is a shell script (the spec example passes a
+    // multi-line script and reads its arguments as $1, $2). Run it via `sh -c`; the
+    // extra "sh" fills $0 so the arguments start at $1. A bare command name is
+    // executed directly, with the arguments passed to it.
+    let mut cmd = if command.contains(char::is_whitespace) {
+        let mut cmd = tokio::process::Command::new("sh");
+        cmd.arg("-c").arg(command).arg("sh");
+        // Don't let the script block reading an inherited terminal
+        cmd.stdin(Stdio::null());
+        cmd
+    } else {
+        tokio::process::Command::new(command)
+    };
+
+    // Execute shell command with piped stdout/stderr for streaming
+    let child = cmd
+        .args(evaluated_args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| Error::TaskExecution {
+            message: format!("Failed to execute command '{command}': {e}"),
+        })?;
+
+    // Stream output in real-time
+    let (stdout, stderr, exit_code) =
+        streamer
+            .stream_process_output(child)
+            .await
+            .map_err(|e| Error::TaskExecution {
+                message: format!("Failed to stream command output: {e}"),
+            })?;
+
+    // Check exit status
+    if exit_code != 0 {
+        return Err(Error::TaskExecution {
+            message: format!(
+                "Command '{command}' failed with exit code {exit_code}\nstdout: {stdout}\nstderr: {stderr}"
+            ),
+        });
+    }
+
+    // Return just stdout as a string on success
+    // Try to parse as JSON first, fall back to plain string
+    Ok(
+        if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&stdout) {
+            json_value
+        } else {
+            serde_json::Value::String(stdout)
+        },
+    )
+}
+
+/// Wasm cannot start processes.
+#[cfg(target_family = "wasm")]
+#[allow(clippy::unused_async, reason = "the same signature as the native one")]
+async fn run_command(
+    command: &str,
+    _evaluated_args: &[String],
+    _streamer: &TaskOutputStreamer,
+) -> Result<serde_json::Value> {
+    Err(Error::TaskExecution {
+        message: format!(
+            "`run: shell` is not available on wasm, which cannot start processes: `{command}`"
+        ),
+    })
 }

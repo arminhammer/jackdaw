@@ -116,6 +116,10 @@ Without `yaml`, the native Rust API (tasks, workflows, the engine, the in-memory
 `default-features = false` builds about 70 crates instead of about 150. A YAML workflow that needs a feature the build
 lacks, such as a `listen` task without `http-listener`, fails with an error that names the feature.
 
+The library also builds for WebAssembly (`wasm32-wasip2`, for wasmtime, Spin and other WASI hosts): the native API, the
+YAML interpreter and the Redb store work there, and what needs a process, a socket or an HTTP client does not. See the
+[guide](https://docs.rs/jackdaw-wf/latest/jackdaw/guide/wasm/).
+
 ## Command line
 
 The `jackdaw-cli` crate installs a `jackdaw` binary that runs, validates and visualizes YAML workflows:
