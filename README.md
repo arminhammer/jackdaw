@@ -44,12 +44,29 @@ All three are released together, at the same version.
 ## Quick start: Rust
 
 ```sh
-cargo add jackdaw-wf serde --features serde/derive
+cargo add jackdaw-wf --features cli
+cargo add serde --features derive
 cargo add tokio --features macros,rt-multi-thread
 ```
 
+A workflow's input is its configuration: one struct that says everything a run needs. `#[derive(Config)]` turns it into
+command line flags, and the same fields can be read from environment variables and files.
+
 ```rust
 use jackdaw::prelude::*;
+use jackdaw::runner::Program;
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Config)]
+struct Hello {
+    /// Who to greet
+    #[serde(default = "world")]
+    name: String,
+}
+
+fn world() -> String {
+    "World".to_string()
+}
 
 // A task does the work. Its result is recorded, so it is not repeated after a restart.
 #[task]
@@ -64,24 +81,31 @@ struct Hello;
 #[workflow_methods]
 impl Hello {
     #[run]
-    async fn run(ctx: &mut WorkflowContext<Self>, name: String) -> WorkflowResult<String> {
-        Ok(ctx.call(Greet, &name).retry(Retry::exponential(3)).await?)
+    async fn run(ctx: &mut WorkflowContext<Self>, hello: Hello) -> WorkflowResult<String> {
+        Ok(ctx.call(Greet, &hello.name).retry(Retry::exponential(3)).await?)
     }
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() -> Result<std::process::ExitCode, Error> {
     let engine = Engine::builder()
         .store(Redb::open("jackdaw.redb")?) // without a store, state stays in memory
         .task(Greet)
         .workflow::<Hello>()
         .build()?;
-    engine.recover().await?; // resume whatever was running when the last process stopped
+    engine.recover().await?; // whatever was running when the last process stopped
 
-    let greeting = engine.execute(Hello::run, "World".to_string()).await?.await?;
-    println!("{greeting}");
-    Ok(())
+    // Reads the input, runs the workflow, shows its progress and prints the greeting as JSON.
+    Ok(Program::<Hello>::new(engine).main().await)
 }
+```
+
+```sh
+hello --name Ada                 # flags
+HELLO_NAME=Ada hello             # environment
+hello --config hello.toml        # a toml, json or yaml file; flags override the environment, which overrides files
+hello --run-id greeting-1        # a named run: run it again and it is resumed or its result returned, not repeated
+hello --help
 ```
 
 The [library README](jackdaw/README.md) has a longer example, and the

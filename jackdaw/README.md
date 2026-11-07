@@ -18,7 +18,8 @@ a workflow that is interrupted continues where it stopped.
 ## Install
 
 ```sh
-cargo add jackdaw-wf serde --features serde/derive
+cargo add jackdaw-wf --features cli
+cargo add serde --features derive
 cargo add tokio --features macros,rt-multi-thread
 ```
 
@@ -26,13 +27,21 @@ The package is `jackdaw-wf` on crates.io, and the library is imported as `jackda
 
 ## A workflow in a minute
 
-```rust
+A workflow's input is its configuration: one struct that says everything a run needs. `#[derive(Config)]` turns it into
+command line flags, and the same fields can be read from environment variables and files.
+
+```rust,no_run
 use jackdaw::prelude::*;
+use jackdaw::runner::Program;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+// The workflow's input describes everything a run needs. `Config` turns it into command line flags; the same
+// fields can come from `ORDER_`-prefixed environment variables or from `--config order.toml`.
+#[derive(Serialize, Deserialize, Config)]
 struct Order {
+    /// The order to ship
     id: String,
+    /// What to charge, in cents
     cents: u64,
 }
 
@@ -70,20 +79,17 @@ impl OrderWorkflow {
     }
 }
 
+/// Run it as `order --id o-1 --cents 500`; `order --help` lists the flags. The same input can come from
+/// `ORDER_ID=o-1 ORDER_CENTS=500 order` or from `order --config order.toml`.
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() -> Result<std::process::ExitCode, Error> {
     let engine = Engine::builder()
         .task(Charge)
         .task(Ship)
         .workflow::<OrderWorkflow>()
         .build()?;
-
-    let shipment = engine
-        .execute(OrderWorkflow::run, Order { id: "o-1".into(), cents: 500 })
-        .await?
-        .await?;
-    assert_eq!(shipment.tracking, "trk-ch-o-1");
-    Ok(())
+    // Reads the input, runs the workflow, shows its progress and prints the shipment as JSON.
+    Ok(Program::<OrderWorkflow>::new(engine).main().await)
 }
 ```
 
@@ -109,6 +115,9 @@ The [`examples`](https://github.com/arminhammer/jackdaw/tree/main/jackdaw/exampl
 | `docker` | | `ctx.run_container` and YAML `run: container`. |
 | `openapi` | | YAML `call: openapi`. |
 | `http-listener`, `grpc-listener` | | `api::Listener`: the engine serves an OpenAPI document's operations or a gRPC service, each request starting a workflow. Also YAML `listen` tasks on HTTP and gRPC. |
+| `config` | | `config::Layers` and `#[derive(Config)]`: a workflow's input from defaults, files (toml, json, yaml), environment variables and flags. |
+| `terminal` | | `runner::Terminal`: progress bars for a run in a terminal. |
+| `cli` | | `runner::Program` and `RunnerArgs`: a workflow as a program with flags (includes `config` and `terminal`). |
 | `metrics` | | Counters and histograms through the `metrics` facade. |
 | `full` | | All of the above. |
 

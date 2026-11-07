@@ -3,12 +3,20 @@
 //! ```text
 //! cargo run -p jackdaw-wf --example yaml_interop
 //! ```
+use jackdaw::config::Layers;
 use jackdaw::prelude::*;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+/// The workflow's input, read from `GREET_` environment variables.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Config)]
 pub struct Name {
+    /// Who to greet
+    #[serde(default = "ada")]
     pub name: String,
+}
+
+fn ada() -> String {
+    "Ada".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -34,16 +42,15 @@ do:
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
+    let input: Name = Layers::new().env("GREET_").load()?;
+    let input_name = input.name.clone();
     let engine = Engine::builder().task(Greet).build()?;
     // The YAML workflow is bound to Rust types; its input and output are checked against them.
     let workflow = Workflow::<Name, Greeting>::from_yaml(CALLS_GREET)?;
 
-    let greeting = engine
-        .execute(&workflow, Name { name: "Ada".into() })
-        .await?
-        .await?;
+    let greeting = engine.execute(&workflow, input.clone()).await?.await?;
 
     println!("{}", greeting.greeting);
-    assert_eq!(greeting.greeting, "Hello, Ada!");
+    assert_eq!(greeting.greeting, format!("Hello, {}!", input_name));
     Ok(())
 }

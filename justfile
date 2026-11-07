@@ -142,7 +142,7 @@ wasm: wasm-check wasm-test
 wasm-check:
     #!/usr/bin/env bash
     set -euo pipefail
-    for features in "" "redb" "metrics" "redb,metrics" "yaml" "yaml,redb,http-client,metrics"; do
+    for features in "" "redb" "metrics" "redb,metrics" "config" "yaml" "yaml,redb,http-client,metrics,config"; do
         echo "== wasm32-wasip2 with features [$features]"
         cargo clippy -p jackdaw-wf --no-default-features --features "$features" --target wasm32-wasip2 -- -D warnings
     done

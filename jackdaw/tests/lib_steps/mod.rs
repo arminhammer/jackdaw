@@ -13,6 +13,7 @@ pub mod cancel;
 pub mod children;
 pub mod common;
 pub mod conditionals;
+pub mod config;
 pub mod durability;
 pub mod errors;
 pub mod events;

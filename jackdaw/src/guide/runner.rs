@@ -102,6 +102,9 @@
 //! let report = runner.run(Pipeline::run, input, cli.runner.options("pipeline/today")).await?;
 //! ```
 //!
+//! A program that wants no code of its own for any of this uses `Program` instead: it reads the workflow's input
+//! from flags, the environment and files, and does the above. See [the config chapter](crate::guide::config).
+//!
 //! ## Features
 //!
 //! `Headless`, `Lines`, `Json` and `Runner` need no feature. `terminal` adds `indicatif` and `cli` adds `clap` (and

@@ -12,6 +12,7 @@
 //! | [`testing`] | testing workflows without waiting, with replay checked for free |
 //! | [`errors`] | the error types and how to match them |
 //! | [`events`] | watching a run |
+//! | [`config`] | the input of a workflow as one struct, read from flags, the environment and files |
 //! | [`runner`] | running a workflow as a program: start, resume, restart, and show progress |
 //! | [`wasm`] | using jackdaw in a program built for WebAssembly (WASI) |
 //!
@@ -22,6 +23,8 @@
 #![cfg_attr(not(feature = "full"), allow(rustdoc::broken_intra_doc_links))]
 
 pub mod catalogs;
+#[cfg(feature = "config")]
+pub mod config;
 pub mod durability;
 pub mod errors;
 pub mod events;

@@ -11,6 +11,7 @@ use proc_macro::TokenStream;
 
 mod args;
 mod catalog;
+mod config;
 mod scan;
 mod task;
 mod util;
@@ -64,6 +65,18 @@ pub fn workflow(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn workflow_methods(attr: TokenStream, item: TokenStream) -> TokenStream {
     finish(workflow::expand_methods(attr.into(), item.into()))
+}
+
+/// On a workflow's input type (with `Serialize` and `Deserialize`): the command line flags that `jackdaw::runner::Program`
+/// reads it from, one per field, named after it, with the field's doc comment as help.
+///
+/// `Option<T>` and `Vec<T>` use `T`'s parser (a list takes the flag more than once); `bool` is a switch (`--verbose`,
+/// or `--verbose=false`). Fields: `#[config(skip)]` leaves one without a flag (it still comes from files and the
+/// environment, which is how a nested struct is set), `#[config(short = 'w')]` and `#[config(long = "..")]` name the
+/// flag, and `#[serde(rename = "..")]` is followed. A flag's type must be `FromStr` and `Serialize`.
+#[proc_macro_derive(Config, attributes(config))]
+pub fn derive_config(item: TokenStream) -> TokenStream {
+    finish(config::expand(item.into()))
 }
 
 /// On a trait: declares typed catalog entries, `#[catalog(source = "file://./catalog")]`.

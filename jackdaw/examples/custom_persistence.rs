@@ -5,9 +5,11 @@
 //! cargo run -p jackdaw-wf --example custom_persistence
 //! ```
 use async_trait::async_trait;
+use jackdaw::config::Layers;
 use jackdaw::persistence::{PersistenceProvider, Result as StoreResult};
 use jackdaw::prelude::*;
 use jackdaw::workflow::{WorkflowCheckpoint, WorkflowEvent};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
@@ -56,20 +58,33 @@ async fn double(n: u64) -> Result<u64, TaskError> {
     Ok(n * 2)
 }
 
+/// The workflow's input, read from `DOUBLES_` environment variables.
+#[derive(Debug, Serialize, Deserialize, Config)]
+pub struct Number {
+    /// What to double twice
+    #[serde(default = "answer")]
+    pub value: u64,
+}
+
+fn answer() -> u64 {
+    21
+}
+
 #[workflow(namespace = "examples", name = "doubles", version = "1.0.0")]
 pub struct Doubles;
 
 #[workflow_methods]
 impl Doubles {
     #[run]
-    pub async fn run(ctx: &mut WorkflowContext<Self>, n: u64) -> WorkflowResult<u64> {
-        let once = ctx.call(Double, n).await?;
+    pub async fn run(ctx: &mut WorkflowContext<Self>, input: Number) -> WorkflowResult<u64> {
+        let once = ctx.call(Double, input.value).await?;
         ctx.call(Double, once).await
     }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
+    let input: Number = Layers::new().env("DOUBLES_").load()?;
     let store = Arc::new(MapStore::default());
     let engine = Engine::builder()
         .persistence(Arc::clone(&store) as Arc<dyn PersistenceProvider>)
@@ -77,7 +92,7 @@ async fn main() -> Result<(), Error> {
         .workflow::<Doubles>()
         .build()?;
 
-    let run = engine.execute(Doubles::run, 21).await?;
+    let run = engine.execute(Doubles::run, input).await?;
     let id = run.id().to_string();
     let answer = run.await?;
 
@@ -86,7 +101,10 @@ async fn main() -> Result<(), Error> {
         .await
         .map_err(|e| Error::Engine(e.to_string()))?;
     println!("{answer} after {} stored events", events.len());
-    assert_eq!(answer, 84);
+    assert_eq!(
+        answer, 84,
+        "21 doubled twice, unless DOUBLES_VALUE says otherwise"
+    );
     assert!(
         store
             .get_checkpoint(&id)
