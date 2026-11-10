@@ -37,8 +37,12 @@ pub async fn exec_call_task(
         .get(function_name)
         .is_none_or(|executor| executor.cacheable());
 
+    tracing::Span::current().record("task.call", function_name);
     if cacheable {
-        if let Some(cached) = ctx.services.cache.get(&cache_key).await? {
+        let cached = ctx.services.cache.get(&cache_key).await?;
+        tracing::Span::current().record("cache.hit", cached.is_some());
+        crate::api::observe::cache_lookup(task_name, cached.is_some());
+        if let Some(cached) = cached {
             output::format_cache_hit(
                 task_name,
                 &cache_key,
@@ -90,7 +94,11 @@ pub async fn exec_call_task(
             .ok_or_else(|| super::super::no_call_executor(call_type))?;
 
         let final_params = serde_json::to_value(&merged_params)?;
-        executor.exec(task_name, &final_params, ctx, None).await?
+        crate::api::observe::in_executor_span(
+            crate::api::observe::executor_span(call_type, &format!("{call_type} {function_name}")),
+            executor.exec(task_name, &final_params, ctx, None),
+        )
+        .await?
     } else if let Some(catalog_result) = engine
         .try_load_catalog_function(function_name, &evaluated_with_params, ctx)
         .await?
@@ -105,7 +113,11 @@ pub async fn exec_call_task(
             .ok_or_else(|| super::super::no_call_executor(function_name))?;
 
         let final_params = serde_json::to_value(&evaluated_with_params)?;
-        executor.exec(task_name, &final_params, ctx, None).await?
+        crate::api::observe::in_executor_span(
+            crate::api::observe::executor_span(function_name, function_name),
+            executor.exec(task_name, &final_params, ctx, None),
+        )
+        .await?
     };
 
     let mut result = function_result;

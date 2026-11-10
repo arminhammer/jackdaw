@@ -54,6 +54,7 @@ use std::future::IntoFuture;
 use std::marker::PhantomData;
 use std::panic::Location;
 use std::sync::Arc;
+use tracing::Instrument;
 
 /// Where an instance is in its life.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -214,6 +215,7 @@ pub struct EngineBuilder {
     listeners: Vec<super::listener::Listener>,
     limits: Vec<(String, usize)>,
     blocking_limit: Option<usize>,
+    trace_payloads: Option<usize>,
 }
 
 impl Default for EngineBuilder {
@@ -247,6 +249,7 @@ impl EngineBuilder {
             listeners: Vec::new(),
             limits: Vec::new(),
             blocking_limit: None,
+            trace_payloads: None,
         }
     }
 
@@ -445,6 +448,16 @@ impl EngineBuilder {
         self
     }
 
+    /// Puts step inputs and outputs on their tracing spans, as JSON cut to at most `max_bytes` (`step.input` and
+    /// `step.output`). Off by default: payloads can hold personal or secret data, and whatever subscriber is installed
+    /// (an OpenTelemetry exporter, say) receives them. Their sizes (`step.input.bytes`, `step.output.bytes`) are always
+    /// recorded.
+    #[must_use]
+    pub fn trace_payloads(mut self, max_bytes: usize) -> Self {
+        self.trace_payloads = Some(max_bytes);
+        self
+    }
+
     /// Keeps finished instances for `period` after their last change; [`Engine::sweep`] purges older ones.
     #[must_use]
     pub fn retention(mut self, period: std::time::Duration) -> Self {
@@ -579,6 +592,9 @@ impl EngineBuilder {
         );
         shared.retention = self.retention;
         shared.limits = limits;
+        shared.payloads = super::observe::Payloads {
+            max_bytes: self.trace_payloads,
+        };
         if let Some(ttl) = self.lease {
             if !shared.persistence.supports_leases() {
                 return Err(Error::invalid(
@@ -872,6 +888,22 @@ impl Engine {
     /// # Errors
     /// If the store cannot be read.
     pub async fn recover(&self) -> Result<Recovery, Error> {
+        let span = super::observe::engine_span("recover", "instances");
+        let result = self.recover_in_span().instrument(span.clone()).await;
+        match &result {
+            Ok(recovery) => {
+                span.record("engine.count", recovery.resumed.len());
+            }
+            Err(error) => super::observe::record_error(
+                &span,
+                super::observe::error_type(error),
+                &error.to_string(),
+            ),
+        }
+        result
+    }
+
+    async fn recover_in_span(&self) -> Result<Recovery, Error> {
         let mut recovery = Recovery::default();
         for summary in self.shared.summaries().await? {
             let journal = summary.journal;
@@ -894,8 +926,15 @@ impl Engine {
                         .await?
                         .unwrap_or(journal);
                     let input = journal.input.clone();
+                    // Each recovered instance is a trace of its own, linked to the recovery.
                     self.shared
-                        .launch(summary.id.clone(), entry, input, journal)
+                        .launch_in(
+                            summary.id.clone(),
+                            entry,
+                            input,
+                            journal,
+                            super::observe::Parent::Detached,
+                        )
                         .await?;
                     recovery.resumed.push(summary.id);
                 }
@@ -1443,7 +1482,8 @@ impl Engine {
             },
         );
         spec.timeout = timeout;
-        let output = core.run_step(spec).await?;
+        let span = super::observe::engine_span("run task", task.task_name());
+        let output = core.run_step(spec).instrument(span).await?;
         serde_json::from_value(output).map_err(|e| {
             Error::Faulted(super::error::Fault::validation(format!(
                 "the task's output does not match its type: {e}"
@@ -1497,7 +1537,13 @@ impl Engine {
     pub async fn replay_all(&self) -> Result<Vec<Divergence>, Error> {
         let mut divergences = Vec::new();
         for id in self.shared.indexed().await? {
-            if let Some(divergence) = replay_instance(&self.shared, &id).await? {
+            let span = super::observe::engine_span("replay", &id);
+            let replayed = replay_instance(&self.shared, &id)
+                .instrument(span.clone())
+                .await?;
+            if let Some(divergence) = replayed {
+                super::observe::record_error(&span, "non_determinism", &divergence.to_string());
+                super::observe::diverged(&divergence.workflow);
                 divergences.push(divergence);
             }
         }

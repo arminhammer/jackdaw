@@ -84,12 +84,16 @@ impl TaskOutputStreamer {
 
         let stdout_handle = {
             let streamer = self.clone();
-            crate::api::observe::spawn(async move { streamer.stream_reader(stdout, false).await })
+            crate::api::observe::spawn_in_span(async move {
+                streamer.stream_reader(stdout, false).await
+            })
         };
 
         let stderr_handle = {
             let streamer = self.clone();
-            crate::api::observe::spawn(async move { streamer.stream_reader(stderr, true).await })
+            crate::api::observe::spawn_in_span(
+                async move { streamer.stream_reader(stderr, true).await },
+            )
         };
 
         // Wait for process to complete

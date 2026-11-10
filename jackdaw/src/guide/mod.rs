@@ -12,6 +12,7 @@
 //! | [`testing`] | testing workflows without waiting, with replay checked for free |
 //! | [`errors`] | the error types and how to match them |
 //! | [`events`] | watching a run |
+//! | [`observability`] | traces in OpenTelemetry (Grafana, Jaeger) and metrics |
 //! | [`config`] | the input of a workflow as one struct, read from flags, the environment and files |
 //! | [`runner`] | running a workflow as a program: start, resume, restart, and show progress |
 //! | [`wasm`] | using jackdaw in a program built for WebAssembly (WASI) |
@@ -28,6 +29,7 @@ pub mod config;
 pub mod durability;
 pub mod errors;
 pub mod events;
+pub mod observability;
 pub mod runner;
 pub mod tasks;
 pub mod testing;

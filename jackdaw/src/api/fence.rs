@@ -69,6 +69,10 @@ impl LeaseFence {
 
 #[async_trait]
 impl PersistenceProvider for LeaseFence {
+    fn backend_name(&self) -> &'static str {
+        self.inner.backend_name()
+    }
+
     async fn save_event(&self, event: WorkflowEvent) -> Result<()> {
         self.check(event.instance_id()).await?;
         self.inner.save_event(event).await
@@ -185,6 +189,10 @@ impl CodecStore {
 
 #[async_trait]
 impl PersistenceProvider for CodecStore {
+    fn backend_name(&self) -> &'static str {
+        self.inner.backend_name()
+    }
+
     async fn save_event(&self, event: WorkflowEvent) -> Result<()> {
         let event = super::runtime::map_payloads(event, |value| {
             super::codec::encode(Some(self.codec.as_ref()), &value)

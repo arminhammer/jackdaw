@@ -175,13 +175,13 @@ except Exception as e:
         // Execute synchronously by spawning a blocking thread with its own runtime
         // This works even when called from within an async context
         let python_path = self.python_path.clone();
-        std::thread::spawn(move || {
+        std::thread::spawn(crate::api::observe::carry(move || {
             let rt = tokio::runtime::Runtime::new().map_err(|e| Error::Execution {
                 message: format!("Failed to create tokio runtime: {e}"),
             })?;
             let executor = PythonExtExecutor { python_path };
             rt.block_on(async { executor.exec_script(&script, None, None, None, None).await })
-        })
+        }))
         .join()
         .map_err(|_| Error::Execution {
             message: "Thread panicked while executing Python function".to_string(),
@@ -239,7 +239,7 @@ except Exception as e:
         if let Some(stdin_data) = stdin {
             if let Some(mut stdin_pipe) = child.stdin.take() {
                 let stdin_data = stdin_data.to_string();
-                crate::api::observe::spawn(async move {
+                crate::api::observe::spawn_in_span(async move {
                     let _ = stdin_pipe.write_all(stdin_data.as_bytes()).await;
                     let _ = stdin_pipe.flush().await;
                 });
@@ -263,7 +263,7 @@ except Exception as e:
         let stdout_task = {
             let streamer = streamer.clone();
             let mut lines = stdout_reader.lines();
-            crate::api::observe::spawn(async move {
+            crate::api::observe::spawn_in_span(async move {
                 let mut collected = Vec::new();
                 while let Ok(Some(line)) = lines.next_line().await {
                     if let Some(ref s) = streamer {
@@ -279,7 +279,7 @@ except Exception as e:
         let stderr_task = {
             let streamer = streamer.clone();
             let mut lines = stderr_reader.lines();
-            crate::api::observe::spawn(async move {
+            crate::api::observe::spawn_in_span(async move {
                 let mut collected = Vec::new();
                 while let Ok(Some(line)) = lines.next_line().await {
                     if let Some(ref s) = streamer {

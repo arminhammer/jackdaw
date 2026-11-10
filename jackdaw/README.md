@@ -118,7 +118,8 @@ The [`examples`](https://github.com/arminhammer/jackdaw/tree/main/jackdaw/exampl
 | `config` | | `config::Layers` and `#[derive(Config)]`: a workflow's input from defaults, files (toml, json, yaml), environment variables and flags. |
 | `terminal` | | `runner::Terminal`: progress bars for a run in a terminal. |
 | `cli` | | `runner::Program` and `RunnerArgs`: a workflow as a program with flags (includes `config` and `terminal`). |
-| `metrics` | | Counters and histograms through the `metrics` facade. |
+| `metrics` | | Counters and histograms through the `metrics` facade (see the observability guide). |
+| `otel` | | OpenTelemetry trace context: a listener request with a W3C `traceparent` continues the caller's trace, and HTTP calls carry it on. |
 | `full` | | All of the above. |
 
 Without `yaml`, the native Rust API (tasks, workflows, the engine, the in-memory store, `testing`) still works:

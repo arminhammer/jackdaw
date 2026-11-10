@@ -286,7 +286,7 @@ impl DurableEngine {
         executors.insert("javascript".into(), Box::new(TypeScriptExecutor::new()));
         Ok(Self {
             executors: Arc::new(executors),
-            persistence,
+            persistence: crate::api::observe::traced_store(persistence, true),
             cache,
             #[cfg(feature = "grpc-listener")]
             grpc_listeners: Arc::new(RwLock::new(HashMap::new())),
@@ -599,8 +599,8 @@ impl DurableEngine {
 
         let instance_id_clone = instance_id.clone();
 
-        // Spawn workflow execution in background (with the caller's subscriber, for the trace)
-        let run = crate::api::observe::spawn(async move {
+        // Spawn workflow execution in background (in the caller's span, for the trace)
+        let run = crate::api::observe::spawn_in_span(async move {
             let opening = if resuming {
                 WorkflowEvent::WorkflowResumed {
                     instance_id: instance_id_clone.clone(),
@@ -707,12 +707,64 @@ impl DurableEngine {
         Ok(ExecutionHandle::new(instance_id, event_rx, cancel_tx).owning(run.abort_handle()))
     }
 
+    /// Runs an instance in its workflow span.
     pub(crate) async fn run_instance(
         &self,
         workflow: WorkflowDefinition,
         instance_id: Option<String>,
         initial_data: serde_json::Value,
     ) -> Result<serde_json::Value> {
+        use tracing::Instrument;
+        let instance_id = instance_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let id = crate::api::WorkflowId {
+            namespace: workflow.document.namespace.clone(),
+            name: workflow.document.name.clone(),
+            version: workflow.document.version.clone(),
+        };
+        // Resuming when the instance already has a history.
+        let resuming = self
+            .persistence
+            .get_checkpoint(&instance_id)
+            .await
+            .ok()
+            .flatten()
+            .is_some();
+        let span = crate::api::observe::workflow_span(&crate::api::observe::WorkflowSpan {
+            workflow: &id,
+            instance: &instance_id,
+            replay: resuming,
+            parent_instance: None,
+            engine: crate::api::observe::EngineKind::Yaml,
+            parent: crate::api::observe::Parent::Current,
+        });
+        if resuming {
+            crate::api::observe::workflow_resumed(&id);
+        } else {
+            crate::api::observe::workflow_started(&id);
+        }
+        let _running = crate::api::observe::workflow_running(&id);
+        let started = std::time::Instant::now();
+        let result = self
+            .run_instance_timed(workflow, instance_id, initial_data)
+            .instrument(span.clone())
+            .await;
+        let outcome = result
+            .as_ref()
+            .map(Clone::clone)
+            .map_err(|error| crate::api::Error::Engine(error.to_string()));
+        crate::api::observe::workflow_ended(&id, &outcome, started.elapsed());
+        span.record("workflow.run", 1u32);
+        crate::api::observe::workflow_outcome(&span, &outcome);
+        result
+    }
+
+    async fn run_instance_timed(
+        &self,
+        workflow: WorkflowDefinition,
+        instance_id: String,
+        initial_data: serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        let instance_id = Some(instance_id);
         // Check if workflow has a timeout
         let workflow_timeout = workflow
             .timeout
@@ -765,10 +817,21 @@ impl DurableEngine {
                     message: format!("Task not found: {current_task_name}"),
                 })?;
 
+        // The tasks skipped because they completed before a restart, summed up in one span (see the native engine's).
+        let mut replay: Option<crate::api::observe::Replay> = None;
         loop {
             let (task_name, task) = &graph[current];
 
             if let Some(_replayed_result) = ctx.services.history.is_task_completed(task_name) {
+                replay
+                    .get_or_insert_with(|| {
+                        crate::api::observe::Replay::new(&ctx.metadata.instance_id)
+                    })
+                    .step(
+                        crate::task_ext::TaskDefinitionExt::type_name(task),
+                        task_name,
+                        "ok",
+                    );
                 output::format_task_skipped(task_name);
                 if let Some(next) = graph.neighbors(current).next() {
                     current = next;
@@ -777,6 +840,8 @@ impl DurableEngine {
                 break;
             }
 
+            // Caught up with the history.
+            replay = None;
             ctx.services
                 .persistence
                 .save_event(WorkflowEvent::TaskEntered {
@@ -789,7 +854,8 @@ impl DurableEngine {
             // Save the original context before exec_task (which may apply input.from filtering)
             let original_context = ctx.state.data.read().await.clone();
 
-            let result = match self.exec_task(task_name, task, &ctx).await {
+            let at = format!("do/{}", current.index());
+            let result = match self.exec_task(&at, task_name, task, &ctx).await {
                 Ok(r) => r,
                 Err(e) => {
                     // Task execution failed - emit task.faulted.v1 event

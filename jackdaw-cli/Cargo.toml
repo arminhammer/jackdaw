@@ -32,6 +32,17 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 tracing = "0.1"
 uuid = { version = "1", features = ["v4"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# telemetry
+opentelemetry = { version = "0.33", default-features = false, features = ["trace"], optional = true }
+opentelemetry_sdk = { version = "0.33", default-features = false, features = ["trace"], optional = true }
+opentelemetry-otlp = { version = "0.33", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace"], optional = true }
+tracing-opentelemetry = { version = "0.34", default-features = false, optional = true }
+metrics-exporter-prometheus = { version = "0.18", default-features = false, features = ["http-listener"], optional = true }
+
+[features]
+default = ["telemetry"]
+# `jackdaw run --otlp-endpoint` (traces to an OpenTelemetry collector) and `--metrics-addr` (Prometheus metrics).
+telemetry = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:tracing-opentelemetry", "dep:metrics-exporter-prometheus"]
 
 [dev-dependencies]
 cucumber = "0.23"

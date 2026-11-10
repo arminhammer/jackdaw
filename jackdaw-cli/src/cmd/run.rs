@@ -167,6 +167,9 @@ pub struct RunArgs {
 
     #[command(flatten)]
     pub runner: RunnerArgs,
+
+    #[command(flatten)]
+    pub telemetry: crate::telemetry::TelemetryArgs,
 }
 
 impl RunArgs {

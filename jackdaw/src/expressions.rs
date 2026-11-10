@@ -256,6 +256,13 @@ pub fn evaluate_jq_expression_with_context(
 ///
 /// Returns an error if jq compilation/execution encounters an error.
 pub fn evaluate_jq(jq_expr: &str, context: &Value) -> Result<Value> {
+    let started = std::time::Instant::now();
+    let result = compile_and_run_jq(jq_expr, context);
+    crate::api::observe::expression_evaluated(result.is_ok(), started.elapsed());
+    result
+}
+
+fn compile_and_run_jq(jq_expr: &str, context: &Value) -> Result<Value> {
     use jaq_core::{
         compile::Compiler,
         load::{Arena, File, Loader},

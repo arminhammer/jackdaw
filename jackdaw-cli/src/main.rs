@@ -6,6 +6,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 mod cmd;
 mod config;
+mod telemetry;
 mod trace;
 mod visualization;
 
@@ -22,6 +23,9 @@ pub enum Error {
 
     #[snafu(display("Visualization error: {source}"))]
     Visualize { source: cmd::visualize::Error },
+
+    #[snafu(display("Telemetry error: {source}"))]
+    Telemetry { source: telemetry::Error },
 }
 
 #[derive(Parser, Debug)]
@@ -53,8 +57,14 @@ enum Commands {
 }
 
 /// Sets up the terminal output: progress bars, the library's YAML trace ([`trace`]; its task-by-task part only with
-/// `debug`) and log lines on stderr (warnings, or everything at `verbose`; `RUST_LOG` overrides).
-fn init_tracing(verbose: bool, debug: bool, display: &MultiProgress) {
+/// `debug`) and log lines on stderr (warnings, or everything at `verbose`; `RUST_LOG` overrides). With a `tracer`, spans
+/// also go to OpenTelemetry (`info` and up, or what `JACKDAW_OTLP_FILTER` says).
+fn init_tracing(
+    verbose: bool,
+    debug: bool,
+    display: &MultiProgress,
+    #[cfg(feature = "telemetry")] tracer: Option<opentelemetry_sdk::trace::Tracer>,
+) {
     use tracing_subscriber::Layer as _;
     use tracing_subscriber::filter::{LevelFilter, Targets};
 
@@ -78,10 +88,22 @@ fn init_tracing(verbose: bool, debug: bool, display: &MultiProgress) {
         .with_writer(std::io::stderr)
         .with_filter(log_filter);
 
-    tracing_subscriber::registry()
+    let registry = tracing_subscriber::registry()
         .with(trace_layer)
-        .with(log_layer)
-        .init();
+        .with(log_layer);
+    #[cfg(feature = "telemetry")]
+    {
+        let otel = tracer.map(|tracer| {
+            let filter = tracing_subscriber::EnvFilter::try_from_env("JACKDAW_OTLP_FILTER")
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+            tracing_opentelemetry::layer()
+                .with_tracer(tracer)
+                .with_filter(filter)
+        });
+        registry.with(otel).init();
+    }
+    #[cfg(not(feature = "telemetry"))]
+    registry.init();
 }
 
 #[tokio::main]
@@ -96,17 +118,50 @@ async fn main() -> Result<(), Error> {
 
     match cli.command {
         Commands::Run(args) => {
-            init_tracing(args.verbose || global_config.verbose, args.debug, &display);
-            handle_run(args, global_config, display)
+            #[cfg_attr(not(feature = "telemetry"), allow(unused_mut))]
+            let mut telemetry = telemetry::Telemetry::default();
+            #[cfg(feature = "telemetry")]
+            let tracer = telemetry.traces(&args.telemetry).context(TelemetrySnafu)?;
+            #[cfg(not(feature = "telemetry"))]
+            if args.telemetry.otlp_endpoint.is_some() {
+                return Err(Error::Telemetry {
+                    source: telemetry::Error::Otlp {
+                        message: "this jackdaw was built without the `telemetry` feature".into(),
+                    },
+                });
+            }
+            init_tracing(
+                args.verbose || global_config.verbose,
+                args.debug,
+                &display,
+                #[cfg(feature = "telemetry")]
+                tracer,
+            );
+            telemetry::Telemetry::metrics(&args.telemetry).context(TelemetrySnafu)?;
+            let result = handle_run(args, global_config, display)
                 .await
-                .context(RunSnafu)
+                .context(RunSnafu);
+            telemetry.shutdown().await;
+            result
         }
         Commands::Validate(args) => {
-            init_tracing(args.verbose, false, &display);
+            init_tracing(
+                args.verbose,
+                false,
+                &display,
+                #[cfg(feature = "telemetry")]
+                None,
+            );
             handle_validate(args).await.context(ValidateSnafu)
         }
         Commands::Visualize(args) => {
-            init_tracing(args.verbose, false, &display);
+            init_tracing(
+                args.verbose,
+                false,
+                &display,
+                #[cfg(feature = "telemetry")]
+                None,
+            );
             handle_visualize(args).await.context(VisualizeSnafu)
         }
     }

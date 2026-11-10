@@ -781,6 +781,10 @@ pub(crate) struct Shared {
     pub leasing: Option<Leasing>,
     /// How many calls of some tasks may run at once (see `EngineBuilder::limit`).
     pub limits: Arc<super::limits::Limits>,
+    /// Whether step payloads go on spans (see `EngineBuilder::trace_payloads`).
+    pub payloads: super::observe::Payloads,
+    /// Identifies the store `persistence` wraps (see `register_on_store`).
+    store_address: usize,
 }
 
 /// Engines on a store without leases must be alone on it. Within a process that is checked: each engine records
@@ -788,7 +792,7 @@ pub(crate) struct Shared {
 static ENGINES_BY_STORE: Mutex<Vec<(usize, Weak<Shared>)>> = Mutex::new(Vec::new());
 
 fn store_address(shared: &Shared) -> usize {
-    Arc::as_ptr(&shared.persistence).cast::<()>() as usize
+    shared.store_address
 }
 
 /// Records which store `shared` uses, failing if that store is in use by an engine it may not share it with: two
@@ -843,6 +847,7 @@ pub(crate) async fn tend_leases(shared: Weak<Shared>) {
         // Waking this late means the runtime's threads were busy elsewhere, and the leases went unrenewed meanwhile:
         // long enough, and another engine takes the instances over.
         let overslept = asleep.elapsed().saturating_sub(poll);
+        super::observe::lease_tended(overslept);
         if overslept > ttl / 4 {
             tracing::warn!(
                 engine = %owner,
@@ -914,12 +919,14 @@ struct ActiveTask(Arc<ActiveTasks>);
 impl ActiveTask {
     fn start(tasks: Arc<ActiveTasks>) -> Self {
         tasks.count.fetch_add(1, Ordering::SeqCst);
+        super::observe::tasks_active(1.0);
         Self(tasks)
     }
 }
 
 impl Drop for ActiveTask {
     fn drop(&mut self) {
+        super::observe::tasks_active(-1.0);
         self.0.count.fetch_sub(1, Ordering::SeqCst);
         self.0.changed.notify_waiters();
     }
@@ -961,8 +968,10 @@ impl Shared {
         clock: SharedClock,
         codec: Option<Arc<dyn super::codec::PayloadCodec>>,
     ) -> Self {
+        let store_address = Arc::as_ptr(&persistence).cast::<()>() as usize;
         Self {
-            persistence,
+            persistence: super::observe::traced_store(persistence, false),
+            store_address,
             cache,
             registry,
             yaml,
@@ -982,6 +991,7 @@ impl Shared {
             crash_after: Mutex::new(None),
             leasing: None,
             limits: Arc::default(),
+            payloads: super::observe::Payloads::default(),
         }
     }
 
@@ -1066,20 +1076,42 @@ impl Shared {
 
     /// Renews the leases of this engine's running instances; an instance whose lease another engine took is stopped.
     pub(crate) async fn renew_leases(&self) {
-        let cores: Vec<Arc<InstanceCore>> = lock(&self.instances).values().cloned().collect();
-        for core in cores {
-            let leased = !core.ephemeral || core.leased.load(Ordering::SeqCst);
-            if !leased || core.remote.get().is_some() || core.has_ended() {
-                continue;
-            }
-            match self.take_lease(&core.id).await {
-                Ok(None) => {}
-                Ok(Some((holder, _))) => core.lose_lease(&holder),
-                Err(error) => {
-                    tracing::warn!(instance.id = %core.id, %error, "a lease could not be renewed")
+        let owner = self
+            .leasing
+            .as_ref()
+            .map(|leasing| leasing.owner.as_str())
+            .unwrap_or_default();
+        let span = super::observe::lease_span("renew", owner);
+        async {
+            let cores: Vec<Arc<InstanceCore>> =
+                lock(&self.instances).values().cloned().collect();
+            let mut held = 0usize;
+            for core in cores {
+                let leased = !core.ephemeral || core.leased.load(Ordering::SeqCst);
+                if !leased || core.remote.get().is_some() || core.has_ended() {
+                    continue;
                 }
+                let result = match self.take_lease(&core.id).await {
+                    Ok(None) => {
+                        held += 1;
+                        "renewed"
+                    }
+                    Ok(Some((holder, _))) => {
+                        core.lose_lease(&holder);
+                        "lost"
+                    }
+                    Err(error) => {
+                        tracing::warn!(instance.id = %core.id, %error, "a lease could not be renewed");
+                        "error"
+                    }
+                };
+                super::observe::lease_renewed(result);
             }
+            tracing::Span::current().record("lease.instances", held);
+            super::observe::leases_held(held);
         }
+        .instrument(span)
+        .await;
     }
 
     /// Test hook: abandons every instance once `steps` more live steps are recorded.
@@ -1251,11 +1283,45 @@ impl Shared {
         id: String,
         entry: &WorkflowEntry,
         input: Value,
-        mut journal: Journal,
+        journal: Journal,
+    ) -> Result<Launched, Error> {
+        self.launch_in(id, entry, input, journal, super::observe::Parent::Current)
+            .await
+    }
+
+    /// [`launch`](Self::launch), with the instance's span placed in the trace as `parent` says.
+    pub(crate) async fn launch_in(
+        self: &Arc<Self>,
+        id: String,
+        entry: &WorkflowEntry,
+        input: Value,
+        journal: Journal,
+        parent: super::observe::Parent,
     ) -> Result<Launched, Error> {
         if let Some(core) = self.instance(&id) {
             return Ok(Launched { core });
         }
+        let span = super::observe::workflow_span(&super::observe::WorkflowSpan {
+            workflow: &entry.id,
+            instance: &id,
+            replay: !journal.fresh,
+            parent_instance: journal.parent.as_deref(),
+            engine: super::observe::EngineKind::Native,
+            parent,
+        });
+        self.launch_spanned(id, entry, input, journal, span.clone())
+            .instrument(span)
+            .await
+    }
+
+    async fn launch_spanned(
+        self: &Arc<Self>,
+        id: String,
+        entry: &WorkflowEntry,
+        input: Value,
+        mut journal: Journal,
+        span: tracing::Span,
+    ) -> Result<Launched, Error> {
         let now = self.clock.now();
         if let Some((holder, _)) = self.take_lease(&id).await? {
             return Err(Error::invalid(format!(
@@ -1292,10 +1358,13 @@ impl Shared {
             self.add_to_index(&core.id).await?;
         }
 
-        let span = super::observe::workflow_span(&entry.id, &core.id, !fresh);
         if fresh {
             super::observe::workflow_started(&entry.id);
+        } else {
+            super::observe::workflow_resumed(&entry.id);
         }
+        let running = super::observe::workflow_running(&entry.id);
+        let launched_at = std::time::Instant::now();
         let run = entry.runner.spawn(Arc::clone(&core), input);
         let runner = Arc::clone(&entry.runner);
         let weak = Arc::downgrade(self);
@@ -1303,16 +1372,25 @@ impl Shared {
         let workflow = entry.id.clone();
         let handle = super::observe::spawn(
             async move {
+                let _running = running;
                 let publish = PublishOnDrop(Arc::clone(&for_task));
                 let mut result = run.await;
                 let self_replay = weak.upgrade().is_some_and(|shared| shared.self_replay);
                 if let Ok(value) = &result
                     && self_replay
-                    && let Err(error) = verify_replay(&for_task, runner, value.clone()).await
+                    && let Err(error) = verify_replay(&for_task, runner, value.clone())
+                        .instrument(super::observe::engine_span("verify replay", &for_task.id))
+                        .await
                 {
+                    if let Error::NonDeterminism(divergence) = &error {
+                        super::observe::diverged(&divergence.workflow);
+                    }
                     result = Err(error);
                 }
-                super::observe::workflow_ended(&workflow, &result);
+                super::observe::workflow_ended(&workflow, &result, launched_at.elapsed());
+                let span = tracing::Span::current();
+                span.record("workflow.run", lock(&for_task.journal).run.max(1));
+                super::observe::workflow_outcome(&span, &result);
                 publish.0.publish(result);
                 if let Some(shared) = weak.upgrade()
                     && publish.0.ended_durably.load(Ordering::SeqCst)
@@ -1455,7 +1533,9 @@ impl Shared {
                 history: done,
                 seen: 0,
             };
-            tasks.publish(&for_task.log).await;
+            // The run's opening event comes first, then its tasks' (which it writes after sending the opening one):
+            // the channel is read before the store, and the store only once the opening event is in.
+            let mut opened = false;
             let mut tick = tokio::time::interval(TASK_EVENT_POLL);
             let mut result = Err(Error::Engine(
                 "the workflow ended without producing a result".to_string(),
@@ -1464,11 +1544,12 @@ impl Shared {
             let mut ended = false;
             loop {
                 let stored = tokio::select! {
+                    biased;
                     stored = legacy.next_event() => match stored {
                         Some(stored) => stored,
                         None => break,
                     },
-                    _ = tick.tick() => {
+                    _ = tick.tick(), if opened => {
                         tasks.publish(&for_task.log).await;
                         continue;
                     }
@@ -1492,6 +1573,11 @@ impl Shared {
                     tasks.publish(&for_task.log).await;
                 }
                 for_task.log.push(event);
+                if !opened {
+                    opened = true;
+                    // What the store already has: the steps done before a resume, and any since.
+                    tasks.publish(&for_task.log).await;
+                }
                 if terminal {
                     ended = true;
                     break;
@@ -1797,6 +1883,8 @@ pub(crate) struct InstanceCore {
     /// Set on the mirror of a YAML run (which is otherwise `ephemeral`): it holds the instance's lease, renewed like a
     /// native instance's.
     pub leased: std::sync::atomic::AtomicBool,
+    /// The span of the steps this incarnation replayed from the journal so far, and how many (see `replayed`).
+    replay_span: Mutex<Option<super::observe::Replay>>,
 }
 
 /// A step, ready to run.
@@ -1887,6 +1975,7 @@ impl InstanceCore {
             abort: OnceLock::new(),
             remote: OnceLock::new(),
             leased: std::sync::atomic::AtomicBool::new(false),
+            replay_span: Mutex::new(None),
         })
     }
 
@@ -2105,7 +2194,7 @@ impl InstanceCore {
                 (dispatch.signal)(&signal.name, signal.argument.clone())
             };
             if let Err(error) = applied {
-                tracing::warn!(%error, signal = %signal.name, "a recorded signal could not be re-applied");
+                tracing::warn!(%error, instance.id = %self.id, signal = %signal.name, "a recorded signal could not be re-applied");
             }
         }
         self.state_changed.notify_waiters();
@@ -2163,6 +2252,7 @@ impl InstanceCore {
             persistence.save_event(stored).await?;
         }
         if self.replay_only.is_none() {
+            super::observe::event_logged(&event);
             self.log.push(event);
         }
         Ok(())
@@ -2177,7 +2267,17 @@ impl InstanceCore {
             let shared = self.shared()?;
             (Arc::clone(&shared.persistence), shared.codec.clone())
         };
-        let codec = codec.as_deref();
+        let span = super::observe::persist_span(&self.id);
+        self.persist_journal(persistence, codec.as_deref())
+            .instrument(span)
+            .await
+    }
+
+    async fn persist_journal(
+        &self,
+        persistence: Arc<dyn PersistenceProvider>,
+        codec: Option<&dyn super::codec::PayloadCodec>,
+    ) -> Result<(), Error> {
         let _guard = self.persist_lock.lock().await;
         self.ensure_lease().await?;
         let (snapshot, records) = {
@@ -2195,6 +2295,7 @@ impl InstanceCore {
             journal.logged = true;
             (journal.header(), records)
         };
+        tracing::Span::current().record("journal.records", records.len());
         if !records.is_empty() {
             persistence.append_journal(&self.id, records).await?;
         }
@@ -2245,6 +2346,7 @@ impl InstanceCore {
             return;
         }
         tracing::warn!(instance.id = %self.id, holder, "the instance's lease was taken by another engine; stopping it");
+        super::observe::lease_lost(&self.workflow);
         self.publish(Err(self.lost_error()));
         self.log.close();
         if let Ok(shared) = self.shared() {
@@ -2321,7 +2423,18 @@ impl InstanceCore {
     }
 
     pub(crate) async fn deliver_signal(&self, name: &str, argument: Value) -> Result<(), Error> {
+        let span = super::observe::message_span("signal", name, &self.id);
+        let result = self
+            .deliver_signal_inner(name, argument)
+            .instrument(span.clone())
+            .await;
+        super::observe::message_delivered(&span, "signal", &result);
+        result
+    }
+
+    async fn deliver_signal_inner(&self, name: &str, argument: Value) -> Result<(), Error> {
         if self.remote.get().is_some() {
+            tracing::Span::current().record("message.remote", true);
             // Another engine runs the instance: leave the signal in the store for it.
             if self.has_ended() {
                 return Err(self.not_running());
@@ -2363,6 +2476,21 @@ impl InstanceCore {
     /// Runs an `#[update]` handler and records it if it accepts. With an `id`, an update that was already accepted
     /// returns its recorded result instead of running again.
     pub(crate) async fn deliver_update(
+        &self,
+        name: &str,
+        argument: Value,
+        id: Option<String>,
+    ) -> Result<Value, Error> {
+        let span = super::observe::message_span("update", name, &self.id);
+        let result = self
+            .deliver_update_inner(name, argument, id)
+            .instrument(span.clone())
+            .await;
+        super::observe::message_delivered(&span, "update", &result);
+        result
+    }
+
+    async fn deliver_update_inner(
         &self,
         name: &str,
         argument: Value,
@@ -2410,6 +2538,13 @@ impl InstanceCore {
     }
 
     pub(crate) async fn query(&self, name: &str) -> Result<Value, Error> {
+        let span = super::observe::message_span("query", name, &self.id);
+        let result = self.query_inner(name).instrument(span.clone()).await;
+        super::observe::message_delivered(&span, "query", &result);
+        result
+    }
+
+    async fn query_inner(&self, name: &str) -> Result<Value, Error> {
         let dispatch = self.dispatch().await?;
         self.caught_up().await;
         (dispatch.query)(name)
@@ -2428,6 +2563,16 @@ impl InstanceCore {
 
     /// Stores an event for a `wait_for_event`. It is persisted before this returns, so it survives a crash.
     pub(crate) async fn deliver_event(&self, name: &str, payload: Value) -> Result<(), Error> {
+        let span = super::observe::message_span("event", name, &self.id);
+        let result = self
+            .deliver_event_inner(name, payload)
+            .instrument(span.clone())
+            .await;
+        super::observe::message_delivered(&span, "event", &result);
+        result
+    }
+
+    async fn deliver_event_inner(&self, name: &str, payload: Value) -> Result<(), Error> {
         if self.status() != JournalStatus::Running || self.has_ended() {
             return Err(self.not_running());
         }
@@ -2488,6 +2633,7 @@ impl InstanceCore {
             drop(shared);
             persistence.prune_journal(&self.id, marker).await?;
         }
+        super::observe::continued_as_new(&self.workflow);
         self.emit(Event::ContinuedAsNew {
             instance_id: self.id.clone(),
             run,
@@ -2554,7 +2700,10 @@ impl InstanceCore {
         let hash = hash_of(&spec.input);
         if let Some(record) = self.lookup(&spec, &hash)? {
             self.apply_signals_before(record.order);
-            self.emit_step_events(&spec, &record.outcome, true).await?;
+            let replay = self.replayed(&spec, &record.outcome);
+            self.emit_step_events(&spec, &record.outcome, true)
+                .instrument(replay)
+                .await?;
             return record.outcome.into_result();
         }
         if let Some(replay_only) = &self.replay_only {
@@ -2566,9 +2715,90 @@ impl InstanceCore {
             };
         }
         // The history ends here: whatever arrived after its last record has happened by now.
+        self.end_replay();
         self.apply_all_pending();
 
-        if let Some(task_name) = Self::event_task_name(&spec) {
+        let key = self.step_key(&spec);
+        let span = super::observe::step_span(&super::observe::StepSpan {
+            kind: spec.kind,
+            name: &spec.name,
+            seq: spec.seq,
+            ordinal: spec.ordinal,
+            key: &key,
+            location: spec.location,
+            run: lock(&self.journal).run,
+            sleep: match &spec.exec {
+                StepExec::Sleep(duration) => Some(*duration),
+                StepExec::Task { .. }
+                | StepExec::Child(_)
+                | StepExec::Start(_)
+                | StepExec::Event
+                | StepExec::Emit => None,
+            },
+            timeout: spec.timeout,
+            shielded: spec.shielded,
+        });
+        self.payloads().record(&span, "step.input", &spec.input);
+        let result = self
+            .run_live_step(&spec, &key, hash)
+            .instrument(span.clone())
+            .await;
+        match &result {
+            Err(StepError::Cancelled) => {
+                super::observe::step_outcome(
+                    &span,
+                    &super::observe::StepEnd::Cancelled,
+                    self.payloads(),
+                );
+            }
+            Err(StepError::Engine(error)) => super::observe::step_outcome(
+                &span,
+                &super::observe::StepEnd::Error(error),
+                self.payloads(),
+            ),
+            // Recorded where the outcome was known.
+            Ok(_)
+            | Err(StepError::Fault(_) | StepError::Timeout { .. } | StepError::ContinuedAsNew(_)) =>
+                {}
+        }
+        result
+    }
+
+    /// The trace's view of the instance's payloads (see `EngineBuilder::trace_payloads`).
+    fn payloads(&self) -> super::observe::Payloads {
+        self.shared()
+            .map(|shared| shared.payloads)
+            .unwrap_or_default()
+    }
+
+    /// Notes a step replayed from the journal in the instance's replay span (opening it at the first one), and
+    /// returns that span.
+    fn replayed(&self, spec: &StepSpec, outcome: &Outcome) -> tracing::Span {
+        let mut replay = lock(&self.replay_span);
+        let replay = replay.get_or_insert_with(|| super::observe::Replay::new(&self.id));
+        let outcome = match outcome {
+            Outcome::Ok(_) => "ok",
+            Outcome::Fault(_) => "fault",
+            Outcome::Timeout(_) => "timeout",
+        };
+        replay.step(spec.kind, &spec.name, outcome);
+        super::observe::step_replayed_metric(&self.workflow);
+        replay.span.clone()
+    }
+
+    /// Closes the replay span: the instance has caught up with its journal.
+    pub(crate) fn end_replay(&self) {
+        lock(&self.replay_span).take();
+    }
+
+    /// Runs a step that has no record, inside its step span, and records it.
+    async fn run_live_step(
+        self: &Arc<Self>,
+        spec: &StepSpec,
+        key: &str,
+        hash: String,
+    ) -> Result<Value, StepError> {
+        if let Some(task_name) = Self::event_task_name(spec) {
             self.emit(Event::TaskStarted {
                 instance_id: self.id.clone(),
                 task_name,
@@ -2577,7 +2807,6 @@ impl InstanceCore {
             })
             .await?;
         }
-        let key = self.step_key(&spec);
         if !spec.shielded && self.cancel_requested() {
             return Err(StepError::Cancelled);
         }
@@ -2589,9 +2818,7 @@ impl InstanceCore {
             _ => None,
         };
         let started = std::time::Instant::now();
-        let live = self
-            .run_live(&spec, &key)
-            .instrument(super::observe::step_span(&spec.name, spec.kind));
+        let live = self.run_live(spec, key);
         let outcome = if spec.shielded {
             live.await?
         } else {
@@ -2607,8 +2834,14 @@ impl InstanceCore {
                 }
             }
         };
-        super::observe::step_finished(&spec.name, spec.kind, started.elapsed());
-        self.record(&spec, &key, hash, &outcome);
+        let end = match &outcome {
+            Outcome::Ok(value) => super::observe::StepEnd::Ok(value),
+            Outcome::Fault(fault) => super::observe::StepEnd::Fault(fault),
+            Outcome::Timeout(detail) => super::observe::StepEnd::Timeout(detail),
+        };
+        super::observe::step_finished(&spec.name, spec.kind, end.as_str(), started.elapsed());
+        super::observe::step_outcome(&tracing::Span::current(), &end, self.payloads());
+        self.record(spec, key, hash, &outcome);
         self.persist().await?;
         if let Ok(shared) = self.shared()
             && shared.step_recorded()
@@ -2618,7 +2851,7 @@ impl InstanceCore {
             drop(shared);
             return std::future::pending().await;
         }
-        self.emit_step_events(&spec, &outcome, false).await?;
+        self.emit_step_events(spec, &outcome, false).await?;
         outcome.into_result()
     }
 
@@ -2779,6 +3012,10 @@ impl InstanceCore {
                     let shared = self.shared()?;
                     match target {
                         RunTarget::Native(info) => {
+                            tracing::Span::current().record(
+                                "child.instance.id",
+                                format!("{}/{}", self.id, spec.seq).as_str(),
+                            );
                             shared
                                 .start_native_child(
                                     &self.id,
@@ -2822,8 +3059,15 @@ impl InstanceCore {
                             Some(journal) => journal,
                             None => Journal::new(info.id.clone(), spec.input.clone()),
                         };
+                        tracing::Span::current().record("child.instance.id", id.as_str());
                         shared
-                            .launch(id.clone(), entry, spec.input.clone(), journal)
+                            .launch_in(
+                                id.clone(),
+                                entry,
+                                spec.input.clone(),
+                                journal,
+                                super::observe::Parent::Detached,
+                            )
                             .await?;
                         Ok(Outcome::Ok(Value::String(id)))
                     }
@@ -2862,6 +3106,7 @@ impl InstanceCore {
                 {
                     shared.yaml.legacy.publish(json).await;
                 }
+                super::observe::event_emitted(&event.event_type);
                 self.emit(Event::Emitted {
                     instance_id: self.id.clone(),
                     event,
@@ -2915,32 +3160,55 @@ impl InstanceCore {
         };
         let cache_key = compute_cache_key(name, &spec.input);
         let cached = options.cache.unwrap_or(task.cached);
-        if cached && let Some(hit) = cache.get(&cache_key).await? {
-            return Ok(Outcome::Ok(hit.output));
+        if cached {
+            let hit = cache.get(&cache_key).await?;
+            tracing::Span::current().record("cache.hit", hit.is_some());
+            super::observe::cache_lookup(name, hit.is_some());
+            if let Some(hit) = hit {
+                return Ok(Outcome::Ok(hit.output));
+            }
         }
         let attempts = options.retry.as_ref().map_or(1, Retry::attempts);
         let heartbeat = super::task::Heartbeat::new();
+        let idempotency_key = format!("{}/{}", self.id, spec.seq);
         let mut attempt = 1;
-        loop {
-            tracing::Span::current().record("attempt", attempt);
-            // Taken before the heartbeat watch starts: a call waiting for its permit cannot send heartbeats.
-            let permit = limits.acquire(&task).await;
-            let context =
-                TaskContext::new(&self.id, name, attempt, format!("{}/{}", self.id, spec.seq))
+        // `attempt` is recorded once, when the step is done: a trace backend keeps every value a field is given.
+        let outcome = loop {
+            let attempt_span = super::observe::attempt_span(name, attempt, &idempotency_key);
+            let started = std::time::Instant::now();
+            let result = async {
+                // Taken before the heartbeat watch starts: a call waiting for its permit cannot send heartbeats.
+                let permit = limits.acquire(&task).await;
+                let context = TaskContext::new(&self.id, name, attempt, idempotency_key.clone())
                     .with_cancel(self.cancel.subscribe())
                     .with_heartbeat(Arc::clone(&heartbeat));
-            let call = task.invoke(context, spec.input.clone(), permit);
-            let result = match options.heartbeat_timeout {
-                Some(limit) => {
-                    tokio::select! {
-                        result = call => result,
-                        () = self.watch_heartbeats(&heartbeat, limit) => Err(super::error::TaskError::retryable(
-                            format!("task `{name}` sent no heartbeat for {limit:?}"),
-                        )),
+                let call = task.invoke(context, spec.input.clone(), permit);
+                match options.heartbeat_timeout {
+                    Some(limit) => {
+                        tokio::select! {
+                            result = call => result,
+                            () = self.watch_heartbeats(&heartbeat, limit) => {
+                                super::observe::heartbeat_timed_out(name);
+                                Err(super::error::TaskError::retryable(
+                                    format!("task `{name}` sent no heartbeat for {limit:?}"),
+                                ))
+                            }
+                        }
                     }
+                    None => call.await,
                 }
-                None => call.await,
-            };
+            }
+            .instrument(attempt_span.clone())
+            .await;
+            super::observe::attempt_ended(
+                &attempt_span,
+                name,
+                result
+                    .as_ref()
+                    .map(|_| ())
+                    .map_err(|error| (&*error.fault, error.retryable)),
+                started.elapsed(),
+            );
             match result {
                 Ok(value) => {
                     if cached {
@@ -2953,7 +3221,7 @@ impl InstanceCore {
                             })
                             .await?;
                     }
-                    return Ok(Outcome::Ok(value));
+                    break Outcome::Ok(value);
                 }
                 Err(error) if error.retryable && attempt < attempts => {
                     super::observe::task_retried(name);
@@ -2973,12 +3241,16 @@ impl InstanceCore {
                                 .map(|retry| retry.delay_after(attempt))
                         })
                         .unwrap_or_default();
-                    super::clock::sleep(self.clock.as_ref(), delay).await;
+                    super::clock::sleep(self.clock.as_ref(), delay)
+                        .instrument(super::observe::backoff_span(name, attempt, delay))
+                        .await;
                     attempt += 1;
                 }
-                Err(error) => return Ok(Outcome::Fault(*error.fault)),
+                Err(error) => break Outcome::Fault(*error.fault),
             }
-        }
+        };
+        tracing::Span::current().record("attempt", attempt);
+        Ok(outcome)
     }
 }
 
@@ -3242,6 +3514,7 @@ pub(crate) async fn drive<W: WorkflowDef>(
 impl InstanceCore {
     /// Emits a terminal event and closes the stream after it.
     async fn emit_terminal(&self, event: Event) -> Result<(), Error> {
+        self.end_replay();
         let emitted = self.emit(event).await;
         self.log.close();
         emitted

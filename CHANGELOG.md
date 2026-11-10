@@ -9,6 +9,47 @@ The workspace publishes three crates with the same version: `jackdaw-wf` (the li
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-11-09
+
+### Changed
+
+- Spans are named for what they do. Each span sets `otel.name`, which `tracing-opentelemetry` exports as its name, so a
+  trace in Grafana, Jaeger or another OpenTelemetry backend reads `workflow shop/order@1`, `call charge`, `attempt 2`,
+  `retry backoff 200ms`, `sleep 1h`, `run shipping`, `HTTP POST pay.example`, instead of `step` for every step. The
+  `tracing` names (`workflow`, `step`) and their existing fields stay.
+- A step's span covers the whole step: its `TaskStarted` event, the call, the journal write and its `TaskCompleted` or
+  `TaskFaulted`. It records its position, call site, outcome, timeout, cache hit, child instance, and the sizes of its
+  input and output. Task code now logs inside the step's `attempt` span (a child of the step span).
+- A workflow started with `ctx.start`, and each instance `Engine::recover` resumes, is a trace of its own that follows
+  from the span that started it (a started workflow used to appear under the starting step).
+- `jackdaw_step_duration_seconds` has an `outcome` label.
+
+### Added
+
+- Spans for task attempts, retry waits, limit waits, journal writes, the steps replayed on resume (one `replay` span),
+  signals, updates, queries and events sent to an instance, schedule ticks, lease renewal, recovery and replay checks,
+  and the calls the engine makes (HTTP, scripts, shell commands, containers). Failures are marked with
+  `otel.status_code = "ERROR"`.
+- The YAML engine has spans: one per workflow run, one per task (nested as in the workflow, with its JSON pointer as
+  `task.reference`) and one per `for` iteration, and it reports the same workflow and step metrics as Rust workflows.
+- Every `Event` of a run is logged (target `jackdaw::event`) in the span it happened in, so it shows as a span event.
+- `EngineBuilder::trace_payloads(max_bytes)`: step inputs and outputs on spans, truncated. Off by default.
+- Feature `otel`: a listener request with a W3C `traceparent` header continues the caller's trace, and HTTP calls
+  (`ctx.http`, YAML `call: http`) carry the current one on, through the propagator the application installs.
+- Listener requests (HTTP and gRPC) have server spans.
+- Metrics: workflow duration, running and resumed instances, continue-as-new, step timeouts, replayed steps, task
+  attempt duration, heartbeat timeouts, cache hits and misses, limit waits, active tasks, store operation latency and
+  errors, lease renewals and losses, delivered messages, emitted events, schedule ticks and lag, replay divergences,
+  listener requests and jq evaluations.
+- `jackdaw run --otlp-endpoint URL` sends the run's traces to an OpenTelemetry collector over OTLP/HTTP, and
+  `--metrics-addr ADDR` serves its metrics for Prometheus (CLI feature `telemetry`, on by default).
+- A guide chapter, `guide::observability`: the spans, their fields, the metrics, and Grafana queries.
+
+### Fixed
+
+- Spans and logs from blocking store calls (Redb) and from script output readers are in the span of the step that made
+  them; they used to start traces of their own.
+
 ## [0.2.4] - 2026-11-06
 
 ### Added
@@ -238,7 +279,8 @@ an optional part of the same engine. The CLI is now a separate crate built on th
 
 The CLI release before the library refactor; see the GitHub release.
 
-[Unreleased]: https://github.com/arminhammer/jackdaw/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/arminhammer/jackdaw/compare/v0.2.5...HEAD
+[0.2.5]: https://github.com/arminhammer/jackdaw/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/arminhammer/jackdaw/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/arminhammer/jackdaw/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/arminhammer/jackdaw/compare/v0.2.1...v0.2.2

@@ -616,6 +616,7 @@ async fn serve_http(
     use axum::http::StatusCode;
     use axum::response::IntoResponse;
     use axum::routing::{MethodFilter, on};
+    use tracing::Instrument;
 
     let mut router = axum::Router::new();
     for route in routes {
@@ -634,13 +635,22 @@ async fn serve_http(
         };
         let engine = engine.clone();
         let rules = Arc::clone(&route.rules);
+        let (method, path) = (route.method.clone(), route.path.clone());
         let handler = move |params: RawPathParams,
                             Query(query): Query<BTreeMap<String, String>>,
                             headers: axum::http::HeaderMap,
                             body: axum::body::Bytes| {
             let (binding, engine, rules) =
                 (Arc::clone(&binding), engine.clone(), Arc::clone(&rules));
-            async move {
+            let span = super::observe::request_span("http", &method, &path, |name| {
+                headers
+                    .get(name)
+                    .and_then(|value| value.to_str().ok())
+                    .map(str::to_string)
+            });
+            let path = path.clone();
+            let started = std::time::Instant::now();
+            let answer = async move {
                 let problems = rules.check(&params, &query, &headers, &body);
                 if !problems.is_empty() {
                     return (
@@ -680,6 +690,17 @@ async fn serve_http(
                             .into_response()
                     }
                 }
+            };
+            async move {
+                let response = answer.instrument(span.clone()).await;
+                super::observe::request_answered(
+                    &span,
+                    "http",
+                    &path,
+                    response.status().as_u16(),
+                    started.elapsed(),
+                );
+                response
             }
         };
         router = router.route(&route.path, on(filter, handler));

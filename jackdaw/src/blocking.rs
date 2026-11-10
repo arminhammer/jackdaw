@@ -21,20 +21,23 @@ impl fmt::Display for Error {
     }
 }
 
-/// Runs `f` on the blocking pool and waits for it.
+/// Runs `f` on the blocking pool and waits for it, inside the current span and with the current subscriber (a pool
+/// thread has neither of its own), so what it logs or traces stays where it was called.
 #[cfg(not(target_family = "wasm"))]
 pub(crate) async fn run<F, R>(f: F) -> Result<R, Error>
 where
     F: FnOnce() -> R + Send + 'static,
     R: Send + 'static,
 {
-    tokio::task::spawn_blocking(f).await.map_err(|error| {
-        if error.is_panic() {
-            Error::Panicked(error.into_panic())
-        } else {
-            Error::Cancelled
-        }
-    })
+    tokio::task::spawn_blocking(crate::api::observe::carry(f))
+        .await
+        .map_err(|error| {
+            if error.is_panic() {
+                Error::Panicked(error.into_panic())
+            } else {
+                Error::Cancelled
+            }
+        })
 }
 
 /// Runs `f` here: wasm has one thread, so nothing else runs until it returns. (Wasm builds abort on a panic unless they

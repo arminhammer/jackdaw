@@ -385,8 +385,16 @@ impl TowerService<http::Request<BoxBody>> for MultiMethodServiceWrapper {
         tracing::debug!("MultiMethodServiceWrapper::call invoked!");
         let inner = self.inner.clone();
         let service_name = inner.service_descriptor.full_name().to_string();
+        let route = req.uri().path().trim_start_matches('/').to_string();
+        let span = crate::api::observe::request_span("grpc", "POST", &route, |name| {
+            req.headers()
+                .get(name)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string)
+        });
+        let started = std::time::Instant::now();
 
-        Box::pin(async move {
+        let call = Box::pin(async move {
             // Parse path to extract service and method name: /{service}/{method}
             let path = req.uri().path().to_string();
 
@@ -567,6 +575,19 @@ impl TowerService<http::Request<BoxBody>> for MultiMethodServiceWrapper {
                     Ok(response)
                 }
             }
+        });
+        Box::pin(async move {
+            let answer = tracing::Instrument::instrument(call, span.clone()).await;
+            if let Ok(response) = &answer {
+                crate::api::observe::request_answered(
+                    &span,
+                    "grpc",
+                    &route,
+                    response.status().as_u16(),
+                    started.elapsed(),
+                );
+            }
+            answer
         })
     }
 }

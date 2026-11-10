@@ -196,4 +196,20 @@ pub trait PersistenceProvider: Send + Sync + std::fmt::Debug {
         let _ = owner;
         Ok(Vec::new())
     }
+
+    /// Whether this store already reports its calls to `tracing` and `metrics` (the engine wraps a store that does not,
+    /// once). Not for stores to override.
+    #[doc(hidden)]
+    fn traced(&self) -> bool {
+        false
+    }
+
+    /// The store's type name, for metrics labels. Stores that wrap another report the one they wrap. Not for stores to
+    /// override.
+    #[doc(hidden)]
+    fn backend_name(&self) -> &'static str {
+        let full = std::any::type_name::<Self>();
+        let base = full.split('<').next().unwrap_or(full);
+        base.rsplit("::").next().unwrap_or(base)
+    }
 }
