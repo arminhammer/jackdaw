@@ -1035,10 +1035,7 @@ pub(crate) fn traced_store(
     if store.traced() {
         return store;
     }
-    // The type's own name, without its path or generics: `RedbPersistence`, `LeaseFence`, ...
-    let full = std::any::type_name_of_val(&*store);
-    let base = full.split('<').next().unwrap_or(full);
-    let backend = base.rsplit("::").next().unwrap_or(base);
+    let backend = store.backend_name();
     std::sync::Arc::new(TracedStore {
         inner: store,
         backend,
@@ -1258,6 +1255,10 @@ impl crate::PersistenceProvider for TracedStore {
 
     fn traced(&self) -> bool {
         true
+    }
+
+    fn backend_name(&self) -> &'static str {
+        self.backend
     }
 }
 
