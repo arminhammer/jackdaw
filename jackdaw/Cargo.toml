@@ -155,7 +155,7 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["r
 opentelemetry = { version = "0.33", default-features = false, features = ["trace"] }
 opentelemetry_sdk = { version = "0.33", default-features = false, features = ["trace", "testing"] }
 tracing-opentelemetry = { version = "0.34", default-features = false }
-cucumber = "0.21"
+cucumber = "0.23"
 testcontainers = "0.28"
 wiremock = "0.6.5"
 serial_test = "3"

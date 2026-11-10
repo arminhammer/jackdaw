@@ -45,7 +45,7 @@ default = ["telemetry"]
 telemetry = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:tracing-opentelemetry", "dep:metrics-exporter-prometheus"]
 
 [dev-dependencies]
-cucumber = "0.21"
+cucumber = "0.23"
 
 [[test]]
 name = "cli"
