@@ -147,7 +147,7 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["r
 cucumber = "0.23"
 testcontainers = "0.28"
 wiremock = "0.6.5"
-serial_test = "3"
+serial_test = "4"
 trybuild = "1"
 tokio = { version = "1", features = ["full", "test-util"] }
 
