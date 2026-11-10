@@ -1533,7 +1533,9 @@ impl Shared {
                 history: done,
                 seen: 0,
             };
-            tasks.publish(&for_task.log).await;
+            // The run's opening event comes first, then its tasks' (which it writes after sending the opening one):
+            // the channel is read before the store, and the store only once the opening event is in.
+            let mut opened = false;
             let mut tick = tokio::time::interval(TASK_EVENT_POLL);
             let mut result = Err(Error::Engine(
                 "the workflow ended without producing a result".to_string(),
@@ -1542,11 +1544,12 @@ impl Shared {
             let mut ended = false;
             loop {
                 let stored = tokio::select! {
+                    biased;
                     stored = legacy.next_event() => match stored {
                         Some(stored) => stored,
                         None => break,
                     },
-                    _ = tick.tick() => {
+                    _ = tick.tick(), if opened => {
                         tasks.publish(&for_task.log).await;
                         continue;
                     }
@@ -1570,6 +1573,11 @@ impl Shared {
                     tasks.publish(&for_task.log).await;
                 }
                 for_task.log.push(event);
+                if !opened {
+                    opened = true;
+                    // What the store already has: the steps done before a resume, and any since.
+                    tasks.publish(&for_task.log).await;
+                }
                 if terminal {
                     ended = true;
                     break;
