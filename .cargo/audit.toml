@@ -1,0 +1,10 @@
+# cargo-audit configuration (the PR workflow's `security-audit` job runs `cargo audit`).
+
+[advisories]
+ignore = [
+    # libsqlite3-sys 0.37 bundles SQLite < 3.54, which can return uninitialized memory when it opens a database with a
+    # crafted `-wal` file of another page size. jackdaw only opens its own store, never files a less trusted party
+    # wrote. The fix is libsqlite3-sys 0.39, which sqlx 0.9.0 (the latest release) does not allow (`<0.38`); sqlx's
+    # main branch does. Remove this once a sqlx release takes libsqlite3-sys 0.39 and `cargo update -p sqlx` has run.
+    "RUSTSEC-2026-0459",
+]
