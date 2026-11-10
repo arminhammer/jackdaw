@@ -20,7 +20,7 @@ path = "src/main.rs"
 jackdaw = { workspace = true, features = ["full"] }
 clap = { version = "4", features = ["derive", "env"] }
 config = "0.15.15"
-console = "0.15"
+console = "0.16"
 futures = "0.3"
 indicatif = "0.18"
 serde = { version = "1", features = ["derive"] }
