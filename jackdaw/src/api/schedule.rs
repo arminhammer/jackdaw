@@ -38,6 +38,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
+use tracing::Instrument;
 
 // ---------------------------------------------------------------------------------------------------------------
 // Cron expressions
@@ -440,28 +441,70 @@ pub(crate) async fn update_state(
 }
 
 impl Schedule {
+    /// Fires the tick due `at`, in a span of its own that the instance it starts runs under.
     async fn fire(
         &self,
         engine: &Engine,
         at: DateTime<Utc>,
         state: &mut ScheduleState,
     ) -> Result<(), Error> {
+        let lag = (engine.shared().clock.now() - at)
+            .to_std()
+            .unwrap_or_default();
+        let span = super::observe::schedule_span(&self.name, at, lag);
+        let fired = self
+            .fire_in_span(engine, at, state)
+            .instrument(span.clone())
+            .await;
+        let result = match &fired {
+            Ok(result) => *result,
+            Err(error) => {
+                super::observe::record_error(
+                    &span,
+                    super::observe::error_type(error),
+                    &error.to_string(),
+                );
+                "error"
+            }
+        };
+        span.record("schedule.result", result);
+        super::observe::schedule_fired(&self.name, result, lag);
+        fired.map(|_| ())
+    }
+
+    /// Returns what came of the tick: `started`, `already_started` or `skipped_overlap`.
+    async fn fire_in_span(
+        &self,
+        engine: &Engine,
+        at: DateTime<Utc>,
+        state: &mut ScheduleState,
+    ) -> Result<&'static str, Error> {
         let skip = self.overlap == Overlap::Skip
             && match &state.latest {
                 Some(latest) => matches!(engine.status(latest).await, Ok(super::Status::Running)),
                 None => false,
             };
+        let mut result = "skipped_overlap";
         if !skip {
             let id = self.instance_id(at);
+            tracing::Span::current().record("instance.id", id.as_str());
             match (self.start)(engine.clone(), id.clone()).await {
                 // The instance exists: another engine on the same store (or this one, before a restart) fired this
                 // tick. It is never attached to, since that would resume it next to the engine already running it.
-                Ok(()) | Err(Error::Invalid(_)) => state.latest = Some(id),
+                Ok(()) => {
+                    result = "started";
+                    state.latest = Some(id);
+                }
+                Err(Error::Invalid(_)) => {
+                    result = "already_started";
+                    state.latest = Some(id);
+                }
                 Err(error) => return Err(error),
             }
         }
         state.last = Some(at);
-        save_state(engine, &self.name, state).await
+        save_state(engine, &self.name, state).await?;
+        Ok(result)
     }
 
     /// Runs the schedule until it is removed or the engine is dropped.

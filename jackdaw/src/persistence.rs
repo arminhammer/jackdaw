@@ -196,4 +196,11 @@ pub trait PersistenceProvider: Send + Sync + std::fmt::Debug {
         let _ = owner;
         Ok(Vec::new())
     }
+
+    /// Whether this store already reports its calls to `tracing` and `metrics` (the engine wraps a store that does not,
+    /// once). Not for stores to override.
+    #[doc(hidden)]
+    fn traced(&self) -> bool {
+        false
+    }
 }

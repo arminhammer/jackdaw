@@ -56,20 +56,30 @@ pub async fn exec_for_task(
             *data_guard = iteration_data;
         }
 
-        // Execute the do tasks for this iteration
-        for entry in &for_task.do_.entries {
-            for (subtask_name, subtask) in entry {
-                let result = Box::pin(engine.exec_task(subtask_name, subtask, ctx)).await?;
+        // Execute the do tasks for this iteration, in a span of its own
+        let iteration = async {
+            for (position, entry) in for_task.do_.entries.iter().enumerate() {
+                for (subtask_name, subtask) in entry {
+                    let at = format!("do/{position}");
+                    let result =
+                        Box::pin(engine.exec_task(&at, subtask_name, subtask, ctx)).await?;
 
-                // Update task_input for the next subtask
-                *ctx.state.task_input.write().await = result.clone();
+                    // Update task_input for the next subtask
+                    *ctx.state.task_input.write().await = result.clone();
 
-                // Handle export.as for subtasks (same logic as main execution loop)
-                super::super::export::apply_export_to_context(subtask, &result, ctx).await?;
+                    // Handle export.as for subtasks (same logic as main execution loop)
+                    super::super::export::apply_export_to_context(subtask, &result, ctx).await?;
 
-                last_result = result;
+                    last_result = result;
+                }
             }
-        }
+            Ok::<_, Error>(())
+        };
+        tracing::Instrument::instrument(
+            iteration,
+            crate::api::observe::iteration_span(index, item_var),
+        )
+        .await?;
 
         // Remove iteration variables but keep accumulated changes
         {

@@ -216,6 +216,58 @@ pub enum WorkflowEvent {
 }
 
 impl WorkflowEvent {
+    /// The event's kind, the variant's name (such as `TaskStarted`).
+    #[must_use]
+    pub fn kind(&self) -> &'static str {
+        match self {
+            WorkflowEvent::WorkflowStarted { .. } => "WorkflowStarted",
+            WorkflowEvent::TaskEntered { .. } => "TaskEntered",
+            WorkflowEvent::TaskCreated { .. } => "TaskCreated",
+            WorkflowEvent::TaskStarted { .. } => "TaskStarted",
+            WorkflowEvent::TaskRetried { .. } => "TaskRetried",
+            WorkflowEvent::TaskCompleted { .. } => "TaskCompleted",
+            WorkflowEvent::WorkflowCompleted { .. } => "WorkflowCompleted",
+            WorkflowEvent::WorkflowCorrelationStarted { .. } => "WorkflowCorrelationStarted",
+            WorkflowEvent::WorkflowCorrelationCompleted { .. } => "WorkflowCorrelationCompleted",
+            WorkflowEvent::WorkflowFailed { .. } => "WorkflowFailed",
+            WorkflowEvent::WorkflowCancelled { .. } => "WorkflowCancelled",
+            WorkflowEvent::WorkflowSuspended { .. } => "WorkflowSuspended",
+            WorkflowEvent::WorkflowResumed { .. } => "WorkflowResumed",
+            WorkflowEvent::TaskCancelled { .. } => "TaskCancelled",
+            WorkflowEvent::TaskSuspended { .. } => "TaskSuspended",
+            WorkflowEvent::TaskResumed { .. } => "TaskResumed",
+            WorkflowEvent::TaskFaulted { .. } => "TaskFaulted",
+            WorkflowEvent::WorkflowContinuedAsNew { .. } => "WorkflowContinuedAsNew",
+            WorkflowEvent::EventEmitted { .. } => "EventEmitted",
+        }
+    }
+
+    /// The task the event is about, if it is about one.
+    #[must_use]
+    pub fn task_name(&self) -> Option<&str> {
+        match self {
+            WorkflowEvent::TaskEntered { task_name, .. }
+            | WorkflowEvent::TaskCreated { task_name, .. }
+            | WorkflowEvent::TaskStarted { task_name, .. }
+            | WorkflowEvent::TaskRetried { task_name, .. }
+            | WorkflowEvent::TaskCompleted { task_name, .. }
+            | WorkflowEvent::TaskCancelled { task_name, .. }
+            | WorkflowEvent::TaskSuspended { task_name, .. }
+            | WorkflowEvent::TaskResumed { task_name, .. }
+            | WorkflowEvent::TaskFaulted { task_name, .. } => Some(task_name),
+            WorkflowEvent::WorkflowStarted { .. }
+            | WorkflowEvent::WorkflowCompleted { .. }
+            | WorkflowEvent::WorkflowCorrelationStarted { .. }
+            | WorkflowEvent::WorkflowCorrelationCompleted { .. }
+            | WorkflowEvent::WorkflowFailed { .. }
+            | WorkflowEvent::WorkflowCancelled { .. }
+            | WorkflowEvent::WorkflowSuspended { .. }
+            | WorkflowEvent::WorkflowResumed { .. }
+            | WorkflowEvent::WorkflowContinuedAsNew { .. }
+            | WorkflowEvent::EventEmitted { .. } => None,
+        }
+    }
+
     /// The instance the event belongs to.
     #[must_use]
     pub fn instance_id(&self) -> &str {

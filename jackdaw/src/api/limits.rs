@@ -8,6 +8,7 @@ use super::task::NativeTask;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tracing::Instrument;
 
 /// The limits an engine was built with.
 #[derive(Default)]
@@ -79,7 +80,14 @@ impl Limits {
             "the task waits for its limit"
         );
         let _waiting = super::observe::limit_waiting(name);
+        let started = std::time::Instant::now();
         // The semaphore is never closed, so this only ends with a permit.
-        Arc::clone(semaphore).acquire_owned().await.ok()
+        let permit = Arc::clone(semaphore)
+            .acquire_owned()
+            .instrument(super::observe::limit_wait_span(task.name, name))
+            .await
+            .ok();
+        super::observe::limit_waited(name, started.elapsed());
+        permit
     }
 }

@@ -37,8 +37,12 @@ pub async fn exec_call_task(
         .get(function_name)
         .is_none_or(|executor| executor.cacheable());
 
+    tracing::Span::current().record("task.call", function_name);
     if cacheable {
-        if let Some(cached) = ctx.services.cache.get(&cache_key).await? {
+        let cached = ctx.services.cache.get(&cache_key).await?;
+        tracing::Span::current().record("cache.hit", cached.is_some());
+        crate::api::observe::cache_lookup(task_name, cached.is_some());
+        if let Some(cached) = cached {
             output::format_cache_hit(
                 task_name,
                 &cache_key,

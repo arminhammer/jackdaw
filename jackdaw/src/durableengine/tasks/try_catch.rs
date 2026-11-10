@@ -13,12 +13,13 @@ pub async fn exec_try_task(
     // Execute the tasks in the try block
     let mut last_result = serde_json::Value::Null;
 
-    for entry in &try_task.try_.entries {
+    for (position, entry) in try_task.try_.entries.iter().enumerate() {
         for (subtask_name, subtask) in entry {
             tracing::debug!("Executing try subtask: {subtask_name}");
 
             // Box the async call to avoid infinite recursion
-            let exec_future = engine.exec_task(subtask_name, subtask, ctx);
+            let at = format!("try/{position}");
+            let exec_future = engine.exec_task(&at, subtask_name, subtask, ctx);
             match Box::pin(exec_future).await {
                 Ok(result) => {
                     // Update task_input for the next subtask
@@ -80,11 +81,20 @@ pub async fn exec_try_task(
 
                         // Execute the catch handler tasks if defined
                         if let Some(ref catch_tasks) = try_task.catch.do_ {
-                            for catch_entry in &catch_tasks.entries {
+                            tracing::event!(
+                                target: crate::api::observe::EVENT_TARGET,
+                                tracing::Level::INFO,
+                                task.name = %subtask_name,
+                                "error caught"
+                            );
+                            for (catch_position, catch_entry) in
+                                catch_tasks.entries.iter().enumerate()
+                            {
                                 for (catch_task_name, catch_task) in catch_entry {
                                     // Box the async call to avoid infinite recursion
+                                    let at = format!("catch/do/{catch_position}");
                                     let exec_future =
-                                        engine.exec_task(catch_task_name, catch_task, ctx);
+                                        engine.exec_task(&at, catch_task_name, catch_task, ctx);
                                     let catch_result = Box::pin(exec_future).await?;
 
                                     // Update task_input for the next subtask

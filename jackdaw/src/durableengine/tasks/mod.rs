@@ -29,9 +29,81 @@ pub use switch::exec_switch_task;
 pub use try_catch::exec_try_task;
 pub use wait::exec_wait_task;
 
+tokio::task_local! {
+    /// The JSON pointer of the task running here (see `exec_task`).
+    static REFERENCE: String;
+}
+
+/// The reference (a JSON pointer into the workflow, such as `/do/1/check/do/0/fetch`) of the task running here, or
+/// an empty string outside a task.
+pub(crate) fn current_reference() -> String {
+    REFERENCE.try_with(Clone::clone).unwrap_or_default()
+}
+
+/// The kind of a YAML engine error, for spans.
+fn error_kind(error: &super::Error) -> &'static str {
+    use super::Error;
+    match error {
+        Error::WorkflowExecution { .. } => "workflow_execution",
+        Error::TaskExecution { .. } => "task_execution",
+        Error::Listener { .. } => "listener",
+        Error::Configuration { .. } => "configuration",
+        Error::Timeout { .. } => "timeout",
+        Error::Io { .. } => "io",
+        Error::Executor { .. } => "executor",
+        Error::Persistence { .. } => "persistence",
+        Error::Cache { .. } => "cache",
+        Error::Context { .. } => "context",
+        Error::Expression { .. } => "expression",
+        Error::Serialization { .. } => "serialization",
+        Error::ListenerSetup { .. } => "listener_setup",
+        #[cfg(feature = "grpc-listener")]
+        Error::Protobuf { .. } | Error::ProtobufDescriptor { .. } => "protobuf",
+    }
+}
+
 impl DurableEngine {
-    /// Main task execution dispatcher
+    /// Runs a task in its span. `at` is where it sits in the task that contains it (such as `do/2` or
+    /// `fork/branches/0`), from which its reference is made.
     pub(super) async fn exec_task(
+        &self,
+        at: &str,
+        task_name: &str,
+        task: &TaskDefinition,
+        ctx: &Context,
+    ) -> Result<serde_json::Value> {
+        use tracing::Instrument;
+        let reference = format!("{}/{at}/{task_name}", current_reference());
+        let task_type = task.type_name();
+        let span = crate::api::observe::yaml_task_span(
+            task_name,
+            &task_type.to_lowercase(),
+            &reference,
+            &ctx.metadata.instance_id,
+        );
+        let started = std::time::Instant::now();
+        let result = REFERENCE
+            .scope(reference, self.exec_task_in_span(task_name, task, ctx))
+            .instrument(span.clone())
+            .await;
+        let failure = result
+            .as_ref()
+            .err()
+            .map(|error| (error_kind(error), error.to_string()));
+        crate::api::observe::yaml_task_ended(
+            &span,
+            task_name,
+            task_type,
+            failure
+                .as_ref()
+                .map(|(kind, message)| (*kind, message.as_str())),
+            started.elapsed(),
+        );
+        result
+    }
+
+    /// Main task execution dispatcher
+    async fn exec_task_in_span(
         &self,
         task_name: &str,
         task: &TaskDefinition,
@@ -265,10 +337,11 @@ async fn exec_do_task(
     let mut last_result = serde_json::Value::Null;
 
     // Execute subtasks sequentially in order
-    for entry in &do_task.do_.entries {
+    for (index, entry) in do_task.do_.entries.iter().enumerate() {
         for (subtask_name, subtask) in entry {
             // Box the recursive call to avoid infinite sized future
-            let result = Box::pin(engine.exec_task(subtask_name, subtask, ctx)).await?;
+            let at = format!("do/{index}");
+            let result = Box::pin(engine.exec_task(&at, subtask_name, subtask, ctx)).await?;
 
             // Update task_input for the next subtask
             *ctx.state.task_input.write().await = result.clone();
