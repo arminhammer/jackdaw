@@ -48,6 +48,18 @@ when standard error is a file or a pipe, one plain line for each step (`fetch st
 | `--plain` | plain lines even on a terminal |
 | `--debug` | what each step returned, and each task's input, context and cache use |
 
+#### Traces and metrics
+
+`--otlp-endpoint` sends the run's traces to an OpenTelemetry collector over OTLP/HTTP (also read from
+`OTEL_EXPORTER_OTLP_ENDPOINT`), as service `jackdaw`: one trace per run, with a span per task (named after it, such as
+`call fetchOrder` or `for items`), per loop iteration and per HTTP call or script it makes. `JACKDAW_OTLP_FILTER` picks
+which spans, in `RUST_LOG` syntax (default `info`). `--metrics-addr` serves the engine's metrics for Prometheus at
+`/metrics` while the run lasts.
+
+```
+jackdaw run order.sw.yaml --otlp-endpoint http://localhost:4318 --metrics-addr 127.0.0.1:9464
+```
+
 #### --id and --restart
 
 Every run gets a new id. Give it one with `--id`, together with a durable store, and running the same command again

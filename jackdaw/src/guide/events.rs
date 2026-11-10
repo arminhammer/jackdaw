@@ -61,7 +61,9 @@
 //! ## Logs and traces
 //!
 //! jackdaw never prints and installs no subscriber: it reports through [`tracing`](https://docs.rs/tracing), and your
-//! subscriber decides what to show. Rust workflows open a `workflow` span per instance and a `step` span per step.
+//! subscriber decides what to show. Each instance runs in a `workflow` span, each step in a `step` span (with spans
+//! for its attempts, retries and calls inside), and every event above is logged in the span it happened in. The
+//! [observability chapter](super::observability) lists them, and shows how to send them to OpenTelemetry.
 //!
 //! The YAML interpreter's trace is events on the `jackdaw::yaml` target. Each has an `event` field naming what
 //! happened, with JSON values as JSON text:
@@ -82,7 +84,7 @@
 //!
 //! ---
 //!
-//! That is the last chapter. Back to the [guide](super) for the list of chapters.
+//! Next: [traces and metrics](super::observability).
 //!
 //! [`Event`]: crate::api::Event
 //! [`EventStream`]: crate::api::EventStream
