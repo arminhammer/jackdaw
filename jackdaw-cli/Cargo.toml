@@ -34,7 +34,7 @@ uuid = { version = "1", features = ["v4"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
-cucumber = "0.21"
+cucumber = "0.23"
 
 [[test]]
 name = "cli"
