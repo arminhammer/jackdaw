@@ -34,6 +34,8 @@ Feature: Tracing and metrics
     And the counter "jackdaw_workflows_failed_total" is 1
     And the histogram "jackdaw_step_duration_seconds" has samples labelled by step name
     And its samples are labelled by outcome: 3 "ok" and 1 "fault"
+    And the histogram "jackdaw_workflow_duration_seconds" has 3 "completed" and 1 "failed" sample
+    And the histogram "jackdaw_persistence_operation_duration_seconds" has samples for "append_journal"
 
   # OpenTelemetry context follows span parentage (through `tracing-opentelemetry`), so the library needs no otel feature.
   @implemented

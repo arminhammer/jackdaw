@@ -38,6 +38,9 @@ futures = "0.3"
 sha2 = "0.11"
 schemars = "1"
 metrics = { version = "0.24", optional = true }
+# otel: W3C trace context across listeners and HTTP calls.
+opentelemetry = { version = "0.33", default-features = false, features = ["trace"], optional = true }
+tracing-opentelemetry = { version = "0.34", default-features = false, optional = true }
 
 # config
 figment = { version = "0.10", default-features = false, features = ["toml", "json"], optional = true }
@@ -101,7 +104,7 @@ bytes = { version = "1", optional = true }
 [features]
 default = ["yaml", "redb", "http-client"]
 # Everything, as the CLI uses it.
-full = ["yaml", "redb", "sqlite", "postgres", "http-client", "openapi", "docker", "http-listener", "grpc-listener", "metrics", "config", "terminal", "cli"]
+full = ["yaml", "redb", "sqlite", "postgres", "http-client", "openapi", "docker", "http-listener", "grpc-listener", "metrics", "otel", "config", "terminal", "cli"]
 
 # The Open Workflow YAML interpreter: `jackdaw::dsl`, `api::Workflow` (`from_yaml`, `validate`),
 # `ctx.run_definition` and the engine's YAML registrations. YAML `call: http` needs an HTTP client, so this
@@ -134,6 +137,11 @@ cli = ["terminal", "config", "dep:clap"]
 
 # Counters and histograms through the `metrics` facade. The library never installs a recorder.
 metrics = ["dep:metrics"]
+# OpenTelemetry trace context: a request to a listener that carries a W3C `traceparent` header continues the caller's
+# trace, and HTTP calls the engine makes (`ctx.http`, YAML `call: http`) carry the current one on. Uses the
+# propagator the application installs (`opentelemetry::global::set_text_map_propagator`); the library installs no
+# tracer or propagator of its own.
+otel = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
 
 [dev-dependencies]
 tempfile = "3"
@@ -144,6 +152,9 @@ metrics = "0.24"
 indicatif = { version = "0.18", features = ["in_memory"] }
 metrics-util = { version = "0.20", default-features = false, features = ["debugging"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std"] }
+opentelemetry = { version = "0.33", default-features = false, features = ["trace"] }
+opentelemetry_sdk = { version = "0.33", default-features = false, features = ["trace", "testing"] }
+tracing-opentelemetry = { version = "0.34", default-features = false }
 cucumber = "0.21"
 testcontainers = "0.28"
 wiremock = "0.6.5"

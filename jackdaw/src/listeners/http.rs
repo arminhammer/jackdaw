@@ -26,12 +26,21 @@ fn create_method_router(
 ) -> MethodRouter {
     any(
         move |method: axum::http::Method,
+              route: Option<axum::extract::MatchedPath>,
               headers: axum::http::HeaderMap,
               params: RawPathParams,
               Query(query): Query<BTreeMap<String, String>>,
               body: Bytes| {
             let (handler, rules) = (handler.clone(), rules.clone());
-            async move {
+            let route = route.map_or_else(String::new, |route| route.as_str().to_string());
+            let span = crate::api::observe::request_span("http", method.as_str(), &route, |name| {
+                headers
+                    .get(name)
+                    .and_then(|value| value.to_str().ok())
+                    .map(str::to_string)
+            });
+            let started = std::time::Instant::now();
+            let answer = async move {
                 let method = method.as_str().to_lowercase();
                 if let Some(rules) = rules
                     .as_ref()
@@ -74,6 +83,17 @@ fn create_method_router(
                             .into_response()
                     }
                 }
+            };
+            async move {
+                let response = tracing::Instrument::instrument(answer, span.clone()).await;
+                crate::api::observe::request_answered(
+                    &span,
+                    "http",
+                    &route,
+                    response.status().as_u16(),
+                    started.elapsed(),
+                );
+                response
             }
         },
     )

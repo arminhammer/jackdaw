@@ -390,6 +390,16 @@ fn exited(output: ProcessOutput) -> Result<ProcessOutput, TaskError> {
 }
 
 async fn run_shell(shell: Shell) -> Result<ProcessOutput, TaskError> {
+    let span = super::observe::executor_span("shell", &format!("shell {}", shell.command));
+    span.record("process.command", shell.command.as_str());
+    let output = super::observe::in_executor_span(span.clone(), run_shell_in_span(shell)).await;
+    if let Ok(output) = &output {
+        span.record("process.exit_code", output.exit_code);
+    }
+    output
+}
+
+async fn run_shell_in_span(shell: Shell) -> Result<ProcessOutput, TaskError> {
     use tokio::io::AsyncWriteExt;
     let mut command = tokio::process::Command::new(&shell.command);
     command
@@ -429,6 +439,19 @@ async fn run_shell(shell: Shell) -> Result<ProcessOutput, TaskError> {
 
 #[cfg(feature = "docker")]
 async fn run_container(container: Container) -> Result<ProcessOutput, TaskError> {
+    let span =
+        super::observe::executor_span("container", &format!("container {}", container.image));
+    span.record("container.image.name", container.image.as_str());
+    let output =
+        super::observe::in_executor_span(span.clone(), run_container_in_span(container)).await;
+    if let Ok(output) = &output {
+        span.record("process.exit_code", output.exit_code);
+    }
+    output
+}
+
+#[cfg(feature = "docker")]
+async fn run_container_in_span(container: Container) -> Result<ProcessOutput, TaskError> {
     use crate::container::{ContainerConfig, ContainerProvider};
     let provider = crate::providers::container::DockerProvider::new()
         .map_err(|e| runtime_fault("Docker is not available", e))?;
@@ -458,6 +481,13 @@ fn retryable_status(status: u16) -> bool {
 
 #[cfg(feature = "http-client")]
 async fn send(request: Request) -> Result<Response, TaskError> {
+    let span = super::observe::executor_span("http", "HTTP");
+    super::observe::in_executor_span(span, send_in_span(request)).await
+}
+
+#[cfg(feature = "http-client")]
+async fn send_in_span(request: Request) -> Result<Response, TaskError> {
+    super::observe::http_request(&request.method, &request.url);
     let method = reqwest::Method::from_bytes(request.method.as_bytes()).map_err(|e| {
         TaskError::fault(error_types::CONFIGURATION)
             .detail(format!("`{}` is not an HTTP method: {e}", request.method))
@@ -469,12 +499,16 @@ async fn send(request: Request) -> Result<Response, TaskError> {
     if let Some(body) = &request.body {
         builder = builder.json(body);
     }
+    for (name, value) in super::observe::trace_headers() {
+        builder = builder.header(name, value);
+    }
     let response = builder.send().await.map_err(|e| {
         TaskError::fault(error_types::COMMUNICATION)
             .detail(format!("{} {} failed: {e}", request.method, request.url))
             .retry()
     })?;
     let status = response.status().as_u16();
+    super::observe::http_response(status);
     let headers = response
         .headers()
         .iter()

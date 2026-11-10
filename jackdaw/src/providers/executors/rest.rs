@@ -98,12 +98,17 @@ impl Executor for RestExecutor {
             request_builder = request_builder.json(body);
         }
 
-        // Send the request
+        // Send the request, carrying the trace on
+        crate::api::observe::http_request(method, &endpoint);
+        for (name, value) in crate::api::observe::trace_headers() {
+            request_builder = request_builder.header(name, value);
+        }
         let res = request_builder.send().await;
 
         match res {
             Ok(response) => {
                 let status = response.status();
+                crate::api::observe::http_response(status.as_u16());
                 let headers = response.headers().clone();
 
                 // Check if the response indicates an error

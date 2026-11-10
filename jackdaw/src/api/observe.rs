@@ -103,7 +103,6 @@ pub(crate) struct WorkflowSpan<'a> {
     /// True when the instance resumes from an existing journal.
     pub replay: bool,
     pub parent_instance: Option<&'a str>,
-    pub run: u32,
     pub engine: EngineKind,
     pub parent: Parent,
 }
@@ -119,7 +118,7 @@ macro_rules! workflow_span {
             workflow.name = %info.workflow.name,
             workflow.version = %info.workflow.version,
             workflow.engine = info.engine.as_str(),
-            workflow.run = info.run.max(1),
+            workflow.run = tracing::field::Empty,
             workflow.outcome = tracing::field::Empty,
             instance.id = %info.instance,
             parent.instance.id = info.parent_instance,
@@ -224,7 +223,7 @@ pub(crate) fn step_span(step: &StepSpan<'_>) -> tracing::Span {
         step.output.bytes = tracing::field::Empty,
         step.output = tracing::field::Empty,
         workflow.run = step.run.max(1),
-        attempt = 1u32,
+        attempt = tracing::field::Empty,
         cache.hit = tracing::field::Empty,
         child.instance.id = tracing::field::Empty,
         code.filepath = step.location.file(),
@@ -359,38 +358,52 @@ pub(crate) fn persist_span(instance: &str) -> tracing::Span {
     )
 }
 
-/// Steps an instance replayed from its journal instead of running them, from the first to the first live step. Each
-/// replayed step is an event in it.
-pub(crate) fn replay_span(instance: &str) -> tracing::Span {
-    tracing::info_span!(
-        "replay",
-        otel.name = "replay",
-        instance.id = %instance,
-        replay.steps = 0usize,
-    )
+/// The steps an instance replayed from its history instead of running them, from the first to the first live step,
+/// in one span (`replay 3 steps`) with an event per step. Its count and name are recorded when it is dropped: a trace
+/// backend keeps every value a field is given.
+pub(crate) struct Replay {
+    pub span: tracing::Span,
+    steps: usize,
 }
 
-/// Notes a replayed step in the replay span.
-pub(crate) fn step_replayed(
-    span: &tracing::Span,
-    steps: usize,
-    kind: &str,
-    name: &str,
-    outcome: &str,
-) {
-    span.record("replay.steps", steps);
-    let noun = if steps == 1 { "step" } else { "steps" };
-    span.record("otel.name", format!("replay {steps} {noun}").as_str());
-    span.in_scope(|| {
-        tracing::event!(
-            target: EVENT_TARGET,
-            tracing::Level::INFO,
-            step.kind = %kind,
-            step.name = %name,
-            step.outcome = %outcome,
-            "step replayed"
+impl Replay {
+    pub(crate) fn new(instance: &str) -> Self {
+        let span = tracing::info_span!(
+            "replay",
+            otel.name = "replay",
+            instance.id = %instance,
+            replay.steps = tracing::field::Empty,
         );
-    });
+        Self { span, steps: 0 }
+    }
+
+    /// Notes a replayed step.
+    pub(crate) fn step(&mut self, kind: &str, name: &str, outcome: &str) {
+        self.steps += 1;
+        let steps = self.steps;
+        self.span.in_scope(|| {
+            tracing::event!(
+                target: EVENT_TARGET,
+                tracing::Level::INFO,
+                step.kind = %kind,
+                step.name = %name,
+                step.outcome = %outcome,
+                replay.step = steps,
+                "step replayed"
+            );
+        });
+    }
+}
+
+impl Drop for Replay {
+    fn drop(&mut self) {
+        let noun = if self.steps == 1 { "step" } else { "steps" };
+        self.span.record("replay.steps", self.steps);
+        self.span.record(
+            "otel.name",
+            format!("replay {} {noun}", self.steps).as_str(),
+        );
+    }
 }
 
 /// A message to an instance from outside it (`kind` is `signal`, `update`, `query` or `event`).
@@ -482,6 +495,89 @@ pub(crate) fn yaml_task_span(
         error.type = tracing::field::Empty,
         exception.message = tracing::field::Empty,
     )
+}
+
+/// A call out of the engine (an HTTP request, a script, a shell command, a container), `title` naming what it calls.
+/// Executors that know more (the HTTP executor) record it on this span, the current one while they run.
+#[cfg_attr(not(feature = "yaml"), allow(dead_code))]
+pub(crate) fn executor_span(executor: &str, title: &str) -> tracing::Span {
+    tracing::info_span!(
+        "executor",
+        otel.name = %title,
+        otel.kind = "client",
+        executor.name = %executor,
+        http.request.method = tracing::field::Empty,
+        url.full = tracing::field::Empty,
+        server.address = tracing::field::Empty,
+        http.response.status_code = tracing::field::Empty,
+        process.command = tracing::field::Empty,
+        process.exit_code = tracing::field::Empty,
+        container.image.name = tracing::field::Empty,
+        otel.status_code = tracing::field::Empty,
+        otel.status_message = tracing::field::Empty,
+        error.type = tracing::field::Empty,
+        exception.message = tracing::field::Empty,
+    )
+}
+
+/// An error an executor can fail with, as it goes on its span.
+pub(crate) trait Described {
+    fn describe(&self) -> String;
+}
+
+impl<E: std::fmt::Display> Described for E {
+    fn describe(&self) -> String {
+        self.to_string()
+    }
+}
+
+/// Runs `call` in `span`, marking the span as failed if it fails.
+#[cfg_attr(not(feature = "yaml"), allow(dead_code))]
+pub(crate) async fn in_executor_span<T, E: Described>(
+    span: tracing::Span,
+    call: impl Future<Output = Result<T, E>>,
+) -> Result<T, E> {
+    let result = tracing::Instrument::instrument(call, span.clone()).await;
+    if let Err(error) = &result {
+        record_error(&span, "executor", &error.describe());
+    }
+    result
+}
+
+/// Records an HTTP request on the current (executor) span, and names the span after it: `HTTP GET example.com`.
+#[cfg(all(feature = "http-client", not(target_family = "wasm")))]
+pub(crate) fn http_request(method: &str, url: &str) {
+    let span = tracing::Span::current();
+    let method = method.to_uppercase();
+    span.record("http.request.method", method.as_str());
+    // Without the query (it can hold secrets) or credentials.
+    match reqwest::Url::parse(url) {
+        Ok(mut parsed) => {
+            parsed.set_query(None);
+            parsed.set_fragment(None);
+            let _ = parsed.set_username("");
+            let _ = parsed.set_password(None);
+            span.record("url.full", parsed.as_str());
+            if let Some(host) = parsed.host_str() {
+                span.record("server.address", host);
+                span.record("otel.name", format!("HTTP {method} {host}").as_str());
+            }
+        }
+        Err(_) => {
+            span.record("otel.name", format!("HTTP {method}").as_str());
+        }
+    }
+}
+
+/// Records an HTTP response's status on the current (executor) span; 4xx and 5xx mark it as failed.
+#[cfg(all(feature = "http-client", not(target_family = "wasm")))]
+pub(crate) fn http_response(status: u16) {
+    let span = tracing::Span::current();
+    span.record("http.response.status_code", status);
+    if status >= 400 {
+        span.record("otel.status_code", "ERROR");
+        span.record("error.type", status.to_string().as_str());
+    }
 }
 
 /// One pass of a YAML `for` loop.
@@ -682,8 +778,50 @@ pub(crate) fn step_finished(name: &str, kind: &str, outcome: &'static str, elaps
         "outcome" => outcome
     )
     .record(elapsed.as_secs_f64());
+    #[cfg(feature = "metrics")]
+    if outcome == "timeout" {
+        metrics::counter!(
+            "jackdaw_step_timeouts_total",
+            "step" => name.to_string(),
+            "kind" => kind.to_string()
+        )
+        .increment(1);
+    }
     #[cfg(not(feature = "metrics"))]
     let _ = (name, kind, outcome, elapsed);
+}
+
+/// Task calls running in this engine went up or down by `change`.
+pub(crate) fn tasks_active(change: f64) {
+    #[cfg(feature = "metrics")]
+    metrics::gauge!("jackdaw_tasks_active").increment(change);
+    #[cfg(not(feature = "metrics"))]
+    let _ = change;
+}
+
+/// A workflow emitted an event of type `event_type` with `ctx.emit`.
+pub(crate) fn event_emitted(event_type: &str) {
+    #[cfg(feature = "metrics")]
+    metrics::counter!("jackdaw_events_emitted_total", "type" => event_type.to_string())
+        .increment(1);
+    #[cfg(not(feature = "metrics"))]
+    let _ = event_type;
+}
+
+/// A jq expression was compiled and evaluated in `elapsed` (and failed, unless `ok`).
+#[cfg_attr(not(feature = "yaml"), allow(dead_code))]
+pub(crate) fn expression_evaluated(ok: bool, elapsed: Duration) {
+    #[cfg(feature = "metrics")]
+    {
+        metrics::counter!(
+            "jackdaw_expression_evaluations_total",
+            "result" => if ok { "ok" } else { "error" }
+        )
+        .increment(1);
+        metrics::histogram!("jackdaw_expression_duration_seconds").record(elapsed.as_secs_f64());
+    }
+    #[cfg(not(feature = "metrics"))]
+    let _ = (ok, elapsed);
 }
 
 /// A step was replayed from the journal instead of run.
@@ -1121,4 +1259,125 @@ impl crate::PersistenceProvider for TracedStore {
     fn traced(&self) -> bool {
         true
     }
+}
+
+impl Described for super::TaskError {
+    fn describe(&self) -> String {
+        self.fault.to_string()
+    }
+}
+
+// ---- requests: listeners and trace context ----
+
+/// A request to a listener (`protocol` is `http` or `grpc`), named after its route. With the `otel` feature, a request
+/// that carries a W3C trace context (`header` reads its headers) continues the caller's trace; otherwise it starts one.
+#[cfg_attr(
+    not(any(feature = "http-listener", feature = "grpc-listener")),
+    allow(dead_code)
+)]
+pub(crate) fn request_span(
+    protocol: &'static str,
+    method: &str,
+    route: &str,
+    header: impl Fn(&str) -> Option<String>,
+) -> tracing::Span {
+    let title = match protocol {
+        "grpc" => format!("grpc {route}"),
+        _ => format!("{} {route}", method.to_uppercase()),
+    };
+    let span = tracing::info_span!(
+        parent: None,
+        "request",
+        otel.name = %title,
+        otel.kind = "server",
+        network.protocol.name = protocol,
+        http.request.method = %method.to_uppercase(),
+        http.route = %route,
+        http.response.status_code = tracing::field::Empty,
+        rpc.method = tracing::field::Empty,
+        otel.status_code = tracing::field::Empty,
+        otel.status_message = tracing::field::Empty,
+    );
+    if protocol == "grpc" {
+        span.record("rpc.method", route);
+    }
+    continue_trace(&span, header);
+    span
+}
+
+/// A listener answered with HTTP `status` after `elapsed`.
+#[cfg_attr(
+    not(any(feature = "http-listener", feature = "grpc-listener")),
+    allow(dead_code)
+)]
+pub(crate) fn request_answered(
+    span: &tracing::Span,
+    protocol: &'static str,
+    route: &str,
+    status: u16,
+    elapsed: Duration,
+) {
+    span.record("http.response.status_code", status);
+    if status >= 500 {
+        span.record("otel.status_code", "ERROR");
+    }
+    #[cfg(feature = "metrics")]
+    {
+        metrics::counter!(
+            "jackdaw_listener_requests_total",
+            "protocol" => protocol,
+            "route" => route.to_string(),
+            "status" => status.to_string()
+        )
+        .increment(1);
+        metrics::histogram!(
+            "jackdaw_listener_request_duration_seconds",
+            "protocol" => protocol,
+            "route" => route.to_string()
+        )
+        .record(elapsed.as_secs_f64());
+    }
+    #[cfg(not(feature = "metrics"))]
+    let _ = (protocol, route, elapsed);
+}
+
+/// Makes `span` a child of the trace context in a request's headers, if it has one (`otel` feature).
+#[cfg(feature = "otel")]
+fn continue_trace(span: &tracing::Span, header: impl Fn(&str) -> Option<String>) {
+    use tracing_opentelemetry::OpenTelemetrySpanExt;
+    // The headers a propagator reads, collected so it can borrow them.
+    let found: std::collections::HashMap<String, String> = ["traceparent", "tracestate", "baggage"]
+        .into_iter()
+        .filter_map(|name| header(name).map(|value| (name.to_string(), value)))
+        .collect();
+    if found.is_empty() {
+        return;
+    }
+    let parent =
+        opentelemetry::global::get_text_map_propagator(|propagator| propagator.extract(&found));
+    let _ = span.set_parent(parent);
+}
+
+#[cfg(not(feature = "otel"))]
+fn continue_trace(_span: &tracing::Span, _header: impl Fn(&str) -> Option<String>) {}
+
+/// The trace context headers (`traceparent`, ...) to send on an HTTP call made in the current span (`otel` feature;
+/// none without it, or without a propagator installed).
+#[cfg_attr(
+    any(not(feature = "http-client"), target_family = "wasm"),
+    allow(dead_code)
+)]
+pub(crate) fn trace_headers() -> Vec<(String, String)> {
+    #[cfg(feature = "otel")]
+    {
+        use tracing_opentelemetry::OpenTelemetrySpanExt;
+        let context = tracing::Span::current().context();
+        let mut headers = std::collections::HashMap::new();
+        opentelemetry::global::get_text_map_propagator(|propagator| {
+            propagator.inject_context(&context, &mut headers);
+        });
+        headers.into_iter().collect()
+    }
+    #[cfg(not(feature = "otel"))]
+    Vec::new()
 }

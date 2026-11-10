@@ -1018,3 +1018,31 @@ fn yaml_event_in_task(world: &mut LibWorld, event: String, task: String, span: S
         assert!(spans.contains(&record.scope[0]), "{record:?}");
     }
 }
+
+#[then(
+    regex = r#"^the histogram "jackdaw_workflow_duration_seconds" has (\d+) "completed" and (\d+) "failed" sample$"#
+)]
+fn workflow_durations(_world: &mut LibWorld, completed: usize, failed: usize) {
+    for (n, outcome) in [(completed, "completed"), (failed, "failed")] {
+        assert_eq!(
+            metric_with(
+                "jackdaw_workflow_duration_seconds",
+                &[("workflow", "metered"), ("outcome", outcome)]
+            ),
+            vec![Total::Samples(n)],
+            "{outcome}"
+        );
+    }
+}
+
+#[then(regex = r#"^the histogram "(\w+)" has samples for "(\w+)"$"#)]
+fn store_samples(_world: &mut LibWorld, name: String, operation: String) {
+    // Every scenario writes journals, so only that there are some is certain.
+    let totals = metric(&name, ("operation", &operation));
+    assert!(
+        totals
+            .iter()
+            .any(|total| matches!(total, Total::Samples(n) if *n > 0)),
+        "{totals:?}"
+    );
+}

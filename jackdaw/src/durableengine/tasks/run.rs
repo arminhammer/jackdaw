@@ -274,9 +274,11 @@ pub async fn exec_run_task(
         let streamer = TaskOutputStreamer::new(task_name.to_string(), task_index);
 
         // Pass streamer directly to executor for real-time streaming
-        let script_result = executor
-            .exec(task_name, &script_params, ctx, Some(streamer))
-            .await?;
+        let script_result = crate::api::observe::in_executor_span(
+            crate::api::observe::executor_span(&language, &format!("{language} script")),
+            executor.exec(task_name, &script_params, ctx, Some(streamer)),
+        )
+        .await?;
 
         // Output has already been streamed in real-time by the executor!
         // Mark it as streamed so we don't print it again
@@ -312,7 +314,14 @@ pub async fn exec_run_task(
         let task_index = ctx.state.task_index.unwrap_or(0);
         let streamer = TaskOutputStreamer::new(task_name.to_string(), task_index);
 
-        run_command(command, &evaluated_args, &streamer).await?
+        let program = command.split_whitespace().next().unwrap_or("sh");
+        let span = crate::api::observe::executor_span("shell", &format!("shell {program}"));
+        span.record("process.command", program);
+        crate::api::observe::in_executor_span(
+            span,
+            run_command(command, &evaluated_args, &streamer),
+        )
+        .await?
     } else if let Some(container) = run_task.run.container.as_ref() {
         // Container execution using provider abstraction
         let image = &container.image;
@@ -427,12 +436,14 @@ pub async fn exec_run_task(
             ports,
         };
 
-        let result = provider
-            .execute(config)
+        let span = crate::api::observe::executor_span("container", &format!("container {image}"));
+        span.record("container.image.name", image.as_str());
+        let result = crate::api::observe::in_executor_span(span.clone(), provider.execute(config))
             .await
             .map_err(|e| Error::TaskExecution {
                 message: format!("Container execution failed: {e}"),
             })?;
+        span.record("process.exit_code", result.exit_code);
 
         // Check exit status
         if result.exit_code != 0 {

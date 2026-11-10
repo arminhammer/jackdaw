@@ -734,7 +734,6 @@ impl DurableEngine {
             instance: &instance_id,
             replay: resuming,
             parent_instance: None,
-            run: 1,
             engine: crate::api::observe::EngineKind::Yaml,
             parent: crate::api::observe::Parent::Current,
         });
@@ -754,6 +753,7 @@ impl DurableEngine {
             .map(Clone::clone)
             .map_err(|error| crate::api::Error::Engine(error.to_string()));
         crate::api::observe::workflow_ended(&id, &outcome, started.elapsed());
+        span.record("workflow.run", 1u32);
         crate::api::observe::workflow_outcome(&span, &outcome);
         result
     }
@@ -818,25 +818,20 @@ impl DurableEngine {
                 })?;
 
         // The tasks skipped because they completed before a restart, summed up in one span (see the native engine's).
-        let mut replay: Option<(tracing::Span, usize)> = None;
+        let mut replay: Option<crate::api::observe::Replay> = None;
         loop {
             let (task_name, task) = &graph[current];
 
             if let Some(_replayed_result) = ctx.services.history.is_task_completed(task_name) {
-                let (span, steps) = replay.get_or_insert_with(|| {
-                    (
-                        crate::api::observe::replay_span(&ctx.metadata.instance_id),
-                        0,
-                    )
-                });
-                *steps += 1;
-                crate::api::observe::step_replayed(
-                    span,
-                    *steps,
-                    crate::task_ext::TaskDefinitionExt::type_name(task),
-                    task_name,
-                    "ok",
-                );
+                replay
+                    .get_or_insert_with(|| {
+                        crate::api::observe::Replay::new(&ctx.metadata.instance_id)
+                    })
+                    .step(
+                        crate::task_ext::TaskDefinitionExt::type_name(task),
+                        task_name,
+                        "ok",
+                    );
                 output::format_task_skipped(task_name);
                 if let Some(next) = graph.neighbors(current).next() {
                     current = next;

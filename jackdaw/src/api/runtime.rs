@@ -919,12 +919,14 @@ struct ActiveTask(Arc<ActiveTasks>);
 impl ActiveTask {
     fn start(tasks: Arc<ActiveTasks>) -> Self {
         tasks.count.fetch_add(1, Ordering::SeqCst);
+        super::observe::tasks_active(1.0);
         Self(tasks)
     }
 }
 
 impl Drop for ActiveTask {
     fn drop(&mut self) {
+        super::observe::tasks_active(-1.0);
         self.0.count.fetch_sub(1, Ordering::SeqCst);
         self.0.changed.notify_waiters();
     }
@@ -1304,7 +1306,6 @@ impl Shared {
             instance: &id,
             replay: !journal.fresh,
             parent_instance: journal.parent.as_deref(),
-            run: journal.run,
             engine: super::observe::EngineKind::Native,
             parent,
         });
@@ -1387,7 +1388,9 @@ impl Shared {
                     result = Err(error);
                 }
                 super::observe::workflow_ended(&workflow, &result, launched_at.elapsed());
-                super::observe::workflow_outcome(&tracing::Span::current(), &result);
+                let span = tracing::Span::current();
+                span.record("workflow.run", lock(&for_task.journal).run.max(1));
+                super::observe::workflow_outcome(&span, &result);
                 publish.0.publish(result);
                 if let Some(shared) = weak.upgrade()
                     && publish.0.ended_durably.load(Ordering::SeqCst)
@@ -1873,7 +1876,7 @@ pub(crate) struct InstanceCore {
     /// native instance's.
     pub leased: std::sync::atomic::AtomicBool,
     /// The span of the steps this incarnation replayed from the journal so far, and how many (see `replayed`).
-    replay_span: Mutex<Option<(tracing::Span, usize)>>,
+    replay_span: Mutex<Option<super::observe::Replay>>,
 }
 
 /// A step, ready to run.
@@ -2622,7 +2625,6 @@ impl InstanceCore {
             drop(shared);
             persistence.prune_journal(&self.id, marker).await?;
         }
-        tracing::Span::current().record("workflow.run", run);
         super::observe::continued_as_new(&self.workflow);
         self.emit(Event::ContinuedAsNew {
             instance_id: self.id.clone(),
@@ -2765,17 +2767,15 @@ impl InstanceCore {
     /// returns that span.
     fn replayed(&self, spec: &StepSpec, outcome: &Outcome) -> tracing::Span {
         let mut replay = lock(&self.replay_span);
-        let (span, steps) =
-            replay.get_or_insert_with(|| (super::observe::replay_span(&self.id), 0));
-        *steps += 1;
+        let replay = replay.get_or_insert_with(|| super::observe::Replay::new(&self.id));
         let outcome = match outcome {
             Outcome::Ok(_) => "ok",
             Outcome::Fault(_) => "fault",
             Outcome::Timeout(_) => "timeout",
         };
-        super::observe::step_replayed(span, *steps, spec.kind, &spec.name, outcome);
+        replay.step(spec.kind, &spec.name, outcome);
         super::observe::step_replayed_metric(&self.workflow);
-        span.clone()
+        replay.span.clone()
     }
 
     /// Closes the replay span: the instance has caught up with its journal.
@@ -3098,6 +3098,7 @@ impl InstanceCore {
                 {
                     shared.yaml.legacy.publish(json).await;
                 }
+                super::observe::event_emitted(&event.event_type);
                 self.emit(Event::Emitted {
                     instance_id: self.id.clone(),
                     event,
@@ -3163,8 +3164,8 @@ impl InstanceCore {
         let heartbeat = super::task::Heartbeat::new();
         let idempotency_key = format!("{}/{}", self.id, spec.seq);
         let mut attempt = 1;
-        loop {
-            tracing::Span::current().record("attempt", attempt);
+        // `attempt` is recorded once, when the step is done: a trace backend keeps every value a field is given.
+        let outcome = loop {
             let attempt_span = super::observe::attempt_span(name, attempt, &idempotency_key);
             let started = std::time::Instant::now();
             let result = async {
@@ -3212,7 +3213,7 @@ impl InstanceCore {
                             })
                             .await?;
                     }
-                    return Ok(Outcome::Ok(value));
+                    break Outcome::Ok(value);
                 }
                 Err(error) if error.retryable && attempt < attempts => {
                     super::observe::task_retried(name);
@@ -3237,9 +3238,11 @@ impl InstanceCore {
                         .await;
                     attempt += 1;
                 }
-                Err(error) => return Ok(Outcome::Fault(*error.fault)),
+                Err(error) => break Outcome::Fault(*error.fault),
             }
-        }
+        };
+        tracing::Span::current().record("attempt", attempt);
+        Ok(outcome)
     }
 }
 
@@ -3503,6 +3506,7 @@ pub(crate) async fn drive<W: WorkflowDef>(
 impl InstanceCore {
     /// Emits a terminal event and closes the stream after it.
     async fn emit_terminal(&self, event: Event) -> Result<(), Error> {
+        self.end_replay();
         let emitted = self.emit(event).await;
         self.log.close();
         emitted
