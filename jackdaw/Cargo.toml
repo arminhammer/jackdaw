@@ -84,7 +84,7 @@ bollard = { version = "0.21", optional = true }
 # http-listener
 axum = { version = "0.8", optional = true }
 # OpenAPI request validation in the engine's HTTP listener. Without default features: no remote `$ref`s, no C TLS.
-jsonschema = { version = "0.60", default-features = false, optional = true }
+jsonschema = { version = "0.61", default-features = false, optional = true }
 
 # grpc-listener
 tonic = { version = "0.14", optional = true }
