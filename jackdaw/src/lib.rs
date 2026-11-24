@@ -121,6 +121,7 @@
 //! | `sqlite`, `postgres` | | The `Sqlite` and `Postgres` stores. |
 //! | `docker` | | `ctx.run_container` and YAML `run: container`. |
 //! | `openapi` | | YAML `call: openapi`. |
+//! | `mcp` | | YAML `call: mcp`: a client (the official `rmcp` SDK) for Model Context Protocol servers over stdio and HTTP. |
 //! | `http-listener`, `grpc-listener` | | `api::Listener`: the engine serves an OpenAPI document's operations or a gRPC service, each request starting a workflow. Also YAML `listen` tasks on HTTP and gRPC. |
 //! | `config` | | `config::Layers` and `#[derive(Config)]`: a workflow's input from defaults, files (toml, json, yaml), environment variables and flags. |
 //! | `terminal` | | `runner::Terminal`: progress bars for a run in a terminal. |
@@ -201,6 +202,7 @@ not_on_wasm! {
     "docker": "it needs to reach the Docker daemon",
     "http-listener": "it needs sockets to listen on",
     "grpc-listener": "it needs sockets to listen on",
+    "mcp": "`call: mcp` starts child processes and opens sockets",
     "openapi": "`call: openapi` needs an HTTP client, and wasm has none yet",
     "terminal": "it draws to a terminal, which wasm has none of",
     "cli": "it reads a command line, which wasm has none of",

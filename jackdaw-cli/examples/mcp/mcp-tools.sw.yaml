@@ -1,0 +1,44 @@
+document:
+  dsl: '1.0.2'
+  namespace: examples
+  name: mcp-tools
+  version: '1.0.0'
+  description: |
+    Demonstrates `call: mcp`. The workflow starts the MCP "everything" reference server over stdio (it needs
+    Node.js: `npx` downloads the server on first use), lists its tools, then calls the `echo` tool with a message
+    from the workflow's input.
+
+    Run it with:
+      jackdaw run jackdaw-cli/examples/mcp/mcp-tools.sw.yaml --input '{"message": "Hello from jackdaw"}'
+    (needs a build with the `mcp` feature, which `full` includes)
+
+do:
+  - listTools:
+      call: mcp
+      with:
+        method: tools/list
+        timeout: PT1M
+        transport:
+          stdio:
+            command: npx
+            arguments: [ -y, '@modelcontextprotocol/server-everything' ]
+      output:
+        as:
+          tools: ${ [.tools[].name] }
+
+  - echoMessage:
+      call: mcp
+      with:
+        method: tools/call
+        parameters:
+          name: echo
+          arguments:
+            message: ${ $input.message }
+        timeout: PT1M
+        transport:
+          stdio:
+            command: npx
+            arguments: [ -y, '@modelcontextprotocol/server-everything' ]
+      output:
+        as:
+          reply: ${ .content[0].text }

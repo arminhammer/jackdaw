@@ -231,6 +231,48 @@
 //!
 //! Every registered task can be called from a YAML workflow by name, with `call: charge`; see [`yaml`](super::yaml).
 //!
+//! ## Calling an MCP server
+//!
+//! With the `mcp` feature, a YAML workflow can talk to a [Model Context Protocol](https://modelcontextprotocol.io/)
+//! server with `call: mcp`. The call connects with the official Rust SDK (`rmcp`), which sends `initialize` before
+//! anything else, sends the one request the task names, and disconnects. The task's output is the JSON-RPC `result`.
+//!
+//! ```yaml
+//! do:
+//!   - say:
+//!       call: mcp
+//!       with:
+//!         method: tools/call
+//!         parameters:
+//!           name: echo
+//!           arguments:
+//!             message: ${ .greeting }
+//!         timeout: PT30S
+//!         transport:
+//!           stdio:
+//!             command: npx
+//!             arguments: [ -y, "@modelcontextprotocol/server-everything" ]
+//! ```
+//!
+//! - `method` is one of `tools/list`, `tools/call`, `prompts/list`, `prompts/get`, `resources/list`,
+//!   `resources/read` and `resources/templates/list`. `parameters` are the method's parameters and may hold runtime
+//!   expressions.
+//! - `transport` is `stdio` (`command`, `arguments`, `environment`: the call starts the server and stops it when it is
+//!   done) or `http` (`endpoint`, a URI or an object with a `uri`, which may be an expression, and `headers`; the
+//!   Streamable HTTP transport). An `Authorization: Bearer ...` header, or `authentication: { bearer: { token } }` on
+//!   the endpoint, is sent as the SDK's bearer token; other schemes are not supported.
+//! - `protocolVersion` defaults to `2025-06-18`; `client` sets the `name` and `version` sent in `initialize`
+//!   (`jackdaw` and the library's version by default).
+//! - `timeout` (a duration object or an ISO 8601 string) covers the whole call: starting the server, the handshake and
+//!   the request.
+//! - Every failure (a server that cannot be started or reached, a JSON-RPC error from the server, a timeout) raises a
+//!   `runtime` error whose `detail` says what happened. A tool that reports `isError: true` in its result is not an
+//!   error of the call: the result is the output.
+//! - The answer of an MCP server is never cached, because `tools/call` can have side effects.
+//!
+//! `call: mcp` is not available on wasm, which cannot start processes (see [`wasm`](super::wasm)). A runnable example
+//! is `jackdaw-cli/examples/mcp/mcp-tools.sw.yaml`.
+//!
 //! ---
 //!
 //! **Next:** [Workflows](super::workflows), writing workflows in Rust.

@@ -78,6 +78,9 @@ sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio",
 # openapi
 openapiv3-extended = { version = "6.0", features = ["v2"], optional = true }
 
+# mcp: the official Model Context Protocol SDK, as a client over child-process stdio and streamable HTTP.
+rmcp = { version = "3.11", default-features = false, features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest"], optional = true }
+
 # docker
 bollard = { version = "0.21", optional = true }
 
@@ -104,7 +107,7 @@ bytes = { version = "1", optional = true }
 [features]
 default = ["yaml", "redb", "http-client"]
 # Everything, as the CLI uses it.
-full = ["yaml", "redb", "sqlite", "postgres", "http-client", "openapi", "docker", "http-listener", "grpc-listener", "metrics", "otel", "config", "terminal", "cli"]
+full = ["yaml", "redb", "sqlite", "postgres", "http-client", "openapi", "mcp", "docker", "http-listener", "grpc-listener", "metrics", "otel", "config", "terminal", "cli"]
 
 # The Open Workflow YAML interpreter: `jackdaw::dsl`, `api::Workflow` (`from_yaml`, `validate`),
 # `ctx.run_definition` and the engine's YAML registrations. YAML `call: http` needs an HTTP client, so this
@@ -120,6 +123,8 @@ postgres = ["dep:sqlx", "sqlx/postgres"]
 http-client = ["dep:reqwest"]
 # YAML `call: openapi`.
 openapi = ["yaml", "dep:openapiv3-extended"]
+# YAML `call: mcp`: a client for Model Context Protocol servers, over stdio (a child process) or HTTP.
+mcp = ["yaml", "dep:rmcp", "dep:http"]
 # `ctx.run_container` and YAML `run: container`, through the Docker API.
 docker = ["dep:bollard"]
 # `api::Listener` (the engine serves HTTP routes or a gRPC service whose requests start workflows), and YAML

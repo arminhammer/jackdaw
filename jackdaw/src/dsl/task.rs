@@ -590,6 +590,9 @@ pub struct McpArguments {
     /// Method parameters
     #[serde(rename = "parameters", skip_serializing_if = "Option::is_none")]
     pub parameters: Option<Value>,
+    /// The duration after which the call times out
+    #[serde(rename = "timeout", skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<OneOfDurationOrIso8601Expression>,
     /// Call transport configuration
     #[serde(rename = "transport")]
     pub transport: McpTransportDefinition,

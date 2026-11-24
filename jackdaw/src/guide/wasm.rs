@@ -68,9 +68,9 @@
 //! |---|---|
 //! | `ctx.run_shell`, `ctx.run_script`, `ctx.run_container`, `ctx.http` | not compiled: a compile error at the call |
 //! | YAML `run: shell` | fails: "`run: shell` is not available on wasm" |
-//! | YAML `run: script` (Python, JavaScript), `call: python`, `call: javascript` | fails: "… is not available on wasm" |
+//! | YAML `run: script` (Python, JavaScript), `call: python`, `call: javascript`, `call: mcp` | fails: "… is not available on wasm" |
 //! | YAML `call: http`, remote catalogs and `run: script` sources fetched by URL | fails: "… is not available on wasm" (`file://` sources work) |
-//! | the features `sqlite`, `postgres`, `docker`, `http-listener`, `grpc-listener`, `openapi` | the build stops with "the `…` feature is not available on wasm" |
+//! | the features `sqlite`, `postgres`, `docker`, `http-listener`, `grpc-listener`, `openapi`, `mcp` | the build stops with "the `…` feature is not available on wasm" |
 //!
 //! The `http-client` feature is on by default and does nothing on wasm.
 //!
