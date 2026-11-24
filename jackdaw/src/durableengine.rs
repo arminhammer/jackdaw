@@ -11,6 +11,8 @@ use tokio::sync::RwLock;
 use crate::listeners::grpc::GrpcListener;
 #[cfg(feature = "openapi")]
 use crate::providers::executors::OpenApiExecutor;
+#[cfg(all(feature = "mcp", not(target_family = "wasm")))]
+use crate::providers::executors::McpExecutor;
 #[cfg(not(target_family = "wasm"))]
 use crate::providers::executors::{PythonExecutor, RestExecutor, TypeScriptExecutor};
 use crate::{
@@ -37,7 +39,7 @@ mod export;
 mod graph;
 mod listeners;
 mod tasks;
-mod timeout;
+pub(crate) mod timeout;
 
 pub(crate) use called::{called_names, unknown_directives};
 
@@ -47,6 +49,7 @@ fn wasm_limit(name: &str) -> Option<&'static str> {
     match name {
         "http" | "rest" | "openapi" => Some("has no HTTP client"),
         "python" | "javascript" => Some("cannot start processes"),
+        "mcp" => Some("cannot start processes or open sockets"),
         _ => None,
     }
 }
@@ -280,6 +283,8 @@ impl DurableEngine {
             "openapi".into(),
             Box::new(OpenApiExecutor(reqwest::Client::new())),
         );
+        #[cfg(all(feature = "mcp", not(target_family = "wasm")))]
+        executors.insert("mcp".into(), Box::new(McpExecutor::new()));
         #[cfg(not(target_family = "wasm"))]
         executors.insert("python".into(), Box::new(PythonExecutor::new()));
         #[cfg(not(target_family = "wasm"))]

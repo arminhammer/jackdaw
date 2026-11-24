@@ -15,7 +15,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// - PT1M30S (1 minute 30 seconds)
 /// - PT0.5S (0.5 seconds = 500ms)
 /// - PT0.05M (0.05 minutes = 3 seconds)
-fn parse_iso8601_duration(iso_str: &str) -> Result<StdDuration> {
+pub(crate) fn parse_iso8601_duration(iso_str: &str) -> Result<StdDuration> {
     let trimmed = iso_str.trim();
 
     if !trimmed.starts_with('P') {

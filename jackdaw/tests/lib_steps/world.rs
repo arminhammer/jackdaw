@@ -162,6 +162,8 @@ pub struct LibWorld {
     pub runner: super::runner::State,
     /// The config scenarios' sources and result.
     pub config: super::config::State,
+    /// The stub MCP servers of the `call: mcp` scenarios.
+    pub mcp: super::mcp::State,
 }
 
 /// Which durable store the scenarios run on: `JACKDAW_TEST_STORE=redb|sqlite|postgres` (default redb). Postgres needs
@@ -219,6 +221,7 @@ impl LibWorld {
             store_activity: Arc::default(),
             runner: super::runner::State::default(),
             config: super::config::State::default(),
+            mcp: super::mcp::State::default(),
         }
     }
 

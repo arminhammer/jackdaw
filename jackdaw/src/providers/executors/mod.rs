@@ -1,6 +1,8 @@
 // What needs a child process or an HTTP client is left out on wasm, which has neither.
 #[cfg(not(target_family = "wasm"))]
 mod node;
+#[cfg(all(feature = "mcp", not(target_family = "wasm")))]
+mod mcp;
 #[cfg(feature = "openapi")]
 mod openapi;
 #[cfg(not(target_family = "wasm"))]
@@ -10,6 +12,8 @@ mod rest;
 
 #[cfg(not(target_family = "wasm"))]
 pub use node::NodeExecutor as TypeScriptExecutor;
+#[cfg(all(feature = "mcp", not(target_family = "wasm")))]
+pub use mcp::McpExecutor;
 #[cfg(feature = "openapi")]
 pub use openapi::OpenApiExecutor;
 #[cfg(not(target_family = "wasm"))]

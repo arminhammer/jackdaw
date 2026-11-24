@@ -23,6 +23,7 @@ pub mod interop;
 pub mod limits;
 pub mod listeners;
 pub mod loops;
+pub mod mcp;
 pub mod observability;
 pub mod ops;
 pub mod parallel;
