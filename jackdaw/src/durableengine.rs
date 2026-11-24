@@ -9,10 +9,10 @@ use tokio::sync::RwLock;
 
 #[cfg(feature = "grpc-listener")]
 use crate::listeners::grpc::GrpcListener;
-#[cfg(feature = "openapi")]
-use crate::providers::executors::OpenApiExecutor;
 #[cfg(all(feature = "mcp", not(target_family = "wasm")))]
 use crate::providers::executors::McpExecutor;
+#[cfg(feature = "openapi")]
+use crate::providers::executors::OpenApiExecutor;
 #[cfg(not(target_family = "wasm"))]
 use crate::providers::executors::{PythonExecutor, RestExecutor, TypeScriptExecutor};
 use crate::{

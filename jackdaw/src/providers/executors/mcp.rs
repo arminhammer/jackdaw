@@ -226,9 +226,17 @@ impl Request {
         let method = self.method.as_str();
         let outcome = match method {
             "tools/list" => reply(client.list_tools(Some(self.typed()?)).await),
-            "tools/call" => reply(client.call_tool(self.typed::<CallToolRequestParams>()?).await),
+            "tools/call" => reply(
+                client
+                    .call_tool(self.typed::<CallToolRequestParams>()?)
+                    .await,
+            ),
             "prompts/list" => reply(client.list_prompts(Some(self.typed()?)).await),
-            "prompts/get" => reply(client.get_prompt(self.typed::<GetPromptRequestParams>()?).await),
+            "prompts/get" => reply(
+                client
+                    .get_prompt(self.typed::<GetPromptRequestParams>()?)
+                    .await,
+            ),
             "resources/list" => reply(client.list_resources(Some(self.typed()?)).await),
             "resources/read" => reply(
                 client
@@ -318,7 +326,8 @@ fn parse_transport(transport: Option<&Value>) -> std::result::Result<TransportCo
             Some(Value::Array(items)) => items
                 .iter()
                 .map(|item| {
-                    scalar(item).ok_or_else(|| "`arguments` of the stdio transport are strings".to_string())
+                    scalar(item)
+                        .ok_or_else(|| "`arguments` of the stdio transport are strings".to_string())
                 })
                 .collect::<std::result::Result<_, _>>()?,
             Some(_) => return Err("`arguments` of the stdio transport is a list".to_string()),

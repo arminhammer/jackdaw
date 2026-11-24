@@ -10,7 +10,12 @@
 //! A request before `initialize` and `notifications/initialized` is refused, so a client that skips the handshake
 //! fails. The tool `session` reports what the handshake told the server; `echo` returns its `text`; `fail` answers
 //! with a JSON-RPC error; `slow` takes five seconds.
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stdout)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::print_stdout,
+    clippy::indexing_slicing
+)]
 
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -42,8 +47,14 @@ fn handle(session: &Mutex<Session>, message: &Value) -> Option<Value> {
     if method == "initialize" {
         let mut s = session.lock().unwrap();
         s.protocol_version = params["protocolVersion"].as_str().unwrap_or("").to_string();
-        s.client_name = params["clientInfo"]["name"].as_str().unwrap_or("").to_string();
-        s.client_version = params["clientInfo"]["version"].as_str().unwrap_or("").to_string();
+        s.client_name = params["clientInfo"]["name"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        s.client_version = params["clientInfo"]["version"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
         return Some(json!({ "jsonrpc": "2.0", "id": id, "result": {
             "protocolVersion": s.protocol_version,
             "capabilities": { "tools": {}, "prompts": {}, "resources": {} },
@@ -51,7 +62,11 @@ fn handle(session: &Mutex<Session>, message: &Value) -> Option<Value> {
         }}));
     }
     if !session.lock().unwrap().ready {
-        return Some(error(id, -32002, "the client has not initialized the session"));
+        return Some(error(
+            id,
+            -32002,
+            "the client has not initialized the session",
+        ));
     }
     let result = match method {
         "tools/list" => json!({ "tools": [
@@ -61,7 +76,9 @@ fn handle(session: &Mutex<Session>, message: &Value) -> Option<Value> {
             { "name": "slow", "description": "Takes five seconds", "inputSchema": { "type": "object" } },
         ]}),
         "tools/call" => match params["name"].as_str() {
-            Some("echo") => json!({ "content": [{ "type": "text", "text": params["arguments"]["text"] }] }),
+            Some("echo") => {
+                json!({ "content": [{ "type": "text", "text": params["arguments"]["text"] }] })
+            }
             Some("session") => {
                 let s = session.lock().unwrap();
                 json!({

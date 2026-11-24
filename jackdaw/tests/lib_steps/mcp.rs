@@ -36,12 +36,17 @@ fn stub() -> String {
         .expect("target/debug")
         .join("examples")
         .join("mcp_stub_server");
-    assert!(path.exists(), "build the stub with `cargo build --example mcp_stub_server`: {path:?}");
+    assert!(
+        path.exists(),
+        "build the stub with `cargo build --example mcp_stub_server`: {path:?}"
+    );
     path.display().to_string()
 }
 
 fn set_transport(world: &mut LibWorld, transport: &Value) {
-    world.notes.insert("mcp-transport".into(), transport.clone());
+    world
+        .notes
+        .insert("mcp-transport".into(), transport.clone());
 }
 
 #[given("an MCP stub server on stdio")]
@@ -52,7 +57,9 @@ fn stdio(world: &mut LibWorld) {
     );
 }
 
-#[given(regex = r#"^an MCP stub server on stdio with the environment variable "(.+)" set to "(.+)"$"#)]
+#[given(
+    regex = r#"^an MCP stub server on stdio with the environment variable "(.+)" set to "(.+)"$"#
+)]
 fn stdio_env(world: &mut LibWorld, name: String, value: String) {
     set_transport(
         world,
@@ -113,9 +120,10 @@ fn not_listening(world: &mut LibWorld) {
 #[given(regex = r#"^the workflow input has the server's endpoint and the message "(.+)"$"#)]
 fn input(world: &mut LibWorld, message: String) {
     let endpoint = world.notes["mcp-endpoint"].clone();
-    world
-        .notes
-        .insert("mcp-input".into(), json!({"endpoint": endpoint, "message": message}));
+    world.notes.insert(
+        "mcp-input".into(),
+        json!({"endpoint": endpoint, "message": message}),
+    );
 }
 
 #[when("a workflow runs this MCP task:")]
@@ -126,12 +134,19 @@ async fn run(world: &mut LibWorld, step: &cucumber::gherkin::Step) {
         .get("mcp-transport")
         .map_or_else(String::new, Value::to_string);
     let body = body.replace("{transport}", &transport);
-    let indented: String = body.lines().map(|line| format!("        {line}\n")).collect();
+    let indented: String = body
+        .lines()
+        .map(|line| format!("        {line}\n"))
+        .collect();
     let yaml = format!(
         "document:\n  dsl: '1.0.2'\n  namespace: test\n  name: mcp-call\n  version: '0.1.0'\ndo:\n  - mcpCall:\n      call: mcp\n      with:\n{indented}"
     );
     let workflow = Workflow::<Value, Value>::from_yaml(&yaml).expect("parses");
-    let input = world.notes.get("mcp-input").cloned().unwrap_or_else(|| json!({}));
+    let input = world
+        .notes
+        .get("mcp-input")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     let engine = world.engine();
     let result = match engine.execute(&workflow, input).await {
         Ok(handle) => handle.await,
@@ -160,7 +175,10 @@ fn output_at(world: &mut LibWorld, pointer: String, expected: String) {
 
 #[then(regex = r#"^the output lists the tools (.+)$"#)]
 fn lists_tools(world: &mut LibWorld, names: String) {
-    let expected: Vec<String> = names.split(", ").map(|n| n.trim_matches('"').to_string()).collect();
+    let expected: Vec<String> = names
+        .split(", ")
+        .map(|n| n.trim_matches('"').to_string())
+        .collect();
     let tools: Vec<String> = output(world)["tools"]
         .as_array()
         .expect("tools")
@@ -176,7 +194,12 @@ fn fails(world: &mut LibWorld, text: String) {
         .notes
         .get("mcp-error")
         .and_then(Value::as_str)
-        .unwrap_or_else(|| panic!("the workflow succeeded: {:?}", world.notes.get("mcp-output")));
+        .unwrap_or_else(|| {
+            panic!(
+                "the workflow succeeded: {:?}",
+                world.notes.get("mcp-output")
+            )
+        });
     assert!(error.contains("errors/runtime"), "{error}");
     assert!(error.contains(&text), "{error}");
 }

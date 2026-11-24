@@ -9,6 +9,16 @@ The workspace publishes three crates with the same version: `jackdaw-wf` (the li
 
 ## [Unreleased]
 
+### Added
+
+- YAML `call: mcp`, behind the new `mcp` feature (included in `full`): a client for [Model Context Protocol](https://modelcontextprotocol.io/)
+  servers, built on the official `rmcp` SDK. It speaks to servers over stdio (a child process) and Streamable HTTP,
+  supports `tools/list`, `tools/call`, `prompts/list`, `prompts/get`, `resources/list`, `resources/read` and
+  `resources/templates/list`, takes runtime expressions in `parameters` and in the HTTP `endpoint`, honours `timeout`,
+  `protocolVersion` (default `2025-06-18`) and `client`, and outputs the JSON-RPC result. Any failure is a `runtime`
+  error. Not available on wasm. The task definition's `with` gained `timeout`. See the tasks guide and
+  `jackdaw-cli/examples/mcp`.
+
 ## [0.2.5] - 2026-11-09
 
 ### Changed
