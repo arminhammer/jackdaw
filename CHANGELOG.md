@@ -9,6 +9,8 @@ The workspace publishes three crates with the same version: `jackdaw-wf` (the li
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-24
+
 ### Added
 
 - YAML `call: mcp`, behind the new `mcp` feature (included in `full`): a client for [Model Context Protocol](https://modelcontextprotocol.io/)
@@ -289,7 +291,8 @@ an optional part of the same engine. The CLI is now a separate crate built on th
 
 The CLI release before the library refactor; see the GitHub release.
 
-[Unreleased]: https://github.com/arminhammer/jackdaw/compare/v0.2.5...HEAD
+[Unreleased]: https://github.com/arminhammer/jackdaw/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/arminhammer/jackdaw/compare/v0.2.5...v0.3.0
 [0.2.5]: https://github.com/arminhammer/jackdaw/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/arminhammer/jackdaw/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/arminhammer/jackdaw/compare/v0.2.2...v0.2.3
