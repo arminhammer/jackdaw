@@ -148,7 +148,7 @@ impl PersistenceProvider for RedbPersistence {
             // Only this instance's keys: `{id}:` up to (not including) `{id};`.
             let (start, end) = (format!("{instance_id}:"), format!("{instance_id};"));
             let range = table
-                .range::<&str>(start.as_str()..end.as_str())
+                .range(start.as_str()..end.as_str())
                 .map_err(|e| Error::Database {
                     message: format!("Failed to create range: {e}"),
                 })?;
@@ -272,7 +272,7 @@ impl PersistenceProvider for RedbPersistence {
             let (start, end) = journal_range(&instance_id);
             let mut records = Vec::new();
             for item in table
-                .range::<&str>(start.as_str()..end.as_str())
+                .range(start.as_str()..end.as_str())
                 .map_err(|e| db_error("Failed to create range", e))?
             {
                 let (key, value) =
@@ -310,7 +310,7 @@ impl PersistenceProvider for RedbPersistence {
                     journal_key(&instance_id, before)
                 };
                 table
-                    .retain_in::<&str, _>(start.as_str()..end.as_str(), |_, _| false)
+                    .retain_in(start.as_str()..end.as_str(), |_, _| false)
                     .map_err(|e| db_error("Failed to prune the journal", e))?;
             }
             write_txn
@@ -363,7 +363,7 @@ impl PersistenceProvider for RedbPersistence {
                 .map_err(|e| db_error("Failed to open checkpoints table", e))?;
             let mut ids = Vec::new();
             for item in table
-                .range::<&str>(..)
+                .range(..)
                 .map_err(|e| db_error("Failed to create range", e))?
             {
                 let (key, _) = item.map_err(|e| db_error("Failed to read a checkpoint", e))?;
@@ -394,14 +394,14 @@ impl PersistenceProvider for RedbPersistence {
                     .map_err(|e| db_error("Failed to open events table", e))?;
                 let (start, end) = (format!("{instance_id}:"), format!("{instance_id};"));
                 events
-                    .retain_in::<&str, _>(start.as_str()..end.as_str(), |_, _| false)
+                    .retain_in(start.as_str()..end.as_str(), |_, _| false)
                     .map_err(|e| db_error("Failed to delete events", e))?;
                 let mut journal = write_txn
                     .open_table(JOURNAL_TABLE)
                     .map_err(|e| db_error("Failed to open journal table", e))?;
                 let (start, end) = journal_range(&instance_id);
                 journal
-                    .retain_in::<&str, _>(start.as_str()..end.as_str(), |_, _| false)
+                    .retain_in(start.as_str()..end.as_str(), |_, _| false)
                     .map_err(|e| db_error("Failed to delete the journal", e))?;
                 let mut leases = write_txn
                     .open_table(LEASES_TABLE)
