@@ -233,10 +233,6 @@
 //! that release does not know. Payload encoding is yours: a [`PayloadCodec`](crate::api::PayloadCodec) that changes
 //! has to keep decoding what it encoded before.
 //!
-//! A [`Redb`](crate::api::Redb) file written by jackdaw 0.2.0 or later opens as it is, including one written on redb 4
-//! (up to jackdaw 0.3.0). On Linux, do not have one file open at the same time from this release and from a program
-//! built on redb 4.2 or earlier: their file locks do not see each other.
-//!
 //! ## What is guaranteed about tasks
 //!
 //! Tasks run **at least once**. A task that was running when the process died runs again on resume, so side effects

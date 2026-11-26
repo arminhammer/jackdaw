@@ -28,7 +28,6 @@ pub mod observability;
 pub mod ops;
 pub mod parallel;
 pub mod recorded;
-pub mod redb_upgrade;
 pub mod runner;
 pub mod saga;
 pub mod schedules;

@@ -164,8 +164,6 @@ pub struct LibWorld {
     pub config: super::config::State,
     /// The stub MCP servers of the `call: mcp` scenarios.
     pub mcp: super::mcp::State,
-    /// The database of the Redb upgrade scenarios.
-    pub upgrade: super::redb_upgrade::State,
 }
 
 /// Which durable store the scenarios run on: `JACKDAW_TEST_STORE=redb|sqlite|postgres` (default redb). Postgres needs
@@ -224,7 +222,6 @@ impl LibWorld {
             runner: super::runner::State::default(),
             config: super::config::State::default(),
             mcp: super::mcp::State::default(),
-            upgrade: super::redb_upgrade::State::default(),
         }
     }
 

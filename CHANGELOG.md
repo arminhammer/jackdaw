@@ -15,9 +15,6 @@ The workspace publishes three crates with the same version: `jackdaw-wf` (the li
   `RedbCache::new` and the `*_TABLE` definitions in `providers::persistence::redb` are redb types, so a program that
   passes in or reads its own `redb::Database` must move to redb 5 too. Programs that use `Redb::open` or
   `RedbPersistence::new` need no change.
-- Redb files written by jackdaw 0.2.0 to 0.3.0 open as they are, with nothing to migrate: redb 5 keeps the file format, and jackdaw's tables
-  use none of the types whose encoding redb 5 changed. On Linux, do not have one file open at the same time from this
-  release and from a program built on redb 4.2 or earlier: their file locks do not see each other.
 - `jsonschema` is now 0.62 (was 0.61), with its fixes to how `$ref`, `$dynamicRef` and `$schema` resolve. The HTTP
   listener may judge a request differently against an OpenAPI schema that depends on those.
 
