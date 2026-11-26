@@ -9,6 +9,15 @@ The workspace publishes three crates with the same version: `jackdaw-wf` (the li
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking for code that uses redb types with jackdaw:** `redb` is now 5 (was 4). `RedbPersistence::db`,
+  `RedbCache::new` and the `*_TABLE` definitions in `providers::persistence::redb` are redb types, so a program that
+  passes in or reads its own `redb::Database` must move to redb 5 too. Programs that use `Redb::open` or
+  `RedbPersistence::new` need no change.
+- `jsonschema` is now 0.62 (was 0.61), with its fixes to how `$ref`, `$dynamicRef` and `$schema` resolve. The HTTP
+  listener may judge a request differently against an OpenAPI schema that depends on those.
+
 ## [0.3.0] - 2026-11-24
 
 ### Added

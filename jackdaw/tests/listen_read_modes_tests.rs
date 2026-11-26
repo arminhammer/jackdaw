@@ -14,6 +14,7 @@ use serde_json::json;
 use std::env;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tempfile::TempDir;
 
 use crate::yaml_engine::YamlEngine;
@@ -35,6 +36,22 @@ async fn setup_test_engine(temp_dir: &TempDir) -> YamlEngine {
         .with_cache(Arc::clone(&cache))
         .build()
         .unwrap()
+}
+
+/// Waits until the workflow's listener accepts connections. It starts after `execute` returns, and how long that
+/// takes depends on the machine (the store's first writes are synced to disk), so a fixed delay is not enough.
+async fn wait_for_listener(port: u16) {
+    let started = Instant::now();
+    while tokio::net::TcpStream::connect(("127.0.0.1", port))
+        .await
+        .is_err()
+    {
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "no listener on port {port} after 30s"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
 }
 
 #[tokio::test]
@@ -59,8 +76,7 @@ async fn test_listen_read_mode_data() {
         .await
         .expect("Failed to start workflow");
 
-    // Give listener time to start
-    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+    wait_for_listener(8081).await;
 
     // Send a CloudEvent to the listener
     let client = reqwest::Client::new();
@@ -123,8 +139,7 @@ async fn test_listen_read_mode_envelope() {
         .await
         .expect("Failed to start workflow");
 
-    // Give listener time to start
-    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+    wait_for_listener(8082).await;
 
     // Send a CloudEvent to the listener
     let client = reqwest::Client::new();
@@ -202,8 +217,7 @@ async fn test_listen_read_mode_raw() {
         .await
         .expect("Failed to start workflow");
 
-    // Give listener time to start
-    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+    wait_for_listener(8083).await;
 
     // Send raw JSON (not necessarily a CloudEvent) to the listener
     let client = reqwest::Client::new();
@@ -264,8 +278,7 @@ async fn test_listen_read_mode_default_is_envelope() {
         .await
         .expect("Failed to start workflow");
 
-    // Give listener time to start
-    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+    wait_for_listener(8084).await;
 
     // Send a CloudEvent to the listener
     let client = reqwest::Client::new();

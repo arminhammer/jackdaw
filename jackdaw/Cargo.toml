@@ -55,7 +55,7 @@ petgraph = { version = "0.8", optional = true }
 async-recursion = { version = "1.0", optional = true }
 
 # stores
-redb = { version = "4", optional = true }
+redb = { version = "5", optional = true }
 
 # What needs an operating system underneath: child processes, sockets, C libraries, Docker, and the HTTP client (reqwest
 # on wasm is the browser's `fetch`, which cannot run on WASI and whose futures are not `Send`). On wasm none of it is
@@ -87,7 +87,7 @@ bollard = { version = "0.21", optional = true }
 # http-listener
 axum = { version = "0.8", optional = true }
 # OpenAPI request validation in the engine's HTTP listener. Without default features: no remote `$ref`s, no C TLS.
-jsonschema = { version = "0.61", default-features = false, optional = true }
+jsonschema = { version = "0.62", default-features = false, optional = true }
 
 # grpc-listener
 tonic = { version = "0.14", optional = true }

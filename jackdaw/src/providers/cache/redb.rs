@@ -1,7 +1,7 @@
 //! A cache in a Redb file, usually the same file as the [`RedbPersistence`](crate::providers::persistence::RedbPersistence) store.
 use crate::cache::{CacheEntry, CacheProvider, Error, Result, SerializationSnafu};
 use async_trait::async_trait;
-use redb::ReadableDatabase as _;
+use redb::{ReadableDatabase as _, ReadableTable as _};
 use snafu::prelude::*;
 use std::sync::Arc;
 
